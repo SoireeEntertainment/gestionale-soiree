@@ -1,0 +1,261 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  clerkId   String?  @unique
+  role      String   @default("ADMIN") // ADMIN | AGENTE (solo lettura clienti e preventivi)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignedClients   Client[]
+  assignedWorks     Work[]
+  workComments      WorkComment[]
+  todos             UserTodo[]
+  preference        UserPreference?
+  pedClientSettings PedClientSetting[]
+  pedItems          PedItem[]
+  assignedPedItems  PedItem[]  @relation("AssignedTo")
+
+  @@map("users")
+}
+
+model Client {
+  id                    String   @id @default(cuid())
+  name                  String
+  contactName           String?
+  email                 String?
+  phone                 String?
+  notes                 String?
+  assignedToUserId      String?
+  metaBusinessSuiteUrl  String?  // link personalizzabile "Meta Business Suite"
+  gestioneInserzioniUrl String?  // link personalizzabile "Gestione inserzioni"
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  assignedTo      User?    @relation(fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  clientCategories   ClientCategory[]
+  works              Work[]
+  preventivi         Preventivo[]
+  pedClientSettings  PedClientSetting[]
+  pedItems           PedItem[]
+  credentials        ClientCredential[]
+
+  @@map("clients")
+}
+
+model ClientCredential {
+  id         String   @id @default(cuid())
+  clientId   String
+  label      String   // es. "Instagram", "Email", "Sito"
+  username   String?
+  password   String?  // in chiaro; per produzione considerare cifratura
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+  @@map("client_credentials")
+}
+
+model Category {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  clientCategories ClientCategory[]
+  works            Work[]
+
+  @@map("categories")
+}
+
+model ClientCategory {
+  id         String   @id @default(cuid())
+  clientId   String
+  categoryId String
+  status     String   // NOT_ACTIVE, ACTIVE, IN_PROGRESS, ON_HOLD, COMPLETED
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  client   Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, categoryId])
+  @@map("client_categories")
+}
+
+model Work {
+  id              String   @id @default(cuid())
+  title           String
+  description     String?
+  clientId        String
+  categoryId      String
+  status          String   @default("TODO") // TODO, IN_PROGRESS, IN_REVIEW, WAITING_CLIENT, DONE, PAUSED, CANCELED
+  priority        String?  // LOW, MEDIUM, HIGH
+  deadline        DateTime?
+  assignedToUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  category        Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  assignedTo      User?    @relation(fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  steps           WorkStep[]
+  comments        WorkComment[]
+  pedItems        PedItem[]
+
+  @@map("works")
+}
+
+model WorkStep {
+  id          String    @id @default(cuid())
+  workId      String
+  title       String
+  status      String    @default("TODO") // TODO, DONE, BLOCKED
+  sortOrder   Int       @default(0)
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  work Work @relation(fields: [workId], references: [id], onDelete: Cascade)
+
+  @@map("work_steps")
+}
+
+model WorkComment {
+  id        String   @id @default(cuid())
+  workId    String
+  userId    String
+  body      String
+  type      String   @default("COMMENT") // COMMENT, STATUS_CHANGE, DEADLINE_CHANGE, etc.
+  createdAt DateTime @default(now())
+
+  work Work @relation(fields: [workId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("work_comments")
+}
+
+model UserTodo {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  completed Boolean  @default(false)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_todos")
+}
+
+model UserPreference {
+  id                    String   @id @default(cuid())
+  userId                 String   @unique
+  notifyDeadline24h      Boolean  @default(true)
+  notifyDeadline48h      Boolean  @default(false)
+  notifyInReview        Boolean  @default(true)
+  notifyWaitingClient    Boolean  @default(true)
+  timezone               String?  @default("Europe/Rome")
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_preferences")
+}
+
+model Preventivo {
+  id          String    @id @default(cuid())
+  clientId    String
+  title       String
+  type        String    // GENERATED = creato in app, UPLOADED = PDF caricato
+  status      String    @default("BOZZA") // BOZZA, INVIATO, ACCETTATO, RIFIUTATO
+  totalAmount Float?
+  notes       String?
+  filePath    String?   // percorso file PDF caricato (solo per type UPLOADED)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  client Client          @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  items PreventivoItem[]
+
+  @@map("preventivi")
+}
+
+model PreventivoItem {
+  id           String  @id @default(cuid())
+  preventivoId String
+  description  String
+  quantity     Float   @default(1)
+  unitPrice    Float
+  order        Int     @default(0) // ordine riga
+
+  preventivo Preventivo @relation(fields: [preventivoId], references: [id], onDelete: Cascade)
+
+  @@map("preventivo_items")
+}
+
+model PedClientSetting {
+  id             String   @id @default(cuid())
+  ownerId        String
+  clientId       String
+  contentsPerWeek Int     @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  owner  User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerId, clientId])
+  @@index([ownerId])
+  @@index([clientId])
+  @@map("ped_client_settings")
+}
+
+model PedItem {
+  id               String   @id @default(cuid())
+  ownerId          String
+  assignedToUserId String?  // utente a cui è assegnata la task; se null = assegnata all'owner
+  clientId         String
+  date             DateTime
+  kind             String   // CONTENT | WORK_TASK
+  type             String   // REEL, POST, STORY, CAROUSEL, ADV, SHOOTING, WEBSITE_TASK, GRAPHIC_TASK, COPY_TASK, MEETING, OTHER
+  title            String
+  description      String?
+  priority         String   // NOT_URGENT | MEDIUM | URGENT
+  status           String   @default("TODO") // TODO | DONE
+  workId           String?
+  isExtra          Boolean  @default(false) // mostra in colonna Extra della settimana
+  sortOrder        Int      @default(0)      // ordine dentro il giorno / colonna Extra
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  owner      User    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  assignedTo User?   @relation("AssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  client     Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  work       Work?   @relation(fields: [workId], references: [id], onDelete: SetNull)
+
+  @@index([ownerId, date])
+  @@index([assignedToUserId, date])
+  @@index([clientId, date])
+  @@index([ownerId, status])
+  @@map("ped_items")
+}

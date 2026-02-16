@@ -1,0 +1,116 @@
+# Gestionale Soirëe Studio
+
+Sistema di gestione completo per Soirëe Studio con Next.js, Clerk, Prisma e PostgreSQL.
+
+## Stack Tecnologico
+
+- **Next.js 14** (App Router) + TypeScript
+- **Clerk** per autenticazione
+- **PostgreSQL** + Prisma ORM
+- **Zod** per validazione
+- **Tailwind CSS** per styling
+- **Radix UI** per componenti UI
+
+## Setup
+
+### 1. Installazione dipendenze
+
+```bash
+npm install
+```
+
+### 2. Configurazione variabili d'ambiente
+
+Crea un file `.env` basato su `.env.example`:
+
+```env
+# Clerk
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
+CLERK_SECRET_KEY=sk_test_...
+
+# Database
+DATABASE_URL="postgresql://user:password@localhost:5432/soiree_db?schema=public"
+
+# Next.js
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+```
+
+### 3. Setup Database
+
+```bash
+# Genera Prisma Client
+npm run db:generate
+
+# Crea database e applica schema
+npm run db:push
+
+# Seed categorie iniziali
+npm run db:seed
+```
+
+### 4. Avvio sviluppo
+
+```bash
+npm run dev
+```
+
+## Configurazione Clerk
+
+1. Crea un account su [Clerk](https://clerk.com)
+2. Crea una nuova applicazione
+3. Disabilita il sign-up pubblico (solo invitation)
+4. Aggiungi fino a 5 utenti tramite inviti
+5. Copia le chiavi API nel file `.env`
+
+## Struttura Progetto
+
+```
+├── app/                    # Next.js App Router
+│   ├── dashboard/          # Dashboard principale
+│   ├── clients/            # Gestione clienti
+│   ├── categories/         # Gestione categorie
+│   ├── works/              # Gestione lavori
+│   └── calendar/           # Calendario/Agenda
+├── components/             # Componenti React
+│   ├── ui/                 # Componenti UI riutilizzabili
+│   ├── clients/            # Componenti clienti
+│   ├── categories/         # Componenti categorie
+│   └── works/              # Componenti lavori
+├── lib/                    # Utilities e configurazioni
+│   ├── prisma.ts          # Prisma Client
+│   ├── validations.ts     # Schema Zod
+│   └── toast.ts           # Toast notifications
+├── prisma/                 # Prisma
+│   ├── schema.prisma      # Schema database
+│   └── seed.ts            # Seed iniziale
+└── middleware.ts          # Middleware Clerk
+```
+
+## Funzionalità
+
+### ✅ Implementate
+
+- [x] Setup Next.js + TypeScript
+- [x] Schema Prisma completo
+- [x] Middleware Clerk per autenticazione
+- [x] Dashboard base con statistiche
+- [x] Layout e navigazione
+- [x] Lista clienti
+
+### 🚧 Da implementare
+
+- [ ] CRUD completo clienti
+- [ ] CRUD completo categorie
+- [ ] CRUD completo lavori
+- [ ] Vista bidirezionale Cliente⇄Categoria
+- [ ] Calendario/Agenda
+- [ ] Filtri e ricerca
+- [ ] Modali/Drawer per create/edit
+- [ ] Toast notifications
+- [ ] Server Actions per CRUD
+
+## Note
+
+- Tutti gli utenti autenticati hanno permessi completi (admin)
+- Il sistema supporta fino a 5 utenti interni
+- Il sign-up pubblico è disabilitato (solo invitation)
