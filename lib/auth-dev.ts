@@ -90,10 +90,12 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
               where: { id: user.id },
               data: { clerkId: userId },
             })
+          } else {
+            console.warn('[getCurrentUser] Nessun utente nel DB per email:', email, '- Esegui il seed sul DB di produzione (vedi README o scripts/seed-users.ts)')
           }
         }
-      } catch {
-        // ignora errori Clerk
+      } catch (e) {
+        console.warn('[getCurrentUser] Errore risoluzione Clerk→DB:', e)
       }
     }
 
