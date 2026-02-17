@@ -36,6 +36,7 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "dotenv": "^16.4.5",
     "@types/better-sqlite3": "^7.6.11",
     "@types/node": "^20.10.0",
     "@types/react": "^19.0.0",

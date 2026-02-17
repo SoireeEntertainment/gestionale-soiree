@@ -1,9 +1,11 @@
 import { redirect } from 'next/navigation'
+import { connection } from 'next/server'
 import { getCurrentUser, getAuthUserId } from '@/lib/auth-dev'
 
 export const dynamic = 'force-dynamic'
 
 export default async function Home() {
+  await connection()
   try {
     const userId = await getAuthUserId()
     if (!userId) {

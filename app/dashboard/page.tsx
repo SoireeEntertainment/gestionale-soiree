@@ -1,9 +1,11 @@
 import { redirect } from 'next/navigation'
+import { connection } from 'next/server'
 import { requireAuth } from '@/lib/auth-dev'
 import { prisma } from '@/lib/prisma'
 import { DashboardStats } from '@/components/dashboard/dashboard-stats'
 
 export default async function DashboardPage() {
+  await connection()
   const user = await requireAuth()
   if (user.role === 'AGENTE') redirect('/clients')
 

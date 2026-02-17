@@ -132,7 +132,7 @@ const isClerkConfigured = () =>
   !!(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY)
 
 /**
- * Richiede utente loggato: se manca o errore, redirect a /sign-in (Clerk) o /dev-users (dev).
+ * Richiede utente loggato: se manca redirect a sign-in; se è in Clerk ma non nel DB → /non-autorizzato (evita loop).
  */
 export async function requireAuth(): Promise<CurrentUser> {
   const toLogin = () => redirect(isClerkConfigured() ? '/sign-in' : '/dev-users')
@@ -140,7 +140,8 @@ export async function requireAuth(): Promise<CurrentUser> {
     const userId = await getAuthUserId()
     if (!userId) toLogin()
     const user = await getCurrentUser()
-    if (!user) toLogin()
+    // Autenticato con Clerk ma utente non presente nel DB (o senza ruolo): evita redirect a /sign-in che causerebbe loop
+    if (!user) redirect('/non-autorizzato')
     return user as CurrentUser
   } catch (err) {
     console.error('[requireAuth]', err)
