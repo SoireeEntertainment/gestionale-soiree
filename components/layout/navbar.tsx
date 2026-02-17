@@ -4,7 +4,6 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import type { UserRole } from '@/lib/auth-dev'
 
-// Import condizionale di UserButton
 const isClerkConfigured = !!(
   process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY &&
   process.env.CLERK_SECRET_KEY
@@ -15,7 +14,6 @@ let UserButton: any = () => (
     Dev
   </div>
 )
-
 if (typeof window !== 'undefined' && isClerkConfigured) {
   try {
     const Clerk = require('@clerk/nextjs')
@@ -94,6 +92,23 @@ export function Navbar({
                   </Link>
                 )
               })}
+              {isClerkConfigured ? (
+                <Link
+                  href="/sign-out"
+                  className="px-3 py-2 rounded-md text-sm font-medium text-white/70 hover:text-white hover:bg-white/5 transition-colors"
+                  style={{ color: 'rgba(255,255,255,0.8)', textDecoration: 'none' }}
+                >
+                  Esci
+                </Link>
+              ) : (
+                <Link
+                  href="/dev-users"
+                  className="px-3 py-2 rounded-md text-sm font-medium text-white/70 hover:text-white hover:bg-white/5"
+                  style={{ color: 'rgba(255,255,255,0.8)', textDecoration: 'none' }}
+                >
+                  Esci
+                </Link>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-4" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
