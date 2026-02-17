@@ -27,7 +27,7 @@ export default async function DevUsersPage() {
             {err instanceof Error ? err.message : String(err)}
           </p>
           <p className="text-white/50 text-xs mb-6">
-            Controlla che il database sia accessibile (file dev.db) e il terminale per i dettagli.
+            Controlla che DATABASE_URL sia impostato (Postgres su Vercel: Storage → Create Database). Vedi SETUP_VERCEL_DATABASE.md.
           </p>
           <Link href="/" className="text-accent hover:underline">
             ← Torna alla home
