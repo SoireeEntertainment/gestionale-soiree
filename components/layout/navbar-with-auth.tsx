@@ -1,4 +1,4 @@
-import { getCurrentUser } from '@/lib/auth-dev'
+import { getCurrentUser, type UserRole } from '@/lib/auth-dev'
 import { Navbar } from './navbar'
 
 const isClerkConfigured = !!(
@@ -13,11 +13,13 @@ export async function NavbarWithAuth() {
   } catch (err) {
     console.error('[NavbarWithAuth]', err)
   }
+  const role = user?.role != null ? (String(user.role) as UserRole) : null
+  const currentUserName = user?.name != null ? String(user.name) : null
   return (
     <Navbar
-      role={user?.role != null ? String(user.role) : null}
+      role={role}
       showDevSwitcher={!isClerkConfigured}
-      currentUserName={user?.name != null ? String(user.name) : null}
+      currentUserName={currentUserName}
     />
   )
 }
