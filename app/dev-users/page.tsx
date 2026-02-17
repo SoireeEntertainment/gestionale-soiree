@@ -9,7 +9,7 @@ const isClerkConfigured = !!(
 )
 
 export default async function DevUsersPage() {
-  if (isClerkConfigured) redirect('/')
+  if (isClerkConfigured) redirect('/sign-in')
 
   let users: { id: string; name: string; email: string; role: string }[]
   try {

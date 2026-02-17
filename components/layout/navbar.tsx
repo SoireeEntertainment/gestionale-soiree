@@ -4,10 +4,8 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import type { UserRole } from '@/lib/auth-dev'
 
-const isClerkConfigured = !!(
-  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY &&
-  process.env.CLERK_SECRET_KEY
-)
+// Solo NEXT_PUBLIC_ è disponibile sul client; per il link Esci basta la publishable key
+const isClerkConfigured = !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
 
 let UserButton: any = () => (
   <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center text-accent text-sm">
