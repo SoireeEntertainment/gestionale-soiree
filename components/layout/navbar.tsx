@@ -7,20 +7,6 @@ import type { UserRole } from '@/lib/auth-dev'
 // Solo NEXT_PUBLIC_ è disponibile sul client; per il link Esci basta la publishable key
 const isClerkConfigured = !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
 
-let UserButton: any = () => (
-  <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center text-accent text-sm">
-    Dev
-  </div>
-)
-if (typeof window !== 'undefined' && isClerkConfigured) {
-  try {
-    const Clerk = require('@clerk/nextjs')
-    UserButton = Clerk.UserButton
-  } catch (e) {
-    // Clerk non disponibile
-  }
-}
-
 const allNavItems = [
   { href: '/dashboard', label: 'Dashboard' },
   { href: '/clients', label: 'Clienti' },
@@ -120,7 +106,13 @@ export function Navbar({
                 {currentUserName ? `Accesso: ${currentUserName}` : 'Cambia utente'}
               </Link>
             )}
-            <UserButton afterSignOutUrl="/sign-in" />
+            <div
+              className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center text-accent text-sm font-medium"
+              title={currentUserName ?? (isClerkConfigured ? 'Utente' : 'Dev')}
+              style={{ minWidth: '2rem', minHeight: '2rem' }}
+            >
+              {currentUserName ? currentUserName.trim()[0]?.toUpperCase() ?? '?' : 'D'}
+            </div>
           </div>
         </div>
       </div>
