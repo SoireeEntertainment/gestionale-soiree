@@ -28,10 +28,11 @@ export function SignInForm() {
   const router = useRouter()
   const { isSignedIn, isLoaded } = useAuth()
 
-  // Redirect solo lato client quando già autenticato (evita loop con middleware su Vercel)
+  // Redirect a dashboard solo se isSignedIn resta true per 400ms (evita loop dopo logout / incognito)
   useEffect(() => {
-    if (!isLoaded) return
-    if (isSignedIn) router.replace('/dashboard')
+    if (!isLoaded || !isSignedIn) return
+    const t = setTimeout(() => router.replace('/dashboard'), 400)
+    return () => clearTimeout(t)
   }, [isLoaded, isSignedIn, router])
 
   if (clerkConfigured) {

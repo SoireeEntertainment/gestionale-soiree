@@ -10,6 +10,7 @@ const clerkConfigured = !!(
 const isPublicRoute = createRouteMatcher([
   '/sign-in(.*)',
   '/sign-up(.*)',
+  '/sign-out',
   '/dev-users',
   '/non-autorizzato',
   '/api/dev-users(.*)',
