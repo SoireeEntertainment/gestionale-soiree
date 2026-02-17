@@ -1,9 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { SignIn, useAuth } from '@clerk/nextjs'
-import { useEffect } from 'react'
 
 const clerkConfigured =
   typeof window !== 'undefined' &&
@@ -25,21 +23,29 @@ const darkAppearance = {
 }
 
 export function SignInForm() {
-  const router = useRouter()
   const { isSignedIn, isLoaded } = useAuth()
 
-  // Redirect a dashboard solo se isSignedIn resta true per 400ms (evita loop dopo logout / incognito)
-  useEffect(() => {
-    if (!isLoaded || !isSignedIn) return
-    const t = setTimeout(() => router.replace('/dashboard'), 400)
-    return () => clearTimeout(t)
-  }, [isLoaded, isSignedIn, router])
-
+  // Nessun redirect automatico a dashboard: evita loop (incognito/post-logout). Se già connesso mostriamo link.
   if (clerkConfigured) {
-    if (!isLoaded || isSignedIn) {
+    if (!isLoaded) {
       return (
         <div className="flex items-center justify-center min-h-screen bg-dark">
           <p className="text-white/70">Caricamento...</p>
+        </div>
+      )
+    }
+    if (isSignedIn) {
+      return (
+        <div className="flex items-center justify-center min-h-screen bg-dark py-12">
+          <div className="text-center max-w-sm">
+            <p className="text-white/80 mb-4">Sei già connesso.</p>
+            <Link
+              href="/dashboard"
+              className="inline-block px-6 py-3 rounded-md font-medium bg-accent text-dark hover:bg-accent/90"
+            >
+              Vai alla Dashboard
+            </Link>
+          </div>
         </div>
       )
     }
