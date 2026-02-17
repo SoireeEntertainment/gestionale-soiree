@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation'
 import { getCurrentUser, getAuthUserId } from '@/lib/auth-dev'
 
+export const dynamic = 'force-dynamic'
+
 export default async function Home() {
   try {
     const userId = await getAuthUserId()

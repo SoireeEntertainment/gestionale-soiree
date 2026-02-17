@@ -12,33 +12,40 @@
 1. Una volta loggato, clicca su "Create Application"
 2. Scegli un nome (es: "Soiree Gestionale")
 3. Seleziona i provider di autenticazione:
-   - Email (consigliato)
-   - Opzionalmente: Google, GitHub, ecc.
+   - **Email** (obbligatorio)
+   - **Password** (obbligatorio per email/password)
 4. Clicca "Create Application"
 
-## 3. Disabilita Sign-Up Pubblico
+## 3. Abilita Email + Password
 
 1. Vai su "User & Authentication" nel menu laterale
 2. Clicca su "Email, Phone, Username"
-3. Trova la sezione "Allow users to sign up"
-4. **Disabilita** questa opzione (solo invitation)
-5. Salva le modifiche
+3. Assicurati che siano abilitati:
+   - **Email address** (Sign-in + Sign-up)
+   - **Password** (Sign-in + Sign-up)
+4. Disabilita "Allow users to sign up" se vuoi solo utenti invitati (consigliato)
 
-## 4. Ottieni le Chiavi API
+## 4. Invita gli utenti
+
+Gli utenti devono esistere in Clerk e nel DB con **la stessa email**. Il gestionale usa:
+- davide@soiree.it
+- cristian.palazzolo@soiree.it
+- enrico@soiree.it
+- daniele@soiree.it
+- alessia@soiree.it
+
+1. Vai su "Users" → "Invite User"
+2. Inserisci l'email (es. davide@soiree.it)
+3. L'utente riceve un invito e imposta la propria password
+4. Esegui il seed del DB (`npm run db:seed`) per creare gli utenti con le stesse email
+
+## 5. Ottieni le Chiavi API
 
 1. Vai su "API Keys" nel menu laterale
 2. Troverai due chiavi:
    - **Publishable Key** (inizia con `pk_test_` o `pk_live_`)
    - **Secret Key** (inizia con `sk_test_` o `sk_live_`)
 3. Copia entrambe le chiavi
-
-## 5. Aggiungi Utenti (Invitation)
-
-1. Vai su "Users" nel menu laterale
-2. Clicca su "Invite User"
-3. Inserisci l'email dell'utente
-4. L'utente riceverà un'email di invito
-5. Ripeti per tutti i 5 utenti interni
 
 ## 6. Configura il File .env
 
@@ -47,11 +54,20 @@ Crea un file `.env` nella root del progetto con:
 ```env
 NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_... (la tua publishable key)
 CLERK_SECRET_KEY=sk_test_... (la tua secret key)
+NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
+NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL=/dashboard
 DATABASE_URL="postgresql://user:password@localhost:5432/soiree_db?schema=public"
-NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
-## 7. Riavvia il Server
+## 7. Sync utenti DB
+
+Gli utenti nel DB devono avere le stesse email di Clerk. Esegui il seed:
+```bash
+npm run db:seed
+```
+Creerà/aggiornerà gli utenti davide@soiree.it, cristian.palazzolo@soiree.it, ecc. Al primo accesso con Clerk, l'app associa automaticamente l'utente Clerk all'utente nel DB per email.
+
+## 8. Riavvia il Server
 
 Dopo aver configurato il `.env`, riavvia il server:
 
@@ -59,14 +75,16 @@ Dopo aver configurato il `.env`, riavvia il server:
 npm run dev
 ```
 
-## 8. Produzione (Vercel)
+## 9. Produzione (Vercel)
 
 1. **Variabili d’ambiente su Vercel**
    - Vercel → progetto **gestionale-soiree** → Settings → Environment Variables
    - Aggiungi (stessi valori usati in `.env.local` o le chiavi **live** quando le attivi):
      - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` = `pk_test_...` (o `pk_live_...` in produzione)
      - `CLERK_SECRET_KEY` = `sk_test_...` (o `sk_live_...` in produzione)
-     - `DATABASE_URL` = URL del database di produzione (se diverso da locale)
+     - `NEXT_PUBLIC_CLERK_SIGN_IN_URL` = `/sign-in`
+     - `NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL` = `/dashboard`
+     - `DATABASE_URL` = URL del database di produzione
    - Imposta le variabili per **Production** (e opzionalmente Preview). Poi **Redeploy**.
 
 2. **Clerk Dashboard – URL di produzione**

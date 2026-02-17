@@ -7,11 +7,30 @@ const clerkConfigured =
   typeof window !== 'undefined' &&
   !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
 
+const darkAppearance = {
+  baseTheme: undefined,
+  variables: {
+    colorBackground: '#0c0e11',
+    colorInputBackground: '#1a1d23',
+    colorInputText: '#fff',
+    colorText: '#fff',
+    colorTextSecondary: 'rgba(255,255,255,0.7)',
+  },
+  elements: {
+    rootBox: 'w-full max-w-md',
+    card: 'bg-[#1a1d23] shadow-xl',
+  },
+}
+
 export function SignInForm() {
   if (clerkConfigured) {
     return (
-      <div className="flex items-center justify-center min-h-[70vh]">
-        <SignIn fallbackRedirectUrl="/dashboard" />
+      <div className="flex items-center justify-center min-h-screen bg-dark py-12">
+        <SignIn
+          fallbackRedirectUrl="/dashboard"
+          forceRedirectUrl="/dashboard"
+          appearance={darkAppearance}
+        />
       </div>
     )
   }
