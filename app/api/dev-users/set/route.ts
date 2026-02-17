@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
 import { DEV_COOKIE_NAME } from '@/lib/auth-dev'
 
 export const dynamic = 'force-dynamic'
@@ -23,6 +22,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL('/dev-users', request.url))
   }
 
+  const { prisma } = await import('@/lib/prisma')
   const user = await prisma.user.findFirst({
     where: { id: userId, isActive: true },
   })
