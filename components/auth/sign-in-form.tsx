@@ -1,7 +1,9 @@
 'use client'
 
 import Link from 'next/link'
-import { SignIn } from '@clerk/nextjs'
+import { useRouter } from 'next/navigation'
+import { SignIn, useAuth } from '@clerk/nextjs'
+import { useEffect } from 'react'
 
 const clerkConfigured =
   typeof window !== 'undefined' &&
@@ -23,7 +25,23 @@ const darkAppearance = {
 }
 
 export function SignInForm() {
+  const router = useRouter()
+  const { isSignedIn, isLoaded } = useAuth()
+
+  // Redirect solo lato client quando già autenticato (evita loop con middleware su Vercel)
+  useEffect(() => {
+    if (!isLoaded) return
+    if (isSignedIn) router.replace('/dashboard')
+  }, [isLoaded, isSignedIn, router])
+
   if (clerkConfigured) {
+    if (!isLoaded || isSignedIn) {
+      return (
+        <div className="flex items-center justify-center min-h-screen bg-dark">
+          <p className="text-white/70">Caricamento...</p>
+        </div>
+      )
+    }
     return (
       <div className="flex items-center justify-center min-h-screen bg-dark py-12">
         <SignIn

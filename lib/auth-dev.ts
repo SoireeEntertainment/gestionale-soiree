@@ -132,7 +132,7 @@ const isClerkConfigured = () =>
   !!(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY)
 
 /**
- * Richiede utente loggato: se manca redirect a sign-in; se è in Clerk ma non nel DB → /non-autorizzato (evita loop).
+ * Richiede utente loggato: se manca redirect a sign-in; se è in Clerk ma non nel DB (o errore DB) → /non-autorizzato (evita loop).
  */
 export async function requireAuth(): Promise<CurrentUser> {
   const toLogin = () => redirect(isClerkConfigured() ? '/sign-in' : '/dev-users')
@@ -145,6 +145,9 @@ export async function requireAuth(): Promise<CurrentUser> {
     return user as CurrentUser
   } catch (err) {
     console.error('[requireAuth]', err)
+    // Se Clerk era OK ma è fallito il DB, non mandare a /sign-in (loop). Manda a /non-autorizzato.
+    const userId = await getAuthUserId().catch(() => null)
+    if (userId) redirect('/non-autorizzato')
     toLogin()
   }
   throw new Error('Auth failed') // unreachable dopo toLogin()
