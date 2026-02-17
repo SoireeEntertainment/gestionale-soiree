@@ -47,6 +47,8 @@ type PedItem = {
   status: string
   workId?: string | null
   isExtra?: boolean
+  assignedToUserId?: string | null
+  assignedTo?: { id: string; name: string } | null
   client: { id: string; name: string }
   work?: { id: string; title: string } | null
 }
