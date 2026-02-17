@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { DEV_COOKIE_NAME } from '@/lib/auth-dev'
 
+export const dynamic = 'force-dynamic'
+
 // Prisma usa CUID (es. clxxx...), non UUID
 function isValidId(s: string | null): s is string {
   return !!s && s.length >= 20 && s.length <= 30 && /^[a-z0-9]+$/i.test(s)
