@@ -50,9 +50,10 @@ export async function getPedMonth(year: number, month: number) {
   })
   const allItems = allItemsRaw
 
-  const orderRows = await prisma.$queryRaw<{ id: string; sortOrder: number }[]>`
-    SELECT id, sortOrder FROM ped_items WHERE ownerId = ${ownerId}
-  `
+  const orderRows = await prisma.pedItem.findMany({
+    where: { ownerId },
+    select: { id: true, sortOrder: true },
+  })
   const sortOrderById = new Map(orderRows.map((r) => [r.id, Number(r.sortOrder) ?? 0]))
 
   const filtered = allItems.filter((item) => {
@@ -196,10 +197,18 @@ export async function fillPedMonth(year: number, month: number) {
   const startStr = `${year}-${String(month).padStart(2, '0')}-01 00:00:00`
   const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate()
   const endStr = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')} 23:59:59`
-  const existingRows = await prisma.$queryRaw<{ clientId: string; dateKey: string }[]>`
-    SELECT clientId, substr(date, 1, 10) as dateKey FROM ped_items
-    WHERE ownerId = ${ownerId} AND date >= ${startStr} AND date <= ${endStr} AND isExtra = 0
-  `
+  const existingItems = await prisma.pedItem.findMany({
+    where: {
+      ownerId,
+      date: { gte: new Date(startStr), lte: new Date(endStr) },
+      isExtra: false,
+    },
+    select: { clientId: true, date: true },
+  })
+  const existingRows = existingItems.map((i) => ({
+    clientId: i.clientId,
+    dateKey: i.date.toISOString().slice(0, 10),
+  }))
   const existingByClientAndDate = new Set(existingRows.map((r) => `${r.clientId}:${r.dateKey}`))
 
   for (const setting of settingsSorted) {
@@ -249,12 +258,16 @@ export async function fillPedMonthForClient(clientId: string, year: number, mont
   const startStr = `${year}-${String(month).padStart(2, '0')}-01 00:00:00`
   const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate()
   const endStr = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')} 23:59:59`
-  const rows = await prisma.$queryRaw<{ dateKey: string }[]>`
-    SELECT substr(date, 1, 10) as dateKey FROM ped_items
-    WHERE ownerId = ${ownerId} AND clientId = ${clientId}
-      AND date >= ${startStr} AND date <= ${endStr}
-      AND isExtra = 0
-  `
+  const items = await prisma.pedItem.findMany({
+    where: {
+      ownerId,
+      clientId,
+      date: { gte: new Date(startStr), lte: new Date(endStr) },
+      isExtra: false,
+    },
+    select: { date: true },
+  })
+  const rows = items.map((i) => ({ dateKey: i.date.toISOString().slice(0, 10) }))
   const existingDates = new Set(rows.map((r) => r.dateKey))
 
   const dateKeys = getTargetDateKeysForContents(year, month, setting.contentsPerWeek)
@@ -302,14 +315,13 @@ export async function emptyPedMonth(year: number, month: number) {
   const ownerId = await getOwnerId()
   if (!ownerId) throw new Error('Non autorizzato')
 
-  const startStr = `${year}-${String(month).padStart(2, '0')}-01 00:00:00`
+  const startDate = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0))
   const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate()
-  const endStr = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')} 23:59:59`
+  const endDate = new Date(Date.UTC(year, month - 1, lastDay, 23, 59, 59, 999))
 
-  await prisma.$executeRaw`
-    DELETE FROM ped_items
-    WHERE ownerId = ${ownerId} AND date >= ${startStr} AND date <= ${endStr}
-  `
+  await prisma.pedItem.deleteMany({
+    where: { ownerId, date: { gte: startDate, lte: endDate } },
+  })
   revalidatePath('/ped')
 }
 
@@ -318,14 +330,13 @@ export async function emptyPedMonthForClient(clientId: string, year: number, mon
   const ownerId = await getOwnerId()
   if (!ownerId) throw new Error('Non autorizzato')
 
-  const startStr = `${year}-${String(month).padStart(2, '0')}-01 00:00:00`
+  const startDate = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0))
   const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate()
-  const endStr = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')} 23:59:59`
+  const endDate = new Date(Date.UTC(year, month - 1, lastDay, 23, 59, 59, 999))
 
-  await prisma.$executeRaw`
-    DELETE FROM ped_items
-    WHERE ownerId = ${ownerId} AND clientId = ${clientId} AND date >= ${startStr} AND date <= ${endStr}
-  `
+  await prisma.pedItem.deleteMany({
+    where: { ownerId, clientId, date: { gte: startDate, lte: endDate } },
+  })
   revalidatePath('/ped')
   revalidatePath(`/clients/${clientId}`)
 }
@@ -410,10 +421,24 @@ export async function createPedItem(payload: unknown) {
   const workId = validated.workId ?? null
   const assignedTo = assignedToUserId ?? null
 
-  await prisma.$executeRaw`
-    INSERT INTO ped_items (id, ownerId, assignedToUserId, clientId, date, kind, type, title, description, priority, status, workId, isExtra, sortOrder, createdAt, updatedAt)
-    VALUES (${id}, ${ownerId}, ${assignedTo}, ${validated.clientId}, ${dateStr}, ${validated.kind}, ${validated.type}, ${validated.title}, ${desc}, ${validated.priority}, 'TODO', ${workId}, ${isExtra ? 1 : 0}, ${sortOrder}, datetime('now'), datetime('now'))
-  `
+  await prisma.pedItem.create({
+    data: {
+      id,
+      ownerId,
+      assignedToUserId: assignedTo,
+      clientId: validated.clientId,
+      date: new Date(dateStr),
+      kind: validated.kind,
+      type: validated.type,
+      title: validated.title,
+      description: desc,
+      priority: validated.priority,
+      status: 'TODO',
+      workId,
+      isExtra: !!isExtra,
+      sortOrder,
+    },
+  })
 
   revalidatePath('/ped')
 }
@@ -491,7 +516,10 @@ export async function reorderPedItemsInDay(dateKey: string, isExtra: boolean, or
   if (items.length !== orderedItemIds.length) throw new Error('Lista non valida')
 
   for (let i = 0; i < orderedItemIds.length; i++) {
-    await prisma.$executeRaw`UPDATE ped_items SET sortOrder = ${i} WHERE id = ${orderedItemIds[i]}`
+    await prisma.pedItem.update({
+      where: { id: orderedItemIds[i] },
+      data: { sortOrder: i },
+    })
   }
   revalidatePath('/ped')
 }
@@ -576,10 +604,24 @@ export async function duplicatePedItem(id: string, targetDate: string, targetIsE
   const workId = source.workId ?? null
   const assignedTo = ownerId
 
-  await prisma.$executeRaw`
-    INSERT INTO ped_items (id, ownerId, assignedToUserId, clientId, date, kind, type, title, description, priority, status, workId, isExtra, sortOrder, createdAt, updatedAt)
-    VALUES (${newId}, ${ownerId}, ${assignedTo}, ${source.clientId}, ${dateStr}, ${source.kind}, ${source.type}, ${source.title + ' (copia)'}, ${desc}, ${source.priority}, 'TODO', ${workId}, ${isExtra ? 1 : 0}, ${sortOrder}, datetime('now'), datetime('now'))
-  `
+  await prisma.pedItem.create({
+    data: {
+      id: newId,
+      ownerId,
+      assignedToUserId: assignedTo,
+      clientId: source.clientId,
+      date: new Date(dateStr),
+      kind: source.kind,
+      type: source.type,
+      title: source.title + ' (copia)',
+      description: desc,
+      priority: source.priority,
+      status: 'TODO',
+      workId,
+      isExtra: !!isExtra,
+      sortOrder,
+    },
+  })
 
   revalidatePath('/ped')
 }
