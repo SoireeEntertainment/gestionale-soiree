@@ -15,9 +15,9 @@ export async function NavbarWithAuth() {
   }
   return (
     <Navbar
-      role={user?.role ?? null}
+      role={user?.role != null ? String(user.role) : null}
       showDevSwitcher={!isClerkConfigured}
-      currentUserName={user?.name ?? null}
+      currentUserName={user?.name != null ? String(user.name) : null}
     />
   )
 }

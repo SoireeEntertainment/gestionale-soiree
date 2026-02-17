@@ -1,27 +1,12 @@
-import { redirect } from 'next/navigation'
-import { connection } from 'next/server'
-import { getCurrentUser, getAuthUserId } from '@/lib/auth-dev'
+import { HomeRedirect } from './home-redirect'
 
 export const dynamic = 'force-dynamic'
 
-export default async function Home() {
-  await connection()
-  try {
-    const userId = await getAuthUserId()
-    if (!userId) {
-      const isClerkConfigured = !!(
-        process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY &&
-        process.env.CLERK_SECRET_KEY
-      )
-      redirect(isClerkConfigured ? '/sign-in' : '/dev-users')
-    }
+const clerkConfigured = !!(
+  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY &&
+  process.env.CLERK_SECRET_KEY
+)
 
-    const user = await getCurrentUser()
-    if (!user) redirect('/dev-users')
-    if (user.role === 'AGENTE') redirect('/clients')
-    redirect('/dashboard')
-  } catch (err) {
-    console.error('[Home]', err)
-    redirect('/dev-users')
-  }
+export default function Home() {
+  return <HomeRedirect clerkConfigured={clerkConfigured} />
 }
