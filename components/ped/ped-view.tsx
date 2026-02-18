@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { PedMonthNav } from './ped-month-nav'
 import { PedClientSettings } from './ped-client-settings'
@@ -54,6 +54,12 @@ type InitialData = {
 
 type User = { id: string; name: string }
 
+function pedPageUrl(year: number, month: number, userId?: string | null): string {
+  const params = new URLSearchParams({ year: String(year), month: String(month) })
+  if (userId) params.set('userId', userId)
+  return `/ped?${params.toString()}`
+}
+
 export function PedView({
   initialData,
   clients,
@@ -61,6 +67,9 @@ export function PedView({
   users,
   currentUserId,
   currentUserName,
+  viewAsUserId,
+  viewAsUserName,
+  isViewingOtherUser,
   year,
   month,
 }: {
@@ -70,6 +79,9 @@ export function PedView({
   users: User[]
   currentUserId: string
   currentUserName: string
+  viewAsUserId: string
+  viewAsUserName: string
+  isViewingOtherUser: boolean
   year: number
   month: number
 }) {
@@ -82,6 +94,20 @@ export function PedView({
   const [filterType, setFilterType] = useState('')
   const [selectedDateKey, setSelectedDateKey] = useState<string | null>(null)
   const [undoEntry, setUndoEntry] = useState<UndoEntry | null>(null)
+  const [userDropdownOpen, setUserDropdownOpen] = useState(false)
+  const userDropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (userDropdownRef.current && !userDropdownRef.current.contains(e.target as Node)) {
+        setUserDropdownOpen(false)
+      }
+    }
+    if (userDropdownOpen) {
+      document.addEventListener('click', handleClickOutside)
+      return () => document.removeEventListener('click', handleClickOutside)
+    }
+  }, [userDropdownOpen])
 
   const itemsWithDateString = useMemo(() => {
     return initialData.pedItems.map((item) => ({
@@ -262,33 +288,79 @@ export function PedView({
     }
   }
 
+  const handleSelectUser = (userId: string) => {
+    setUserDropdownOpen(false)
+    const url = pedPageUrl(year, month, userId === currentUserId ? undefined : userId)
+    router.push(url)
+  }
+
   return (
     <div className="space-y-6">
-      <PedMonthNav year={year} month={month} userName={currentUserName}>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={handleFillMonth}
-          disabled={filling}
+      <PedMonthNav
+          year={year}
+          month={month}
+          userName={viewAsUserName}
+          viewAsUserId={isViewingOtherUser ? viewAsUserId : null}
         >
-          {filling ? 'In corso…' : 'Riempi mese'}
-        </Button>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={handleEmptyMonth}
-          disabled={emptying}
-        >
-          {emptying ? 'In corso…' : 'Svuota mese'}
-        </Button>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={handleUndo}
-          disabled={!undoEntry || undoing}
-        >
-          {undoing ? 'Annullamento…' : 'Annulla ultima azione'}
-        </Button>
+        <div className="flex items-center gap-2 flex-wrap justify-center">
+          <div className="relative" ref={userDropdownRef}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setUserDropdownOpen((o) => !o)}
+              className="border border-accent/40 text-white hover:bg-white/10"
+            >
+              Guarda PED di…
+            </Button>
+            {userDropdownOpen && (
+              <div className="absolute left-0 top-full mt-1 z-50 min-w-[200px] rounded-lg border border-accent/30 bg-dark shadow-xl py-1">
+                {users.map((u) => (
+                  <button
+                    key={u.id}
+                    type="button"
+                    onClick={() => handleSelectUser(u.id)}
+                    className={`w-full text-left px-3 py-2 text-sm hover:bg-white/10 transition-colors flex items-center justify-between ${
+                      u.id === viewAsUserId ? 'bg-accent/20 text-accent' : 'text-white'
+                    }`}
+                  >
+                    <span>{u.name}</span>
+                    {u.id === currentUserId && (
+                      <span className="text-xs text-white/70">(tu)</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          {!isViewingOtherUser && (
+            <>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleFillMonth}
+                disabled={filling}
+              >
+                {filling ? 'In corso…' : 'Riempi mese'}
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleEmptyMonth}
+                disabled={emptying}
+              >
+                {emptying ? 'In corso…' : 'Svuota mese'}
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleUndo}
+                disabled={!undoEntry || undoing}
+              >
+                {undoing ? 'Annullamento…' : 'Annulla ultima azione'}
+              </Button>
+            </>
+          )}
+        </div>
       </PedMonthNav>
 
       <div className="space-y-4 w-full">
@@ -343,6 +415,7 @@ export function PedView({
                 items={itemsWithDateString}
                 dailyStats={initialData.computedStats.dailyStats}
                 currentUserId={currentUserId}
+                readOnly={isViewingOtherUser}
                 onOpenAdd={handleOpenAdd}
                 onOpenAddExtra={handleOpenAddExtra}
                 onOpenEdit={handleOpenEdit}
@@ -368,7 +441,12 @@ export function PedView({
         />
 
         {/* Clienti del PED */}
-        <PedClientSettings settings={initialData.pedClientSettings} clients={clients} userName={currentUserName} />
+        <PedClientSettings
+          settings={initialData.pedClientSettings}
+          clients={clients}
+          userName={viewAsUserName}
+          readOnly={isViewingOtherUser}
+        />
       </div>
 
       <PedItemModal

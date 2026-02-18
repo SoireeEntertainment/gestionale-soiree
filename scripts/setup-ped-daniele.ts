@@ -1,8 +1,7 @@
 /**
- * Aggiunge i clienti al PED di Davide Piccolo (contenuti/mese).
- * - In locale: npx tsx scripts/setup-ped-davide.ts  (usa .env)
- * - Per Vercel/produzione: copia DATABASE_URL da Vercel (Environment Variables)
- *   poi: DATABASE_URL="postgres://..." npx tsx scripts/setup-ped-davide.ts
+ * Aggiunge i clienti al PED di Daniele Mirante (contenuti/mese).
+ * - In locale: npx tsx scripts/setup-ped-daniele.ts  (usa .env)
+ * - Per Vercel/produzione: DATABASE_URL="postgres://..." npx tsx scripts/setup-ped-daniele.ts
  */
 import 'dotenv/config'
 import { PrismaClient } from '@prisma/client'
@@ -10,21 +9,21 @@ import { PrismaClient } from '@prisma/client'
 const prisma = new PrismaClient()
 
 const PED_CLIENTS: { name: string; contentsPerWeek: number }[] = [
-  { name: 'Grand & Gross', contentsPerWeek: 8 },
-  { name: 'Quality Burger', contentsPerWeek: 8 },
-  { name: 'Marmor Stone', contentsPerWeek: 0 },
-  { name: 'H2 Color', contentsPerWeek: 12 },
-  { name: "L'Estetica", contentsPerWeek: 8 },
-  { name: 'Girasoli', contentsPerWeek: 12 },
-  { name: 'Doors Design', contentsPerWeek: 8 },
-  { name: 'Pin & Roll', contentsPerWeek: 8 },
-  { name: 'Moschiano Crew', contentsPerWeek: 8 },
-  { name: 'Varca', contentsPerWeek: 6 },
-  { name: 'Costantini Automobili', contentsPerWeek: 6 },
-  { name: 'Anna & Anna', contentsPerWeek: 8 },
-  { name: 'Agricooltur+Urbancooltur (Grafiche e pubb)', contentsPerWeek: 12 },
-  { name: 'Jumbo Sport', contentsPerWeek: 8 },
-  { name: 'Luxury', contentsPerWeek: 8 },
+  { name: 'Shoro', contentsPerWeek: 12 },
+  { name: 'Arneis', contentsPerWeek: 12 },
+  { name: 'V-Mat', contentsPerWeek: 12 },
+  { name: 'Fifty', contentsPerWeek: 8 },
+  { name: 'Wokoza', contentsPerWeek: 12 },
+  { name: 'Carmatennis', contentsPerWeek: 4 },
+  { name: 'MC Dental', contentsPerWeek: 12 },
+  { name: 'Centro Ortopedico Sanitario', contentsPerWeek: 8 },
+  { name: 'Linked', contentsPerWeek: 4 },
+  { name: 'Black Rose', contentsPerWeek: 8 },
+  { name: 'Premiere', contentsPerWeek: 2 },
+  { name: 'Antico Forno 2.0', contentsPerWeek: 8 },
+  { name: 'Oneforall', contentsPerWeek: 10 },
+  { name: 'The room pn', contentsPerWeek: 10 },
+  { name: 'Cantarella', contentsPerWeek: 8 },
 ]
 
 function normalize(s: string): string {
@@ -52,20 +51,14 @@ function findBestClientMatch(
 }
 
 async function main() {
-  // Preferisci davide@soiree.it (login Clerk in produzione)
-  let user = await prisma.user.findFirst({ where: { email: 'davide@soiree.it' } })
+  let user = await prisma.user.findFirst({ where: { email: 'daniele@soiree.it' } })
   if (!user) {
     user = await prisma.user.findFirst({
-      where: {
-        OR: [
-          { name: { contains: 'Davide Piccolo' } },
-          { email: 'davide@soiree.studio' },
-        ],
-      },
+      where: { name: { contains: 'Daniele Mirante' } },
     })
   }
   if (!user) {
-    throw new Error('Utente "Davide Piccolo" non trovato nel database.')
+    throw new Error('Utente daniele@soiree.it / "Daniele Mirante" non trovato nel database.')
   }
   console.log('Utente trovato:', user.name, user.email, '(id:', user.id, ')')
 

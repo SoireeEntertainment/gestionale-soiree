@@ -8,15 +8,23 @@ const MONTH_NAMES = [
   'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre',
 ]
 
+function pedQuery(year: number, month: number, userId?: string | null): string {
+  const params = new URLSearchParams({ year: String(year), month: String(month) })
+  if (userId) params.set('userId', userId)
+  return `/ped?${params.toString()}`
+}
+
 export function PedMonthNav({
   year,
   month,
   userName,
+  viewAsUserId = null,
   children,
 }: {
   year: number
   month: number
   userName?: string
+  viewAsUserId?: string | null
   children?: React.ReactNode
 }) {
   const prevMonth = month === 1 ? { year: year - 1, month: 12 } : { year, month: month - 1 }
@@ -31,13 +39,13 @@ export function PedMonthNav({
       </h1>
       <div className="flex flex-col items-center gap-2">
         <div className="flex items-center gap-2">
-          <Link href={`/ped?year=${prevMonth.year}&month=${prevMonth.month}`}>
+          <Link href={pedQuery(prevMonth.year, prevMonth.month, viewAsUserId)}>
             <Button variant="ghost" size="sm">← Mese precedente</Button>
           </Link>
           <span className="text-white/90 font-medium min-w-[140px] text-center text-sm md:text-base">
             {monthLabel}
           </span>
-          <Link href={`/ped?year=${nextMonth.year}&month=${nextMonth.month}`}>
+          <Link href={pedQuery(nextMonth.year, nextMonth.month, viewAsUserId)}>
             <Button variant="ghost" size="sm">Mese successivo →</Button>
           </Link>
         </div>

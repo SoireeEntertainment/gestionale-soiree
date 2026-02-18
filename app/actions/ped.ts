@@ -13,6 +13,14 @@ async function getOwnerId(): Promise<string | null> {
   return user?.id ?? null
 }
 
+/** Per "Guarda PED di...": se fornito, usa questo userId come owner (solo lettura dati). Richiede utente loggato. */
+async function getViewOwnerId(viewAsUserId: string | undefined): Promise<string | null> {
+  const current = await getCurrentUser()
+  if (!current) return null
+  if (viewAsUserId) return viewAsUserId
+  return current.id
+}
+
 async function ensureSortOrderColumn(): Promise<void> {
   try {
     await prisma.$executeRawUnsafe(
@@ -23,8 +31,8 @@ async function ensureSortOrderColumn(): Promise<void> {
   }
 }
 
-export async function getPedMonth(year: number, month: number) {
-  const ownerId = await getOwnerId()
+export async function getPedMonth(year: number, month: number, viewAsUserId?: string) {
+  const ownerId = await getViewOwnerId(viewAsUserId)
   if (!ownerId) throw new Error('Non autorizzato')
 
   const firstWeekday = (new Date(Date.UTC(year, month - 1, 1)).getUTCDay() + 6) % 7

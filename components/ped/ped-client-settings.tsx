@@ -12,10 +12,12 @@ export function PedClientSettings({
   settings,
   clients,
   userName,
+  readOnly = false,
 }: {
   settings: Setting[]
   clients: Client[]
   userName?: string
+  readOnly?: boolean
 }) {
   const router = useRouter()
   const [adding, setAdding] = useState(false)
@@ -67,21 +69,27 @@ export function PedClientSettings({
         {settings.map((s) => (
           <li key={s.id} className="flex items-center gap-3 flex-wrap">
             <span className="text-white min-w-[220px] shrink-0">{s.client.name}</span>
-            <input
-              type="number"
-              min={0}
-              value={s.contentsPerWeek}
-              onChange={(e) => handleUpdate(s.clientId, parseInt(e.target.value, 10) || 0)}
-              className="w-20 px-2 py-1 bg-dark border border-accent/20 rounded text-white text-sm"
-            />
-            <span className="text-white/60 text-sm">contenuti/mese</span>
-            <Button variant="ghost" size="sm" onClick={() => handleRemove(s.clientId)} className="text-red-400">
-              Rimuovi
-            </Button>
+            {readOnly ? (
+              <span className="text-white/80 text-sm">{s.contentsPerWeek} contenuti/mese</span>
+            ) : (
+              <>
+                <input
+                  type="number"
+                  min={0}
+                  value={s.contentsPerWeek}
+                  onChange={(e) => handleUpdate(s.clientId, parseInt(e.target.value, 10) || 0)}
+                  className="w-20 px-2 py-1 bg-dark border border-accent/20 rounded text-white text-sm"
+                />
+                <span className="text-white/60 text-sm">contenuti/mese</span>
+                <Button variant="ghost" size="sm" onClick={() => handleRemove(s.clientId)} className="text-red-400">
+                  Rimuovi
+                </Button>
+              </>
+            )}
           </li>
         ))}
       </ul>
-      {adding ? (
+      {!readOnly && (adding ? (
         <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-white/10">
           <select
             value={selectedClientId}
@@ -108,7 +116,7 @@ export function PedClientSettings({
         <Button size="sm" variant="secondary" onClick={() => setAdding(true)} disabled={availableClients.length === 0}>
           + Aggiungi cliente
         </Button>
-      )}
+      ))}
       {settings.length > 0 && (
         <p className="text-white/50 text-sm mt-2">Totale contenuti/mese pianificati: {totalTarget}</p>
       )}

@@ -108,6 +108,7 @@ export function PedCalendar({
   items,
   dailyStats,
   currentUserId,
+  readOnly = false,
   onOpenAdd,
   onOpenAddExtra,
   onOpenEdit,
@@ -125,6 +126,7 @@ export function PedCalendar({
   items: PedItem[]
   dailyStats: Record<string, { total: number; done: number; remainingPct: number }>
   currentUserId: string
+  readOnly?: boolean
   onOpenAdd?: (dateKey: string) => void
   onOpenAddExtra?: (weekStartDateKey: string) => void
   onOpenEdit: (item: PedItem) => void
@@ -177,6 +179,7 @@ export function PedCalendar({
 
   const handleDropOnDay = (targetDateKey: string) => (e: React.DragEvent) => {
     e.preventDefault()
+    if (readOnly) return
     const raw = e.dataTransfer.getData(DRAG_TYPE)
     if (!raw) return
     try {
@@ -196,6 +199,7 @@ export function PedCalendar({
 
   const handleDropOnExtra = (weekStartKey: string) => (e: React.DragEvent) => {
     e.preventDefault()
+    if (readOnly) return
     const raw = e.dataTransfer.getData(DRAG_TYPE)
     if (!raw) return
     try {
@@ -222,6 +226,7 @@ export function PedCalendar({
   ) => (e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
+    if (readOnly) return
     const raw = e.dataTransfer.getData(DRAG_TYPE)
     if (!raw) return
     try {
@@ -375,7 +380,7 @@ export function PedCalendar({
                     onDragOver={handleDragOver}
                     onDrop={handleDropOnDay(cell.dateKey)}
                     onClick={
-                      onOpenAdd
+                      onOpenAdd && !readOnly
                         ? (e) => {
                             if (!(e.target as HTMLElement).closest('li')) onOpenAdd(cell.dateKey)
                           }
@@ -390,7 +395,7 @@ export function PedCalendar({
                       >
                         {cell.dayNum}
                       </span>
-                      {onOpenAdd && (
+                      {onOpenAdd && !readOnly && (
                         <button
                           type="button"
                           onClick={(e) => { e.stopPropagation(); onOpenAdd(cell.dateKey) }}
@@ -415,14 +420,14 @@ export function PedCalendar({
                         return (
                           <li
                             key={item.id}
-                            draggable
-                            onDragOver={(e) => {
+                            draggable={!readOnly}
+                            onDragOver={readOnly ? undefined : (e) => {
                               e.preventDefault()
                               e.stopPropagation()
                               e.dataTransfer.dropEffect = 'move'
                             }}
-                            onDrop={handleReorderInDay(cell.dateKey, false, cell.items, index)}
-                            onDragStart={(e) => {
+                            onDrop={readOnly ? undefined : handleReorderInDay(cell.dateKey, false, cell.items, index)}
+                            onDragStart={readOnly ? undefined : (e) => {
                               const copyMode = e.altKey
                               e.dataTransfer.setData(DRAG_TYPE, JSON.stringify({
                                 id: item.id,
@@ -433,36 +438,37 @@ export function PedCalendar({
                               e.dataTransfer.effectAllowed = copyMode ? 'copy' : 'move'
                               justDraggedRef.current = true
                             }}
-                            onDragEnd={() => {
+                            onDragEnd={readOnly ? undefined : () => {
                               setTimeout(() => { justDraggedRef.current = false }, 150)
                             }}
-                            onContextMenu={(e) => {
+                            onContextMenu={readOnly ? undefined : (e) => {
                               e.preventDefault()
                               setContextMenu({ x: e.clientX, y: e.clientY, item })
                             }}
-                            className="text-xs flex items-center gap-2 cursor-grab active:cursor-grabbing rounded px-2 py-1.5"
+                            className={`text-xs flex items-center gap-2 rounded px-2 py-1.5 ${readOnly ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'}`}
                             style={itemStyle}
                           >
                             <input
                               type="checkbox"
                               checked={item.status === 'DONE'}
-                              onChange={() => onToggleDone(item.id)}
+                              disabled={readOnly}
+                              onChange={readOnly ? undefined : () => onToggleDone(item.id)}
                               className="shrink-0 border-white/50"
                               aria-label={item.status === 'DONE' ? 'Fatto' : 'Da fare'}
                             />
                             {isDelegated && (
                               <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide opacity-90">Delegato</span>
                             )}
-                            <button
-                              type="button"
-                              onClick={() => {
+                            <span
+                              className={`text-left truncate flex-1 min-w-0 font-medium ${readOnly ? '' : 'cursor-pointer hover:underline'}`}
+                              onClick={readOnly ? undefined : () => {
                                 if (justDraggedRef.current) return
                                 onOpenEdit(item)
                               }}
-                              className="text-left hover:underline truncate flex-1 min-w-0 font-medium"
+                              role={readOnly ? undefined : 'button'}
                             >
                               <span className="font-bold">{item.client.name}</span> · {PED_ITEM_TYPE_LABELS[item.type] ?? item.type} · {item.title}
-                            </button>
+                            </span>
                           </li>
                         )
                       })}
@@ -493,7 +499,7 @@ export function PedCalendar({
                 >
                   <div className="flex justify-between items-center mb-1">
                     <span className="text-xs font-medium text-accent/90">Extra</span>
-                    {onOpenAddExtra && (
+                    {onOpenAddExtra && !readOnly && (
                       <button
                         type="button"
                         onClick={() => onOpenAddExtra(weekStartKey)}
@@ -515,14 +521,14 @@ export function PedCalendar({
                       return (
                         <li
                           key={item.id}
-                          draggable
-                          onDragOver={(e) => {
+                          draggable={!readOnly}
+                          onDragOver={readOnly ? undefined : (e) => {
                             e.preventDefault()
                             e.stopPropagation()
                             e.dataTransfer.dropEffect = 'move'
                           }}
-                          onDrop={handleReorderInDay(weekStartKey, true, extraItems, index)}
-                          onDragStart={(e) => {
+                          onDrop={readOnly ? undefined : handleReorderInDay(weekStartKey, true, extraItems, index)}
+                          onDragStart={readOnly ? undefined : (e) => {
                             const copyMode = e.altKey
                             e.dataTransfer.setData(DRAG_TYPE, JSON.stringify({
                               id: item.id,
@@ -533,36 +539,37 @@ export function PedCalendar({
                             e.dataTransfer.effectAllowed = copyMode ? 'copy' : 'move'
                             justDraggedRef.current = true
                           }}
-                          onDragEnd={() => {
+                          onDragEnd={readOnly ? undefined : () => {
                             setTimeout(() => { justDraggedRef.current = false }, 150)
                           }}
-                          onContextMenu={(e) => {
+                          onContextMenu={readOnly ? undefined : (e) => {
                             e.preventDefault()
                             setContextMenu({ x: e.clientX, y: e.clientY, item })
                           }}
-                          className="text-xs flex items-center gap-2 cursor-grab active:cursor-grabbing rounded px-2 py-1.5"
+                          className={`text-xs flex items-center gap-2 rounded px-2 py-1.5 ${readOnly ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'}`}
                           style={itemStyle}
                         >
                           <input
                             type="checkbox"
                             checked={item.status === 'DONE'}
-                            onChange={() => onToggleDone(item.id)}
+                            disabled={readOnly}
+                            onChange={readOnly ? undefined : () => onToggleDone(item.id)}
                             className="shrink-0 border-white/50"
                             aria-label={item.status === 'DONE' ? 'Fatto' : 'Da fare'}
                           />
                           {isDelegated && (
                             <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide opacity-90">Delegato</span>
                           )}
-                          <button
-                            type="button"
-                            onClick={() => {
+                          <span
+                            className={`text-left truncate flex-1 min-w-0 font-medium ${readOnly ? '' : 'cursor-pointer hover:underline'}`}
+                            onClick={readOnly ? undefined : () => {
                               if (justDraggedRef.current) return
                               onOpenEdit(item)
                             }}
-                            className="text-left hover:underline truncate flex-1 min-w-0 font-medium"
+                            role={readOnly ? undefined : 'button'}
                           >
                             <span className="font-bold">{item.client.name}</span> · {item.title}
-                          </button>
+                          </span>
                         </li>
                       )
                     })}
@@ -585,7 +592,7 @@ export function PedCalendar({
         </table>
       </div>
 
-      {contextMenu && (
+      {contextMenu && !readOnly && (
         <div
           className="fixed z-50 min-w-[180px] py-1 bg-dark border border-accent/20 rounded-lg shadow-lg"
           style={{ left: contextMenu.x, top: contextMenu.y }}
