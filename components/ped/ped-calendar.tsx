@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState, useEffect, useRef } from 'react'
-import { PED_PRIORITY_COLORS, PED_ITEM_TYPE_LABELS, PED_DELEGATED_STYLE, toDateString } from '@/lib/ped-utils'
+import { PED_PRIORITY_COLORS, PED_ITEM_TYPE_LABELS, PED_DELEGATED_STYLE, toDateString, getPriorityStyle } from '@/lib/ped-utils'
 
 const STORAGE_KEY_COLUMNS = 'ped-calendar-column-widths'
 const DEFAULT_COL_WIDTH = 160
@@ -418,7 +418,7 @@ export function PedCalendar({
                     <ul className="space-y-1.5">
                       {cell.items.map((item, index) => {
                         const isDelegated = item.assignedToUserId != null && item.assignedToUserId !== effectiveViewerId
-                        const colors = PED_PRIORITY_COLORS[item.priority] ?? PED_PRIORITY_COLORS.MEDIUM
+                        const colors = getPriorityStyle(item.priority)
                         const doneStyle = item.status === 'DONE' ? PED_PRIORITY_COLORS.NOT_URGENT : null
                         const itemStyle = isDelegated
                           ? PED_DELEGATED_STYLE
@@ -524,7 +524,7 @@ export function PedCalendar({
                   <ul className="space-y-1.5">
                     {extraItems.map((item, index) => {
                       const isDelegated = item.assignedToUserId != null && item.assignedToUserId !== effectiveViewerId
-                      const colors = PED_PRIORITY_COLORS[item.priority] ?? PED_PRIORITY_COLORS.MEDIUM
+                      const colors = getPriorityStyle(item.priority)
                       const doneStyle = item.status === 'DONE' ? PED_PRIORITY_COLORS.NOT_URGENT : null
                       const itemStyle = isDelegated
                         ? PED_DELEGATED_STYLE

@@ -251,7 +251,7 @@ export async function getPedClientSettingByClient(clientId: string) {
   return setting ? { contentsPerWeek: setting.contentsPerWeek } : null
 }
 
-/** PED per la scheda cliente: tutti i PedItem del cliente nel mese (tutti gli owner), visibili a tutti. */
+/** PED per la scheda cliente: tutti i PedItem e tutti i PedClientSetting del cliente (tutti gli owner), visibili a tutti. */
 export async function getPedMonthForClient(clientId: string, year: number, month: number) {
   const currentUser = await getCurrentUser()
   if (!currentUser) throw new Error('Non autorizzato')
@@ -264,7 +264,8 @@ export async function getPedMonthForClient(clientId: string, year: number, month
   const startDate = new Date(startMs)
   const endDate = new Date(endMs)
 
-  const allItemsRaw = await prisma.pedItem.findMany({
+  const [allItemsRaw, clientSettings] = await Promise.all([
+    prisma.pedItem.findMany({
     where: {
       clientId,
       date: { gte: startDate, lte: endDate },
@@ -275,7 +276,12 @@ export async function getPedMonthForClient(clientId: string, year: number, month
       owner: { select: { id: true, name: true } },
       assignedTo: { select: { id: true, name: true } },
     },
-  })
+  }),
+    prisma.pedClientSetting.findMany({
+      where: { clientId },
+      include: { owner: { select: { id: true, name: true } } },
+    }),
+  ])
 
   const priorityRank = (p: string) => ({ URGENT: 0, MEDIUM: 1, NOT_URGENT: 2 }[p] ?? 1)
   const items = [...allItemsRaw].sort((a, b) => {
@@ -330,6 +336,7 @@ export async function getPedMonthForClient(clientId: string, year: number, month
 
   return {
     pedItems: items,
+    pedClientSettings: clientSettings,
     computedStats: {
       dailyStats,
       weeklyStats,

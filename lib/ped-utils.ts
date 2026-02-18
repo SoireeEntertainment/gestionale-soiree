@@ -30,6 +30,20 @@ export const PED_PRIORITY_COLORS: Record<
   },
 }
 
+/** Stile priorità con fallback a MEDIUM se priority null/undefined/invalida. Usare ovunque per coerenza colori/etichette. */
+export function getPriorityStyle(priority: string | null | undefined) {
+  const key = priority && priority in PED_PRIORITY_COLORS ? priority : 'MEDIUM'
+  return PED_PRIORITY_COLORS[key]
+}
+
+/**
+ * Converte target contenuti/settimana in contenuti/mese (MVP: 4 settimane).
+ * Usare per visualizzazione "Target contenuti/mese" in scheda cliente.
+ */
+export function contentsPerWeekToContentsPerMonth(contentsPerWeek: number): number {
+  return Math.round(contentsPerWeek * 4)
+}
+
 /** Stile per voci PED delegate a un altro utente (mostrate nel calendario del proprietario). */
 export const PED_DELEGATED_STYLE = {
   backgroundColor: 'rgba(124, 58, 237, 0.9)',
