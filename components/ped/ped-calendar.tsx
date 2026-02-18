@@ -112,6 +112,7 @@ export function PedCalendar({
   dailyStats,
   currentUserId,
   viewAsUserId = null,
+  alwaysUsePriorityStyle = false,
   readOnly = false,
   onOpenAdd,
   onOpenAddExtra,
@@ -132,6 +133,8 @@ export function PedCalendar({
   currentUserId: string
   /** Quando si visualizza il PED di un altro utente, lo stile "delegated" è calcolato rispetto a lui (i suoi colori). */
   viewAsUserId?: string | null
+  /** In scheda cliente: mostra sempre i colori per priorità (come le vede l'owner), mai viola "delegated". */
+  alwaysUsePriorityStyle?: boolean
   readOnly?: boolean
   onOpenAdd?: (dateKey: string) => void
   onOpenAddExtra?: (weekStartDateKey: string) => void
@@ -146,6 +149,8 @@ export function PedCalendar({
   filterType: string
 }) {
   const effectiveViewerId = viewAsUserId ?? currentUserId
+  const showAsDelegated = (item: PedItem) =>
+    !alwaysUsePriorityStyle && item.assignedToUserId != null && item.assignedToUserId !== effectiveViewerId
   const [columnWidths, setColumnWidths] = useState<number[]>(DEFAULT_COLUMN_WIDTHS)
   const [resizingCol, setResizingCol] = useState<number | null>(null)
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(null)
@@ -417,7 +422,7 @@ export function PedCalendar({
                     )}
                     <ul className="space-y-1.5">
                       {cell.items.map((item, index) => {
-                        const isDelegated = item.assignedToUserId != null && item.assignedToUserId !== effectiveViewerId
+                        const isDelegated = showAsDelegated(item)
                         const colors = getPriorityStyle(item.priority)
                         const doneStyle = item.status === 'DONE' ? PED_PRIORITY_COLORS.NOT_URGENT : null
                         const itemStyle = isDelegated
@@ -523,7 +528,7 @@ export function PedCalendar({
                   </div>
                   <ul className="space-y-1.5">
                     {extraItems.map((item, index) => {
-                      const isDelegated = item.assignedToUserId != null && item.assignedToUserId !== effectiveViewerId
+                      const isDelegated = showAsDelegated(item)
                       const colors = getPriorityStyle(item.priority)
                       const doneStyle = item.status === 'DONE' ? PED_PRIORITY_COLORS.NOT_URGENT : null
                       const itemStyle = isDelegated

@@ -16,7 +16,7 @@ import {
   emptyPedMonthForClient,
   createPedItem,
 } from '@/app/actions/ped'
-import { getISOWeekStart, toDateString, contentsPerWeekToContentsPerMonth } from '@/lib/ped-utils'
+import { getISOWeekStart, toDateString } from '@/lib/ped-utils'
 
 function getISOWeekStartKey(dateKey: string): string {
   return toDateString(getISOWeekStart(new Date(dateKey + 'T00:00:00.000Z')))
@@ -71,10 +71,6 @@ type PedData = {
     weeklyStats: { weekStart: string; weekEnd: string; total: number; done: number }[]
     monthlyStats: { total: number; done: number }
   }
-}
-
-function abbreviateOwnerId(id: string): string {
-  return id.length > 10 ? id.slice(0, 8) + '…' : id
 }
 
 type User = { id: string; name: string }
@@ -421,27 +417,11 @@ export function ClientPedSection({
           )}
         </div>
       </div>
-      {/* Target contenuti/mese: tutti gli owner (visibile anche se il cliente non è nel mio PED) */}
-      <div className="mb-4 p-3 rounded-lg bg-white/5 border border-accent/20">
-        <h3 className="text-sm font-semibold text-white mb-2">Target contenuti/mese</h3>
-        {(data.pedClientSettings?.length ?? 0) > 0 ? (
-          <>
-            <ul className="space-y-1 text-sm text-white/90 mb-2">
-              {data.pedClientSettings.map((s) => (
-                <li key={s.id}>
-                  <span className="font-medium">{s.owner?.name ?? abbreviateOwnerId(s.ownerId)}</span>
-                  {' '}: {contentsPerWeekToContentsPerMonth(s.contentsPerWeek)} contenuti/mese
-                </li>
-              ))}
-            </ul>
-            <p className="text-sm text-accent/90">
-              Totale target mese: {data.pedClientSettings.reduce((sum, s) => sum + contentsPerWeekToContentsPerMonth(s.contentsPerWeek), 0)} contenuti/mese
-            </p>
-          </>
-        ) : (
-          <p className="text-sm text-white/60">Target non impostato.</p>
-        )}
-      </div>
+      <p className="text-sm text-white/80 mb-3">
+        Contenuti/mese: {(data.pedClientSettings?.length ?? 0) > 0
+          ? String(data.pedClientSettings.reduce((sum, s) => sum + s.contentsPerWeek, 0))
+          : 'non impostato'}
+      </p>
       {canWrite && (
         <div className="flex flex-wrap items-center gap-2 mb-3">
           <label className="text-white/70 text-sm flex items-center gap-2">
@@ -479,6 +459,7 @@ export function ClientPedSection({
             items={itemsWithDateString}
             dailyStats={data.computedStats.dailyStats}
             currentUserId={currentUserId}
+            alwaysUsePriorityStyle
             onOpenAdd={canWrite ? handleOpenAdd : undefined}
             onOpenAddExtra={canWrite ? handleOpenAddExtra : undefined}
             onOpenEdit={handleOpenEdit}
