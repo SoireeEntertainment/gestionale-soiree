@@ -71,7 +71,7 @@ function PieChart({
         </svg>
         <div
           className="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none"
-          style={{ transform: 'rotate(90deg)' }}
+          style={{ transform: 'rotate(-90deg)' }}
         >
           <span className="text-lg font-bold text-white leading-tight">{pct}%</span>
           <span className="text-[10px] text-white/70">fatto</span>

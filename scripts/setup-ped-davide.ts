@@ -53,6 +53,7 @@ async function main() {
     where: {
       OR: [
         { name: { contains: 'Davide Piccolo' } },
+        { email: 'davide@soiree.it' },
         { email: 'davide@soiree.studio' },
       ],
     },
@@ -69,13 +70,17 @@ async function main() {
   console.log('Clienti nel DB:', allClients.length)
 
   let added = 0
-  const notFound: string[] = []
 
   for (const { name: wantedName, contentsPerWeek } of PED_CLIENTS) {
-    const client = findBestClientMatch(wantedName, allClients)
+    let client = findBestClientMatch(wantedName, allClients)
     if (!client) {
-      notFound.push(wantedName)
-      continue
+      const created = await prisma.client.create({
+        data: { name: wantedName },
+        select: { id: true, name: true },
+      })
+      allClients.push(created)
+      client = created
+      console.log('  Creato cliente:', wantedName)
     }
     await prisma.pedClientSetting.upsert({
       where: {
@@ -88,13 +93,10 @@ async function main() {
         contentsPerWeek,
       },
     })
-    console.log('  PED:', client.name, '->', contentsPerWeek, 'contenuti/settimana')
+    console.log('  PED:', client.name, '->', contentsPerWeek, 'contenuti/mese')
     added++
   }
 
-  if (notFound.length) {
-    console.log('\n⚠ Clienti non trovati nel DB (verifica il nome):', notFound.join(', '))
-  }
   console.log('\n✅ PED aggiornato:', added, 'clienti assegnati a', user.name)
 }
 
