@@ -1,5 +1,14 @@
 import { prisma } from './prisma'
 
+/** Email degli utenti che possono essere mostrati nel selettore "Guarda PED di..." (e in altre liste PED). */
+export const ALLOWED_PED_USER_EMAILS = [
+  'alessia@soiree.it',
+  'cristian.palazzolo@soiree.it',
+  'daniele@soiree.it',
+  'davide@soiree.it',
+  'enrico@soiree.it',
+] as const
+
 /**
  * Ottiene tutti gli utenti attivi
  */
@@ -8,6 +17,15 @@ export async function getUsers() {
     where: { isActive: true },
     orderBy: { name: 'asc' },
   })
+}
+
+/**
+ * Utenti da mostrare nel PED (dropdown "Guarda PED di..."): solo i 5 autorizzati.
+ * Agente 1/2 e altri non devono comparire.
+ */
+export async function getUsersForPed() {
+  const all = await getUsers()
+  return all.filter((u) => ALLOWED_PED_USER_EMAILS.includes(u.email as (typeof ALLOWED_PED_USER_EMAILS)[number]))
 }
 
 /**

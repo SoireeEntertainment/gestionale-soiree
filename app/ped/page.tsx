@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation'
 import { requireAuth } from '@/lib/auth-dev'
 import { getPedMonth } from '@/app/actions/ped'
 import { prisma } from '@/lib/prisma'
-import { getUsers } from '@/lib/users'
+import { getUsersForPed } from '@/lib/users'
 import { PedView } from '@/components/ped/ped-view'
 
 export const dynamic = 'force-dynamic'
@@ -22,7 +22,7 @@ export default async function PedPage(props: {
   const validYear = Number.isFinite(year) && year >= 2020 && year <= 2030 ? year : DEFAULT_YEAR
   const validMonth = Number.isFinite(month) && month >= 1 && month <= 12 ? month : DEFAULT_MONTH
 
-  const users = await getUsers()
+  const users = await getUsersForPed()
   const requestedUserId = searchParams.userId?.trim() || null
   const validViewUserId =
     requestedUserId && users.some((u) => u.id === requestedUserId) ? requestedUserId : null
