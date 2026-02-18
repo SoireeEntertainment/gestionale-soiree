@@ -251,6 +251,93 @@ export async function getPedClientSettingByClient(clientId: string) {
   return setting ? { contentsPerWeek: setting.contentsPerWeek } : null
 }
 
+/** PED per la scheda cliente: tutti i PedItem del cliente nel mese (tutti gli owner), visibili a tutti. */
+export async function getPedMonthForClient(clientId: string, year: number, month: number) {
+  const currentUser = await getCurrentUser()
+  if (!currentUser) throw new Error('Non autorizzato')
+
+  const firstWeekday = (new Date(Date.UTC(year, month - 1, 1)).getUTCDay() + 6) % 7
+  const lastDay = new Date(Date.UTC(year, month, 0))
+  const daysToSunday = (7 - lastDay.getUTCDay()) % 7
+  const startMs = Date.UTC(year, month - 1, 1 - firstWeekday, 0, 0, 0, 0)
+  const endMs = lastDay.getTime() + daysToSunday * 24 * 60 * 60 * 1000 + 23 * 60 * 60 * 1000 + 59 * 60 * 1000 + 59 * 1000 + 999
+  const startDate = new Date(startMs)
+  const endDate = new Date(endMs)
+
+  const allItemsRaw = await prisma.pedItem.findMany({
+    where: {
+      clientId,
+      date: { gte: startDate, lte: endDate },
+    },
+    include: {
+      client: { select: { id: true, name: true } },
+      work: { select: { id: true, title: true } },
+      owner: { select: { id: true, name: true } },
+      assignedTo: { select: { id: true, name: true } },
+    },
+  })
+
+  const priorityRank = (p: string) => ({ URGENT: 0, MEDIUM: 1, NOT_URGENT: 2 }[p] ?? 1)
+  const items = [...allItemsRaw].sort((a, b) => {
+    const da = new Date(a.date).getTime()
+    const db = new Date(b.date).getTime()
+    if (da !== db) return da - db
+    const doneA = a.status === 'DONE' ? 1 : 0
+    const doneB = b.status === 'DONE' ? 1 : 0
+    if (doneA !== doneB) return doneA - doneB
+    const prioA = priorityRank(a.priority)
+    const prioB = priorityRank(b.priority)
+    if (prioA !== prioB) return prioA - prioB
+    return (a.title || '').localeCompare(b.title || '', 'it')
+  })
+
+  const dailyStats: Record<string, { total: number; done: number; remainingPct: number }> = {}
+  const weekMap = new Map<string, { total: number; done: number }>()
+  let monthlyTotal = 0
+  let monthlyDone = 0
+
+  for (const item of items) {
+    const dayKey = toDateString(new Date(item.date))
+    if (!dailyStats[dayKey]) dailyStats[dayKey] = { total: 0, done: 0, remainingPct: 0 }
+    dailyStats[dayKey].total++
+    if (item.status === 'DONE') dailyStats[dayKey].done++
+    monthlyTotal++
+    if (item.status === 'DONE') monthlyDone++
+
+    const weekStart = getISOWeekStart(new Date(item.date))
+    const weekKey = toDateString(weekStart)
+    if (!weekMap.has(weekKey)) weekMap.set(weekKey, { total: 0, done: 0 })
+    const w = weekMap.get(weekKey)!
+    w.total++
+    if (item.status === 'DONE') w.done++
+  }
+
+  for (const key of Object.keys(dailyStats)) {
+    const s = dailyStats[key]
+    s.remainingPct = s.total === 0 ? 0 : Math.round(((s.total - s.done) / s.total) * 100)
+  }
+
+  const weeklyStats = Array.from(weekMap.entries()).map(([weekStart, { total, done }]) => {
+    const d = new Date(weekStart + 'T00:00:00.000Z')
+    d.setUTCDate(d.getUTCDate() + 6)
+    return {
+      weekStart,
+      weekEnd: toDateString(d),
+      total,
+      done,
+    }
+  })
+
+  return {
+    pedItems: items,
+    computedStats: {
+      dailyStats,
+      weeklyStats,
+      monthlyStats: { total: monthlyTotal, done: monthlyDone },
+    },
+  }
+}
+
 /** Riempe il mese solo per un cliente (stessa logica giorni di fillPedMonth). Le task compaiono anche nel PED generale. */
 export async function fillPedMonthForClient(clientId: string, year: number, month: number) {
   const ownerId = await getOwnerId()

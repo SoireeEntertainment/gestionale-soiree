@@ -19,17 +19,15 @@ export default async function ClientDetailPage(props: {
     prisma.category.findMany(),
     getUsers(),
     getClientCredentials(id),
-    isAdmin
-      ? Promise.all([
-          prisma.client.findMany({ orderBy: { name: 'asc' }, select: { id: true, name: true } }),
-          prisma.work.findMany({ orderBy: { title: 'asc' }, select: { id: true, title: true } }),
-          getPedClientSettingByClient(id),
-        ]).then(([pedClients, pedWorks, pedSetting]) => ({
-          pedClients,
-          pedWorks,
-          pedContentsPerMonth: pedSetting?.contentsPerWeek ?? 0,
-        }))
-      : Promise.resolve({ pedClients: [] as { id: string; name: string }[], pedWorks: [] as { id: string; title: string }[], pedContentsPerMonth: 0 }),
+    Promise.all([
+      prisma.client.findMany({ orderBy: { name: 'asc' }, select: { id: true, name: true } }),
+      prisma.work.findMany({ orderBy: { title: 'asc' }, select: { id: true, title: true } }),
+      getPedClientSettingByClient(id),
+    ]).then(([pedClients, pedWorks, pedSetting]) => ({
+      pedClients,
+      pedWorks,
+      pedContentsPerMonth: pedSetting?.contentsPerWeek ?? 0,
+    })),
   ])
 
   if (!client) redirect('/clients')
@@ -43,7 +41,7 @@ export default async function ClientDetailPage(props: {
       allCategories={categories}
       users={users}
       canWrite={canWrite}
-      showPedSection={isAdmin}
+      showPedSection={true}
       pedClients={pedData.pedClients}
       pedWorks={pedData.pedWorks}
       pedContentsPerMonth={pedData.pedContentsPerMonth}

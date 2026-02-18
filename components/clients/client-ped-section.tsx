@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { PedCalendar } from '@/components/ped/ped-calendar'
 import { PedItemModal } from '@/components/ped/ped-item-modal'
-import { getPedMonth } from '@/app/actions/ped'
+import { getPedMonthForClient } from '@/app/actions/ped'
 import {
   togglePedItemDone,
   updatePedItem,
@@ -39,6 +39,7 @@ type PedItem = {
   id: string
   date: string
   clientId: string
+  ownerId?: string
   kind: string
   type: string
   title: string
@@ -49,12 +50,12 @@ type PedItem = {
   isExtra?: boolean
   assignedToUserId?: string | null
   assignedTo?: { id: string; name: string } | null
+  owner?: { id: string; name: string } | null
   client: { id: string; name: string }
   work?: { id: string; title: string } | null
 }
 
 type PedData = {
-  pedClientSettings: unknown[]
   pedItems: PedItem[]
   computedStats: {
     dailyStats: Record<string, { total: number; done: number; remainingPct: number }>
@@ -148,7 +149,7 @@ export function ClientPedSection({
   const refetch = async () => {
     setLoading(true)
     try {
-      const result = await getPedMonth(year, month)
+      const result = await getPedMonthForClient(clientId, year, month)
       const pedItems = result.pedItems.map((item) => ({
         ...item,
         date: typeof item.date === 'string' ? item.date : (item.date as unknown as Date).toISOString?.()?.slice(0, 10) ?? '',
@@ -164,7 +165,7 @@ export function ClientPedSection({
   useEffect(() => {
     let cancelled = false
     setLoading(true)
-    getPedMonth(year, month)
+    getPedMonthForClient(clientId, year, month)
       .then((result) => {
         if (cancelled) return
         const pedItems = result.pedItems.map((item) => ({
@@ -180,7 +181,7 @@ export function ClientPedSection({
         if (!cancelled) setLoading(false)
       })
     return () => { cancelled = true }
-  }, [year, month])
+  }, [clientId, year, month])
 
   const itemsWithDateString = useMemo(() => data?.pedItems ?? [], [data])
 

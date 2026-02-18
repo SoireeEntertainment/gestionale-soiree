@@ -31,7 +31,9 @@ type PedItem = {
   isExtra?: boolean
   assignedToUserId?: string | null
   assignedTo?: { id: string; name: string } | null
+  owner?: { id: string; name: string } | null
   client: { id: string; name: string }
+  work?: { id: string; title: string } | null
 }
 
 type DayCell = {
@@ -474,6 +476,11 @@ export function PedCalendar({
                             >
                               <span className="font-bold">{item.client.name}</span> · {PED_ITEM_TYPE_LABELS[item.type] ?? item.type} · {item.title}
                             </span>
+                            {item.owner?.name && (
+                              <span className="shrink-0 text-[10px] text-white/60" title={`Creato da: ${item.owner.name}`}>
+                                Dal PED di {item.owner.name}
+                              </span>
+                            )}
                           </li>
                         )
                       })}
@@ -575,6 +582,11 @@ export function PedCalendar({
                           >
                             <span className="font-bold">{item.client.name}</span> · {item.title}
                           </span>
+                          {item.owner?.name && (
+                            <span className="shrink-0 text-[10px] text-white/60" title={`Creato da: ${item.owner.name}`}>
+                              Dal PED di {item.owner.name}
+                            </span>
+                          )}
                         </li>
                       )
                     })}
