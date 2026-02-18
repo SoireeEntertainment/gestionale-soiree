@@ -69,10 +69,7 @@ function PieChart({
             strokeDashoffset={-dashRem}
           />
         </svg>
-        <div
-          className="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none"
-          style={{ transform: 'rotate(-90deg)' }}
-        >
+        <div className="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none">
           <span className="text-lg font-bold text-white leading-tight">{pct}%</span>
           <span className="text-[10px] text-white/70">fatto</span>
         </div>

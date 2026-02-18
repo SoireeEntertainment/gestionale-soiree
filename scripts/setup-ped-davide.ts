@@ -1,7 +1,10 @@
 /**
- * Aggiunge i clienti al PED di Davide Piccolo con i contenuti/settimana indicati.
- * Esegui con: npx tsx scripts/setup-ped-davide.ts
+ * Aggiunge i clienti al PED di Davide Piccolo (contenuti/mese).
+ * - In locale: npx tsx scripts/setup-ped-davide.ts  (usa .env)
+ * - Per Vercel/produzione: copia DATABASE_URL da Vercel (Environment Variables)
+ *   poi: DATABASE_URL="postgres://..." npx tsx scripts/setup-ped-davide.ts
  */
+import 'dotenv/config'
 import { PrismaClient } from '@prisma/client'
 
 const prisma = new PrismaClient()
