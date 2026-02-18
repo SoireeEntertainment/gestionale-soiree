@@ -102,12 +102,14 @@ const DRAG_TYPE = 'application/x-ped-item'
 
 type ContextMenuState = { x: number; y: number; item: PedItem } | null
 
+/** Id dell'utente di cui si sta visualizzando il PED (per stile "delegated": usa i suoi colori, non quelli del loggato). */
 export function PedCalendar({
   year,
   month,
   items,
   dailyStats,
   currentUserId,
+  viewAsUserId = null,
   readOnly = false,
   onOpenAdd,
   onOpenAddExtra,
@@ -126,6 +128,8 @@ export function PedCalendar({
   items: PedItem[]
   dailyStats: Record<string, { total: number; done: number; remainingPct: number }>
   currentUserId: string
+  /** Quando si visualizza il PED di un altro utente, lo stile "delegated" è calcolato rispetto a lui (i suoi colori). */
+  viewAsUserId?: string | null
   readOnly?: boolean
   onOpenAdd?: (dateKey: string) => void
   onOpenAddExtra?: (weekStartDateKey: string) => void
@@ -139,6 +143,7 @@ export function PedCalendar({
   filterClientId: string
   filterType: string
 }) {
+  const effectiveViewerId = viewAsUserId ?? currentUserId
   const [columnWidths, setColumnWidths] = useState<number[]>(DEFAULT_COLUMN_WIDTHS)
   const [resizingCol, setResizingCol] = useState<number | null>(null)
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(null)
@@ -410,7 +415,7 @@ export function PedCalendar({
                     )}
                     <ul className="space-y-1.5">
                       {cell.items.map((item, index) => {
-                        const isDelegated = item.assignedToUserId != null && item.assignedToUserId !== currentUserId
+                        const isDelegated = item.assignedToUserId != null && item.assignedToUserId !== effectiveViewerId
                         const colors = PED_PRIORITY_COLORS[item.priority] ?? PED_PRIORITY_COLORS.MEDIUM
                         const doneStyle = item.status === 'DONE' ? PED_PRIORITY_COLORS.NOT_URGENT : null
                         const itemStyle = isDelegated
@@ -511,7 +516,7 @@ export function PedCalendar({
                   </div>
                   <ul className="space-y-1.5">
                     {extraItems.map((item, index) => {
-                      const isDelegated = item.assignedToUserId != null && item.assignedToUserId !== currentUserId
+                      const isDelegated = item.assignedToUserId != null && item.assignedToUserId !== effectiveViewerId
                       const colors = PED_PRIORITY_COLORS[item.priority] ?? PED_PRIORITY_COLORS.MEDIUM
                       const doneStyle = item.status === 'DONE' ? PED_PRIORITY_COLORS.NOT_URGENT : null
                       const itemStyle = isDelegated

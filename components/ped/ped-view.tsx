@@ -415,6 +415,7 @@ export function PedView({
                 items={itemsWithDateString}
                 dailyStats={initialData.computedStats.dailyStats}
                 currentUserId={currentUserId}
+                viewAsUserId={viewAsUserId}
                 readOnly={isViewingOtherUser}
                 onOpenAdd={handleOpenAdd}
                 onOpenAddExtra={handleOpenAddExtra}

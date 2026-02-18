@@ -48,8 +48,9 @@ export async function getPedMonth(year: number, month: number, viewAsUserId?: st
     include: { client: { select: { id: true, name: true } } },
   })
 
+  const itemWhere = { OR: [{ ownerId }, { assignedToUserId: ownerId }] }
   const allItemsRaw = await prisma.pedItem.findMany({
-    where: { ownerId },
+    where: itemWhere,
     include: {
       client: { select: { id: true, name: true } },
       work: { select: { id: true, title: true } },
@@ -59,7 +60,7 @@ export async function getPedMonth(year: number, month: number, viewAsUserId?: st
   const allItems = allItemsRaw
 
   const orderRows = await prisma.pedItem.findMany({
-    where: { ownerId },
+    where: itemWhere,
     select: { id: true, sortOrder: true },
   })
   const sortOrderById = new Map(orderRows.map((r) => [r.id, Number(r.sortOrder) ?? 0]))
