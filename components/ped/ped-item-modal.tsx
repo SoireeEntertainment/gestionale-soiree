@@ -4,8 +4,9 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { PED_PRIORITY_COLORS, PED_ITEM_TYPE_LABELS } from '@/lib/ped-utils'
-import { PED_ITEM_KINDS, PED_ITEM_TYPES, PED_PRIORITIES } from '@/lib/validations'
+import { PED_ITEM_TYPE_LABELS } from '@/lib/ped-utils'
+import { PED_ITEM_KINDS, PED_ITEM_TYPES } from '@/lib/validations'
+import { PED_LABELS, PED_LABEL_CONFIG, getEffectiveLabel, DEFAULT_LABEL, DONE_LABEL, type PedLabel } from '@/lib/pedLabels'
 import { createPedItem, updatePedItem, deletePedItem, togglePedItemDone, duplicatePedItem } from '@/app/actions/ped'
 import { createClient } from '@/app/actions/clients'
 import Link from 'next/link'
@@ -21,7 +22,8 @@ type PedItem = {
   type: string
   title: string
   description?: string | null
-  priority: string
+  priority?: string
+  label?: string | null
   status: string
   workId?: string | null
   isExtra?: boolean
@@ -68,7 +70,7 @@ export function PedItemModal({
   const [type, setType] = useState<string>('POST')
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
-  const [priority, setPriority] = useState<'NOT_URGENT' | 'MEDIUM' | 'URGENT'>('MEDIUM')
+  const [label, setLabel] = useState<PedLabel>(DEFAULT_LABEL)
   const [status, setStatus] = useState<'TODO' | 'DONE'>('TODO')
   const [workId, setWorkId] = useState('')
   const [isExtra, setIsExtra] = useState(false)
@@ -87,7 +89,8 @@ export function PedItemModal({
       setType(editItem.type)
       setTitle(editItem.title)
       setDescription(editItem.description ?? '')
-      setPriority(editItem.priority as 'NOT_URGENT' | 'MEDIUM' | 'URGENT')
+      const effectiveLabel = getEffectiveLabel(editItem)
+      setLabel(effectiveLabel)
       setStatus(editItem.status as 'TODO' | 'DONE')
       setWorkId(editItem.workId ?? '')
       setIsExtra(Boolean(editItem.isExtra))
@@ -100,7 +103,7 @@ export function PedItemModal({
       setType('POST')
       setTitle('')
       setDescription('')
-      setPriority('MEDIUM')
+      setLabel(DEFAULT_LABEL)
       setStatus('TODO')
       setWorkId('')
       setIsExtra(initialIsExtra)
@@ -155,8 +158,8 @@ export function PedItemModal({
           type,
           title: title.trim(),
           description: description.trim() || null,
-          priority,
-          status,
+          label,
+          status: label === DONE_LABEL ? 'DONE' : 'TODO',
           workId: workId || null,
           isExtra,
           assignedToUserId: assignedToUserId || null,
@@ -169,7 +172,7 @@ export function PedItemModal({
           type,
           title: title.trim(),
           description: description.trim() || null,
-          priority,
+          label,
           workId: workId || null,
           isExtra,
           assignedToUserId: assignedToUserId || currentUserId,
@@ -200,6 +203,7 @@ export function PedItemModal({
     const result = await togglePedItemDone(editItem.id)
     if (result.ok) {
       setStatus((s) => (s === 'DONE' ? 'TODO' : 'DONE'))
+      setLabel((l) => (l === DONE_LABEL ? DEFAULT_LABEL : DONE_LABEL))
       onSuccess ? onSuccess() : router.refresh()
     } else {
       alert(result.error ?? 'Errore')
@@ -318,16 +322,19 @@ export function PedItemModal({
             <textarea value={description} onChange={(e) => setDescription(e.target.value)} className="w-full px-3 py-2 bg-dark border border-accent/20 rounded text-white min-h-[80px]" />
           </div>
           <div>
-            <label className="block text-sm text-white/70 mb-1">Priorità</label>
-            <div className="flex gap-2">
-              {PED_PRIORITIES.map((p) => {
-                const c = PED_PRIORITY_COLORS[p]
+            <label className="block text-sm text-white/70 mb-1">Etichetta</label>
+            <div className="flex flex-wrap gap-2">
+              {PED_LABELS.map((key) => {
+                const c = PED_LABEL_CONFIG[key]
                 return (
                   <button
-                    key={p}
+                    key={key}
                     type="button"
-                    onClick={() => setPriority(p)}
-                    className={`px-3 py-1.5 rounded text-sm ${priority === p ? c.bg + ' ' + c.text : 'bg-white/10 text-white/70'}`}
+                    onClick={() => {
+                      setLabel(key)
+                      setStatus(key === DONE_LABEL ? 'DONE' : 'TODO')
+                    }}
+                    className={`px-3 py-1.5 rounded text-sm ${label === key ? c.bg + ' ' + c.text : 'bg-white/10 text-white/70'}`}
                   >
                     {c.label}
                   </button>
@@ -343,11 +350,20 @@ export function PedItemModal({
           </div>
           {editItem && (
             <div>
-              <label className="block text-sm text-white/70 mb-1">Stato</label>
-              <select value={status} onChange={(e) => setStatus(e.target.value as 'TODO' | 'DONE')} className="w-full px-3 py-2 bg-dark border border-accent/20 rounded text-white">
-                <option value="TODO">Da fare</option>
-                <option value="DONE">Fatto</option>
-              </select>
+              <label className="block text-sm text-white/70 mb-1">Completato</label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={status === 'DONE'}
+                  onChange={(e) => {
+                    const checked = e.target.checked
+                    setStatus(checked ? 'DONE' : 'TODO')
+                    setLabel(checked ? DONE_LABEL : DEFAULT_LABEL)
+                  }}
+                  className="rounded"
+                />
+                <span className="text-sm text-white/70">Task completata (Fatto)</span>
+              </label>
               <Button variant="ghost" size="sm" onClick={handleToggleDone} className="mt-2">Toggle completato</Button>
             </div>
           )}

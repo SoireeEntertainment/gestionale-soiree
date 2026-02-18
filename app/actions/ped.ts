@@ -6,7 +6,8 @@ import { Prisma } from '@prisma/client'
 import { getCurrentUser } from '@/lib/auth-dev'
 import { prisma } from '@/lib/prisma'
 import { toDateString, getISOWeekStart } from '@/lib/ped-utils'
-import { pedClientSettingSchema, pedItemCreateSchema, pedItemUpdateSchema } from '@/lib/validations'
+import { getEffectiveLabel, PED_LABEL_ORDER, DEFAULT_LABEL, DONE_LABEL } from '@/lib/pedLabels'
+import { pedClientSettingSchema, pedItemCreateSchema, pedItemUpdateSchema, pedItemSetLabelSchema } from '@/lib/validations'
 
 async function getOwnerId(): Promise<string | null> {
   const user = await getCurrentUser()
@@ -70,29 +71,29 @@ export async function getPedMonth(year: number, month: number, viewAsUserId?: st
     return d >= startDate.getTime() && d <= endDate.getTime()
   })
 
-  // Ordine nella giornata: divisi per colore (URGENT → MEDIUM → NOT_URGENT), completate (DONE) in fondo; dentro ogni gruppo ordine alfabetico per titolo
-  const priorityRank = (p: string) => ({ URGENT: 0, MEDIUM: 1, NOT_URGENT: 2 }[p] ?? 1)
+  // Ordine: date → ordine etichetta (PED_LABEL_ORDER) → sortOrder → createdAt
+  const labelOrder = (item: (typeof filtered)[0]) => PED_LABEL_ORDER[getEffectiveLabel(item)] ?? 1
   const items = filtered.sort((a, b) => {
     const da = new Date(a.date).getTime()
     const db = new Date(b.date).getTime()
     if (da !== db) return da - db
-    const doneA = a.status === 'DONE' ? 1 : 0
-    const doneB = b.status === 'DONE' ? 1 : 0
-    if (doneA !== doneB) return doneA - doneB
-    const prioA = priorityRank(a.priority)
-    const prioB = priorityRank(b.priority)
-    if (prioA !== prioB) return prioA - prioB
-    return (a.title || '').localeCompare(b.title || '', 'it')
+    const orderA = labelOrder(a)
+    const orderB = labelOrder(b)
+    if (orderA !== orderB) return orderA - orderB
+    const soA = a.sortOrder ?? 0
+    const soB = b.sortOrder ?? 0
+    if (soA !== soB) return soA - soB
+    return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
   })
 
-  const dailyStats: Record<string, { total: number; done: number; remainingPct: number }> = {}
+  const dailyStats: Record<string, { total: number; done: number; remainingPct: number; remainingCount: number }> = {}
   const weekMap = new Map<string, { total: number; done: number }>()
   let monthlyTotal = 0
   let monthlyDone = 0
 
   for (const item of items) {
     const dayKey = toDateString(new Date(item.date))
-    if (!dailyStats[dayKey]) dailyStats[dayKey] = { total: 0, done: 0, remainingPct: 0 }
+    if (!dailyStats[dayKey]) dailyStats[dayKey] = { total: 0, done: 0, remainingPct: 0, remainingCount: 0 }
     dailyStats[dayKey].total++
     if (item.status === 'DONE') dailyStats[dayKey].done++
     monthlyTotal++
@@ -108,7 +109,8 @@ export async function getPedMonth(year: number, month: number, viewAsUserId?: st
 
   for (const key of Object.keys(dailyStats)) {
     const s = dailyStats[key]
-    s.remainingPct = s.total === 0 ? 0 : Math.round(((s.total - s.done) / s.total) * 100)
+    s.remainingCount = s.total - s.done
+    s.remainingPct = s.total === 0 ? 0 : Math.round((s.remainingCount / s.total) * 100)
   }
 
   const weeklyStats = Array.from(weekMap.entries()).map(([weekStart, { total, done }]) => {
@@ -283,28 +285,28 @@ export async function getPedMonthForClient(clientId: string, year: number, month
     }),
   ])
 
-  const priorityRank = (p: string) => ({ URGENT: 0, MEDIUM: 1, NOT_URGENT: 2 }[p] ?? 1)
+  const labelOrder = (item: (typeof allItemsRaw)[0]) => PED_LABEL_ORDER[getEffectiveLabel(item)] ?? 1
   const items = [...allItemsRaw].sort((a, b) => {
     const da = new Date(a.date).getTime()
     const db = new Date(b.date).getTime()
     if (da !== db) return da - db
-    const doneA = a.status === 'DONE' ? 1 : 0
-    const doneB = b.status === 'DONE' ? 1 : 0
-    if (doneA !== doneB) return doneA - doneB
-    const prioA = priorityRank(a.priority)
-    const prioB = priorityRank(b.priority)
-    if (prioA !== prioB) return prioA - prioB
-    return (a.title || '').localeCompare(b.title || '', 'it')
+    const orderA = labelOrder(a)
+    const orderB = labelOrder(b)
+    if (orderA !== orderB) return orderA - orderB
+    const soA = a.sortOrder ?? 0
+    const soB = b.sortOrder ?? 0
+    if (soA !== soB) return soA - soB
+    return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
   })
 
-  const dailyStats: Record<string, { total: number; done: number; remainingPct: number }> = {}
+  const dailyStats: Record<string, { total: number; done: number; remainingPct: number; remainingCount: number }> = {}
   const weekMap = new Map<string, { total: number; done: number }>()
   let monthlyTotal = 0
   let monthlyDone = 0
 
   for (const item of items) {
     const dayKey = toDateString(new Date(item.date))
-    if (!dailyStats[dayKey]) dailyStats[dayKey] = { total: 0, done: 0, remainingPct: 0 }
+    if (!dailyStats[dayKey]) dailyStats[dayKey] = { total: 0, done: 0, remainingPct: 0, remainingCount: 0 }
     dailyStats[dayKey].total++
     if (item.status === 'DONE') dailyStats[dayKey].done++
     monthlyTotal++
@@ -320,7 +322,8 @@ export async function getPedMonthForClient(clientId: string, year: number, month
 
   for (const key of Object.keys(dailyStats)) {
     const s = dailyStats[key]
-    s.remainingPct = s.total === 0 ? 0 : Math.round(((s.total - s.done) / s.total) * 100)
+    s.remainingCount = s.total - s.done
+    s.remainingPct = s.total === 0 ? 0 : Math.round((s.remainingCount / s.total) * 100)
   }
 
   const weeklyStats = Array.from(weekMap.entries()).map(([weekStart, { total, done }]) => {
@@ -524,6 +527,8 @@ export async function createPedItem(payload: unknown) {
   const workId = validated.workId ?? null
   const assignedTo = assignedToUserId ?? null
 
+  const label = validated.label ?? DEFAULT_LABEL
+  const status = label === DONE_LABEL ? 'DONE' : 'TODO'
   await prisma.pedItem.create({
     data: {
       id,
@@ -535,8 +540,9 @@ export async function createPedItem(payload: unknown) {
       type: validated.type,
       title: validated.title,
       description: desc,
-      priority: validated.priority,
-      status: 'TODO',
+      priority: validated.priority ?? 'MEDIUM',
+      label,
+      status,
       workId,
       isExtra: !!isExtra,
       sortOrder,
@@ -573,6 +579,10 @@ export async function updatePedItem(id: string, payload: unknown) {
   if (validated.title !== undefined) data.title = validated.title
   if (validated.description !== undefined) data.description = validated.description
   if (validated.priority !== undefined) data.priority = validated.priority
+  if (validated.label !== undefined) {
+    data.label = validated.label
+    data.status = validated.label === DONE_LABEL ? 'DONE' : 'TODO'
+  }
   if (validated.status !== undefined) data.status = validated.status
   if (validated.workId !== undefined) {
     if (validated.workId) {
@@ -591,6 +601,35 @@ export async function updatePedItem(id: string, payload: unknown) {
   })
 
   revalidatePath('/ped')
+}
+
+/** Imposta l'etichetta di una task (es. da context menu). Sincronizza status DONE se label = FATTO. */
+export async function setPedItemLabel(id: string, label: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const ownerId = await getOwnerId()
+    if (!ownerId) return { ok: false, error: 'Non autorizzato' }
+
+    const validated = pedItemSetLabelSchema.parse({ id, label })
+
+    const existing = await prisma.pedItem.findUnique({
+      where: { id },
+      select: { ownerId: true, assignedToUserId: true },
+    })
+    const canEdit = existing && (existing.ownerId === ownerId || existing.assignedToUserId === ownerId)
+    if (!canEdit) return { ok: false, error: 'Non autorizzato' }
+
+    const status = validated.label === DONE_LABEL ? 'DONE' : 'TODO'
+    await prisma.pedItem.update({
+      where: { id },
+      data: { label: validated.label, status },
+    })
+
+    revalidatePath('/ped')
+    return { ok: true }
+  } catch (err) {
+    console.error('[setPedItemLabel]', id, err)
+    return { ok: false, error: err instanceof Error ? err.message : 'Errore nel salvataggio' }
+  }
 }
 
 export async function reorderPedItemsInDay(dateKey: string, isExtra: boolean, orderedItemIds: string[]) {
@@ -649,15 +688,16 @@ export async function togglePedItemDone(id: string): Promise<{ ok: boolean; erro
 
     const item = await prisma.pedItem.findUnique({
       where: { id },
-      select: { ownerId: true, assignedToUserId: true, status: true },
+      select: { ownerId: true, assignedToUserId: true, status: true, label: true },
     })
     const canToggle = item && (item.ownerId === ownerId || item.assignedToUserId === ownerId)
     if (!canToggle) return { ok: false, error: 'Non autorizzato' }
 
     const newStatus = item.status === 'DONE' ? 'TODO' : 'DONE'
+    const newLabel = newStatus === 'DONE' ? DONE_LABEL : DEFAULT_LABEL
     await prisma.pedItem.update({
       where: { id },
-      data: { status: newStatus },
+      data: { status: newStatus, label: newLabel },
     })
 
     revalidatePath('/ped')
@@ -707,6 +747,8 @@ export async function duplicatePedItem(id: string, targetDate: string, targetIsE
   const workId = source.workId ?? null
   const assignedTo = ownerId
 
+  const sourceLabel = getEffectiveLabel(source)
+  const dupLabel = sourceLabel === DONE_LABEL ? DEFAULT_LABEL : sourceLabel
   await prisma.pedItem.create({
     data: {
       id: newId,
@@ -719,6 +761,7 @@ export async function duplicatePedItem(id: string, targetDate: string, targetIsE
       title: source.title + ' (copia)',
       description: desc,
       priority: source.priority,
+      label: dupLabel,
       status: 'TODO',
       workId,
       isExtra: !!isExtra,

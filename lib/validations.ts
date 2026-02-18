@@ -55,6 +55,7 @@ export const preventivoSchema = z.object({
 export const PED_ITEM_KINDS = ['CONTENT', 'WORK_TASK'] as const
 export const PED_ITEM_TYPES = ['REEL', 'POST', 'STORY', 'CAROUSEL', 'ADV', 'SHOOTING', 'WEBSITE_TASK', 'GRAPHIC_TASK', 'COPY_TASK', 'MEETING', 'OTHER'] as const
 export const PED_PRIORITIES = ['NOT_URGENT', 'MEDIUM', 'URGENT'] as const
+export const PED_LABELS = ['IN_APPROVAZIONE', 'DA_FARE', 'PRONTO_NON_PUBBLICATO', 'FATTO'] as const
 export const PED_STATUSES = ['TODO', 'DONE'] as const
 
 export const pedClientSettingSchema = z.object({
@@ -69,7 +70,8 @@ export const pedItemCreateSchema = z.object({
   type: z.enum(PED_ITEM_TYPES),
   title: z.string().min(1, 'Titolo obbligatorio'),
   description: z.string().optional().nullable(),
-  priority: z.enum(PED_PRIORITIES),
+  priority: z.enum(PED_PRIORITIES).optional(),
+  label: z.enum(PED_LABELS).optional(),
   workId: z.string().optional().nullable(),
   isExtra: z.boolean().optional(),
   assignedToUserId: z.string().optional().nullable(),
@@ -77,5 +79,10 @@ export const pedItemCreateSchema = z.object({
 
 export const pedItemUpdateSchema = pedItemCreateSchema.partial().extend({
   status: z.enum(PED_STATUSES).optional(),
+})
+
+export const pedItemSetLabelSchema = z.object({
+  id: z.string().min(1),
+  label: z.enum(PED_LABELS),
 })
 

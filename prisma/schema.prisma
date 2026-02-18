@@ -240,11 +240,12 @@ model PedItem {
   type             String   // REEL, POST, STORY, CAROUSEL, ADV, SHOOTING, WEBSITE_TASK, GRAPHIC_TASK, COPY_TASK, MEETING, OTHER
   title            String
   description      String?
-  priority         String   // NOT_URGENT | MEDIUM | URGENT
-  status           String   @default("TODO") // TODO | DONE
+  priority         String   // NOT_URGENT | MEDIUM | URGENT (legacy, preferire label)
+  label            String?  // IN_APPROVAZIONE | DA_FARE | PRONTO_NON_PUBBLICATO | FATTO
+  status           String   @default("TODO") // TODO | DONE (coerente con label FATTO)
   workId           String?
   isExtra          Boolean  @default(false) // mostra in colonna Extra della settimana
-  sortOrder        Int      @default(0)      // ordine dentro il giorno / colonna Extra
+  sortOrder        Int      @default(0)      // ordine dentro il giorno / stessa etichetta
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 

@@ -3,7 +3,7 @@
 const MONTH_SHORT = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic']
 
 type Stats = {
-  dailyStats: Record<string, { total: number; done: number; remainingPct: number }>
+  dailyStats: Record<string, { total: number; done: number; remainingPct: number; remainingCount?: number }>
   weeklyStats: { weekStart: string; weekEnd: string; total: number; done: number }[]
   monthlyStats: { total: number; done: number }
 }

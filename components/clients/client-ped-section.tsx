@@ -11,12 +11,14 @@ import {
   duplicatePedItem,
   deletePedItem,
   reorderPedItemsInDay,
+  setPedItemLabel,
   upsertPedClientSetting,
   fillPedMonthForClient,
   emptyPedMonthForClient,
   createPedItem,
 } from '@/app/actions/ped'
 import { getISOWeekStart, toDateString } from '@/lib/ped-utils'
+import { getEffectiveLabel } from '@/lib/pedLabels'
 
 function getISOWeekStartKey(dateKey: string): string {
   return toDateString(getISOWeekStart(new Date(dateKey + 'T00:00:00.000Z')))
@@ -25,8 +27,8 @@ function getISOWeekStartKey(dateKey: string): string {
 type UndoEntry =
   | { type: 'move'; itemId: string; date: string; isExtra: boolean }
   | { type: 'reorder'; dateKey: string; isExtra: boolean; orderedItemIds: string[] }
-  | { type: 'toggleDone'; itemId: string; previousStatus: string }
-  | { type: 'delete'; item: { clientId: string; date: string; kind: string; type: string; title: string; description?: string | null; priority: string; status: string; workId?: string | null; isExtra?: boolean; assignedToUserId?: string | null } }
+  | { type: 'toggleDone'; itemId: string; previousStatus: string; previousLabel: string }
+  | { type: 'delete'; item: { clientId: string; date: string; kind: string; type: string; title: string; description?: string | null; priority?: string; label?: string | null; status: string; workId?: string | null; isExtra?: boolean; assignedToUserId?: string | null } }
 
 const MONTH_NAMES = [
   'Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno',
@@ -44,7 +46,8 @@ type PedItem = {
   type: string
   title: string
   description?: string | null
-  priority: string
+  priority?: string
+  label?: string | null
   status: string
   workId?: string | null
   isExtra?: boolean
@@ -67,7 +70,7 @@ type PedData = {
   pedItems: PedItem[]
   pedClientSettings: PedClientSettingWithOwner[]
   computedStats: {
-    dailyStats: Record<string, { total: number; done: number; remainingPct: number }>
+    dailyStats: Record<string, { total: number; done: number; remainingPct: number; remainingCount?: number }>
     weeklyStats: { weekStart: string; weekEnd: string; total: number; done: number }[]
     monthlyStats: { total: number; done: number }
   }
@@ -220,7 +223,7 @@ export function ClientPedSection({
 
   const handleToggleDone = async (id: string) => {
     const item = itemsWithDateString.find((i) => i.id === id)
-    if (item) setUndoEntry({ type: 'toggleDone', itemId: id, previousStatus: item.status })
+    if (item) setUndoEntry({ type: 'toggleDone', itemId: id, previousStatus: item.status, previousLabel: getEffectiveLabel(item) })
     const result = await togglePedItemDone(id)
     if (result.ok) {
       await refetch()
@@ -269,7 +272,8 @@ export function ClientPedSection({
           type: item.type,
           title: item.title,
           description: item.description ?? null,
-          priority: item.priority,
+          priority: item.priority ?? 'MEDIUM',
+          label: getEffectiveLabel(item),
           status: item.status,
           workId: item.workId ?? null,
           isExtra: item.isExtra,
@@ -291,6 +295,15 @@ export function ClientPedSection({
       return itemsWithDateString.filter((i) => getISOWeekStartKey(i.date.slice(0, 10)) === dateKey && i.isExtra).map((i) => i.id)
     }
     return itemsWithDateString.filter((i) => i.date.slice(0, 10) === dateKey && !i.isExtra).map((i) => i.id)
+  }
+
+  const handleSetLabel = async (id: string, label: string) => {
+    const result = await setPedItemLabel(id, label)
+    if (result.ok) {
+      await refetch()
+    } else {
+      alert(result.error ?? 'Errore')
+    }
   }
 
   const handleReorderInDay = async (dateKey: string, isExtra: boolean, orderedItemIds: string[]) => {
@@ -317,7 +330,7 @@ export function ClientPedSection({
           await reorderPedItemsInDay(undoEntry.dateKey, undoEntry.isExtra, undoEntry.orderedItemIds)
           break
         case 'toggleDone':
-          await updatePedItem(undoEntry.itemId, { status: undoEntry.previousStatus })
+          await updatePedItem(undoEntry.itemId, { status: undoEntry.previousStatus, label: undoEntry.previousLabel })
           break
         case 'delete':
           await createPedItem(undoEntry.item)
@@ -464,6 +477,7 @@ export function ClientPedSection({
             onOpenAddExtra={canWrite ? handleOpenAddExtra : undefined}
             onOpenEdit={handleOpenEdit}
             onToggleDone={handleToggleDone}
+            onSetLabel={handleSetLabel}
             onMoveItem={handleMoveItem}
             onDuplicateItem={handleDuplicateItem}
             onDeleteItem={handleDeleteItem}

@@ -1,7 +1,8 @@
 'use client'
 
 import { useMemo, useState, useEffect, useRef } from 'react'
-import { PED_PRIORITY_COLORS, PED_ITEM_TYPE_LABELS, PED_DELEGATED_STYLE, toDateString, getPriorityStyle } from '@/lib/ped-utils'
+import { PED_ITEM_TYPE_LABELS, PED_DELEGATED_STYLE, toDateString } from '@/lib/ped-utils'
+import { getItemLabelStyle, PED_LABELS, PED_LABEL_CONFIG } from '@/lib/pedLabels'
 
 const STORAGE_KEY_COLUMNS = 'ped-calendar-column-widths'
 const DEFAULT_COL_WIDTH = 160
@@ -24,7 +25,8 @@ type PedItem = {
   kind: string
   type: string
   title: string
-  priority: string
+  priority?: string
+  label?: string | null
   status: string
   description?: string | null
   workId?: string | null
@@ -42,6 +44,7 @@ type DayCell = {
   isCurrentMonth: boolean
   items: PedItem[]
   remainingPct: number
+  remainingCount: number
   total: number
   done: number
 }
@@ -118,6 +121,7 @@ export function PedCalendar({
   onOpenAddExtra,
   onOpenEdit,
   onToggleDone,
+  onSetLabel,
   onMoveItem,
   onDuplicateItem,
   onDeleteItem,
@@ -129,7 +133,7 @@ export function PedCalendar({
   year: number
   month: number
   items: PedItem[]
-  dailyStats: Record<string, { total: number; done: number; remainingPct: number }>
+  dailyStats: Record<string, { total: number; done: number; remainingPct: number; remainingCount?: number }>
   currentUserId: string
   /** Quando si visualizza il PED di un altro utente, lo stile "delegated" è calcolato rispetto a lui (i suoi colori). */
   viewAsUserId?: string | null
@@ -140,6 +144,7 @@ export function PedCalendar({
   onOpenAddExtra?: (weekStartDateKey: string) => void
   onOpenEdit: (item: PedItem) => void
   onToggleDone: (id: string) => void
+  onSetLabel?: (id: string, label: string) => void | Promise<void>
   onMoveItem: (itemId: string, targetDate: string, targetIsExtra: boolean) => void | Promise<void>
   onDuplicateItem: (itemId: string, targetDate: string, targetIsExtra: boolean) => void | Promise<void>
   onDeleteItem: (itemId: string) => void | Promise<void>
@@ -330,11 +335,12 @@ export function PedCalendar({
   const cells: DayCell[][] = grid.map((week) =>
     week.map((cell) => {
       const dayItems = itemsByDay[cell.dateKey] ?? []
-      const stats = dailyStats[cell.dateKey] ?? { total: 0, done: 0, remainingPct: 0 }
+      const stats = dailyStats[cell.dateKey] ?? { total: 0, done: 0, remainingPct: 0, remainingCount: 0 }
       return {
         ...cell,
         items: dayItems,
         remainingPct: stats.remainingPct,
+        remainingCount: stats.remainingCount ?? (stats.total - stats.done),
         total: stats.total,
         done: stats.done,
       }
@@ -418,16 +424,17 @@ export function PedCalendar({
                       )}
                     </div>
                     {cell.total > 0 && (
-                      <p className="text-xs text-white/60 mb-1">{cell.remainingPct}% rimanenti</p>
+                      <p className="text-xs text-white/60 mb-1">
+                        Rimanenti: {cell.remainingCount} · {cell.remainingPct}%
+                      </p>
                     )}
                     <ul className="space-y-1.5">
                       {cell.items.map((item, index) => {
                         const isDelegated = showAsDelegated(item)
-                        const colors = getPriorityStyle(item.priority)
-                        const doneStyle = item.status === 'DONE' ? PED_PRIORITY_COLORS.NOT_URGENT : null
+                        const labelStyle = getItemLabelStyle(item)
                         const itemStyle = isDelegated
                           ? PED_DELEGATED_STYLE
-                          : { backgroundColor: doneStyle ? doneStyle.backgroundColor : colors.backgroundColor, color: doneStyle ? doneStyle.color : colors.color }
+                          : { backgroundColor: labelStyle.backgroundColor, color: labelStyle.color }
                         const itemDate = item.date.slice(0, 10)
                         return (
                           <li
@@ -529,11 +536,10 @@ export function PedCalendar({
                   <ul className="space-y-1.5">
                     {extraItems.map((item, index) => {
                       const isDelegated = showAsDelegated(item)
-                      const colors = getPriorityStyle(item.priority)
-                      const doneStyle = item.status === 'DONE' ? PED_PRIORITY_COLORS.NOT_URGENT : null
+                      const labelStyle = getItemLabelStyle(item)
                       const itemStyle = isDelegated
                         ? PED_DELEGATED_STYLE
-                        : { backgroundColor: doneStyle ? doneStyle.backgroundColor : colors.backgroundColor, color: doneStyle ? doneStyle.color : colors.color }
+                        : { backgroundColor: labelStyle.backgroundColor, color: labelStyle.color }
                       const itemDate = item.date.slice(0, 10)
                       return (
                         <li
@@ -616,20 +622,37 @@ export function PedCalendar({
 
       {contextMenu && !readOnly && (
         <div
-          className="fixed z-50 min-w-[180px] py-1 bg-dark border border-accent/20 rounded-lg shadow-lg"
+          className="fixed z-50 min-w-[220px] py-1 bg-dark border border-accent/20 rounded-lg shadow-lg"
           style={{ left: contextMenu.x, top: contextMenu.y }}
           onClick={(e) => e.stopPropagation()}
         >
-          <button
-            type="button"
-            className="w-full text-left px-4 py-2 text-sm text-white hover:bg-accent/10"
-            onClick={() => {
-              onOpenEdit(contextMenu.item)
-              setContextMenu(null)
-            }}
-          >
-            Modifica titolo
-          </button>
+          <div className="px-2 py-1.5 text-xs font-semibold text-white/60 uppercase tracking-wide border-b border-white/10 mb-1">
+            Imposta etichetta
+          </div>
+          {PED_LABELS.map((labelKey) => {
+            const config = PED_LABEL_CONFIG[labelKey]
+            return (
+              <button
+                key={labelKey}
+                type="button"
+                className="w-full text-left px-4 py-2 text-sm flex items-center gap-2 hover:bg-white/10"
+                style={{ color: config.color }}
+                onClick={() => {
+                  if (typeof onSetLabel === 'function') {
+                    queueMicrotask(() => { onSetLabel(contextMenu.item.id, labelKey) })
+                  }
+                  setContextMenu(null)
+                }}
+              >
+                <span
+                  className="w-3 h-3 rounded-full shrink-0"
+                  style={{ backgroundColor: config.backgroundColor }}
+                />
+                {config.label}
+              </button>
+            )
+          })}
+          <div className="border-t border-white/10 my-1" />
           <button
             type="button"
             className="w-full text-left px-4 py-2 text-sm text-white hover:bg-accent/10"
