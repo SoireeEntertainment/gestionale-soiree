@@ -1,23 +1,19 @@
 /**
- * Elimina dal database (e da Clerk) tutti gli utenti tranne i 5 autorizzati.
- * Utenti da mantenere: Alessia Pilutzu, Cristian Palazzolo, Daniele Mirante, Davide Piccolo, Enrico Cairoli
- * (email: alessia@soiree.it, cristian.palazzolo@soiree.it, daniele@soiree.it, davide@soiree.it, enrico@soiree.it)
+ * Elimina dal database (e da Clerk) tutti gli utenti che NON hanno email @soiree.it.
+ * Mantiene solo utenti del dominio @soiree.it.
  *
- * Esecuzione: DATABASE_URL="..." CLERK_SECRET_KEY="..." npx tsx scripts/cleanup-users.ts
- * Oppure: npx tsx scripts/cleanup-users.ts  (usa .env)
+ * Esecuzione: CONFIRM_CLEANUP=1 npx tsx scripts/cleanup-users.ts
+ * (usa .env per DATABASE_URL e opzionalmente CLERK_SECRET_KEY per rimuovere anche da Clerk)
  */
 import 'dotenv/config'
 import { PrismaClient } from '@prisma/client'
 
 const prisma = new PrismaClient()
 
-const KEEP_EMAILS = [
-  'alessia@soiree.it',
-  'cristian.palazzolo@soiree.it',
-  'daniele@soiree.it',
-  'davide@soiree.it',
-  'enrico@soiree.it',
-]
+/** Mantieni solo utenti con email del dominio @soiree.it */
+function keepUser(email: string): boolean {
+  return email.endsWith('@soiree.it')
+}
 
 async function deleteUserFromClerk(clerkId: string): Promise<boolean> {
   const secret = process.env.CLERK_SECRET_KEY
@@ -47,8 +43,8 @@ async function deleteUserFromClerk(clerkId: string): Promise<boolean> {
 
 async function main() {
   const all = await prisma.user.findMany({ orderBy: { email: 'asc' } })
-  const toDelete = all.filter((u) => !KEEP_EMAILS.includes(u.email))
-  const toKeep = all.filter((u) => KEEP_EMAILS.includes(u.email))
+  const toDelete = all.filter((u) => !keepUser(u.email))
+  const toKeep = all.filter((u) => keepUser(u.email))
 
   console.log('Utenti da mantenere:', toKeep.length)
   toKeep.forEach((u) => console.log('  -', u.email, u.name))
