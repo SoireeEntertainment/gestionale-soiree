@@ -3,11 +3,9 @@ import { connection } from 'next/server'
 import { requireAuth } from '@/lib/auth-dev'
 import { prisma } from '@/lib/prisma'
 import { getPedDailyStatsForUser } from '@/app/actions/ped'
-import { getWeeklyLoadOverviewForAllUsers } from '@/app/actions/profilo'
+import { getTeamLoadOverview } from '@/app/actions/profilo'
 import type { PedLabel } from '@/lib/pedLabels'
-import { DashboardStats } from '@/components/dashboard/dashboard-stats'
-import { DashboardPedToday } from '@/components/dashboard/dashboard-ped-today'
-import { DashboardWeeklyLoadOverview } from '@/components/dashboard/dashboard-weekly-load-overview'
+import { DashboardGrid } from '@/components/dashboard/dashboard-grid'
 
 export default async function DashboardPage() {
   await connection()
@@ -27,16 +25,16 @@ export default async function DashboardPage() {
     done: 0,
     byLabel: defaultByLabel,
   }
-  let weeklyLoadOverview: Awaited<ReturnType<typeof getWeeklyLoadOverviewForAllUsers>> = []
+  let teamLoadOverview: Awaited<ReturnType<typeof getTeamLoadOverview>> = []
 
   try {
     const today = new Date().toISOString().slice(0, 10)
     const [pedResult, overviewResult] = await Promise.all([
       getPedDailyStatsForUser(user.id, today),
-      getWeeklyLoadOverviewForAllUsers(),
+      getTeamLoadOverview(),
     ])
     pedDailyStats = pedResult
-    weeklyLoadOverview = overviewResult
+    teamLoadOverview = overviewResult
   } catch (e) {
     // ignore
   }
@@ -109,23 +107,15 @@ export default async function DashboardPage() {
     >
       <div className="w-[90vw] max-w-[90vw] mx-auto">
         <h1 className="text-3xl font-bold mb-6 text-white" style={{ fontSize: '1.875rem', fontWeight: 700, marginBottom: '1.5rem', color: '#fff' }}>Dashboard</h1>
-        <DashboardStats
+        <DashboardGrid
           totalClients={totalClients}
           totalWorks={totalWorks}
           worksInDeadline={worksInDeadline}
           expiredWorks={expiredWorks}
           inReviewWorks={inReviewWorks}
+          pedDailyStatsByLabel={pedDailyStats.byLabel}
+          teamLoadRows={teamLoadOverview}
         />
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6" style={{ display: 'grid', gap: '1.5rem', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
-          <DashboardPedToday byLabel={pedDailyStats.byLabel} />
-        </div>
-
-        {weeklyLoadOverview.length > 0 && (
-          <div className="mt-6">
-            <DashboardWeeklyLoadOverview rows={weeklyLoadOverview} />
-          </div>
-        )}
       </div>
     </div>
   )

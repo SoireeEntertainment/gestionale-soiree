@@ -177,13 +177,32 @@ export async function getPedDailyStatsForUser(userId: string, dateKey: string): 
   return { total, remaining, done, byLabel }
 }
 
+function isOverviewAdmin(current: { name: string | null }): boolean {
+  return current.name === 'Cristian Palazzolo' || current.name === 'Davide Piccolo'
+}
+
+/** Conteggio task PED nel giorno (dateKey YYYY-MM-DD). Autorizzato se currentUser.id === userId o overview-admin. */
+export async function getPedDailyTaskCountForUser(userId: string, dateKey: string): Promise<number> {
+  const current = await getCurrentUser()
+  if (!current) throw new Error('Non autorizzato')
+  const isSelf = current.id === userId
+  if (!isSelf && !isOverviewAdmin(current)) throw new Error('Non autorizzato')
+  const dayStart = new Date(dateKey + 'T00:00:00.000Z')
+  const dayEnd = new Date(dateKey + 'T23:59:59.999Z')
+  return prisma.pedItem.count({
+    where: {
+      OR: [{ ownerId: userId }, { assignedToUserId: userId }],
+      date: { gte: dayStart, lte: dayEnd },
+    },
+  })
+}
+
 /** Conteggio task PED nella settimana ISO corrente per un utente. Autorizzato se currentUser.id === userId o utente è overview-admin. */
 export async function getPedWeeklyTaskCountForUser(userId: string): Promise<number> {
   const current = await getCurrentUser()
   if (!current) throw new Error('Non autorizzato')
   const isSelf = current.id === userId
-  const isOverviewAdmin = current.name === 'Cristian Palazzolo' || current.name === 'Davide Piccolo'
-  if (!isSelf && !isOverviewAdmin) throw new Error('Non autorizzato')
+  if (!isSelf && !isOverviewAdmin(current)) throw new Error('Non autorizzato')
 
   const now = new Date()
   const weekStart = getISOWeekStart(now)
@@ -197,6 +216,24 @@ export async function getPedWeeklyTaskCountForUser(userId: string): Promise<numb
     },
   })
   return count
+}
+
+/** Conteggio task PED nel mese corrente (UTC) per un utente. Autorizzato se currentUser.id === userId o overview-admin. */
+export async function getPedMonthlyTaskCountForUser(userId: string): Promise<number> {
+  const current = await getCurrentUser()
+  if (!current) throw new Error('Non autorizzato')
+  const isSelf = current.id === userId
+  if (!isSelf && !isOverviewAdmin(current)) throw new Error('Non autorizzato')
+
+  const now = new Date()
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0))
+  const monthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999))
+  return prisma.pedItem.count({
+    where: {
+      OR: [{ ownerId: userId }, { assignedToUserId: userId }],
+      date: { gte: monthStart, lte: monthEnd },
+    },
+  })
 }
 
 /** Restituisce le date (YYYY-MM-DD) in cui inserire task in base ai contenuti/mese (4, 6, 8, 12). */

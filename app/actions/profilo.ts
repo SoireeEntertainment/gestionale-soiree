@@ -3,7 +3,12 @@
 import { getCurrentUser } from '@/lib/auth-dev'
 import { prisma } from '@/lib/prisma'
 import { getISOWeekStart } from '@/lib/ped-utils'
-import { getPedDailyStatsForUser, getPedWeeklyTaskCountForUser } from '@/app/actions/ped'
+import {
+  getPedDailyStatsForUser,
+  getPedWeeklyTaskCountForUser,
+  getPedDailyTaskCountForUser,
+  getPedMonthlyTaskCountForUser,
+} from '@/app/actions/ped'
 import type { PedLabel } from '@/lib/pedLabels'
 
 const ACTIVE_STATUSES = ['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'WAITING_CLIENT', 'PAUSED']
@@ -181,13 +186,25 @@ export async function getWeeklyLoad(userId: string) {
   return { total: works.length, byStatus }
 }
 
+const OVERVIEW_ADMIN_NAMES = ['Cristian Palazzolo', 'Davide Piccolo'] as const
+const TEAM_OVERVIEW_USER_NAMES = [
+  'Davide Piccolo',
+  'Daniele Mirante',
+  'Enrico Cairoli',
+  'Alessia Pilutzu',
+  'Cristian Palazzolo',
+] as const
+
+function isOverviewAdmin(user: { name: string | null }): boolean {
+  return OVERVIEW_ADMIN_NAMES.some((n) => user.name === n)
+}
+
 /** Conteggio lavori assegnati nella settimana ISO. Autorizzato se currentUser === userId o overview-admin. */
 export async function getAssignedWorkWeeklyCount(userId: string): Promise<number> {
   const user = await getCurrentUser()
   if (!user) throw new Error('Non autorizzato')
   const isSelf = user.id === userId
-  const isOverviewAdmin = user.name === 'Cristian Palazzolo' || user.name === 'Davide Piccolo'
-  if (!isSelf && !isOverviewAdmin) throw new Error('Non autorizzato')
+  if (!isSelf && !isOverviewAdmin(user)) throw new Error('Non autorizzato')
 
   const now = new Date()
   const weekStart = getISOWeekStart(now)
@@ -200,6 +217,43 @@ export async function getAssignedWorkWeeklyCount(userId: string): Promise<number
       assignedToUserId: userId,
       status: { in: ACTIVE_STATUSES },
       deadline: { gte: weekStart, lte: weekEnd },
+    },
+  })
+}
+
+/** Conteggio lavori assegnati con scadenza nel giorno (dateKey). Autorizzato come getAssignedWorkWeeklyCount. */
+export async function getAssignedWorkDailyCount(userId: string, dateKey: string): Promise<number> {
+  const user = await getCurrentUser()
+  if (!user) throw new Error('Non autorizzato')
+  const isSelf = user.id === userId
+  if (!isSelf && !isOverviewAdmin(user)) throw new Error('Non autorizzato')
+
+  const dayStart = new Date(dateKey + 'T00:00:00.000Z')
+  const dayEnd = new Date(dateKey + 'T23:59:59.999Z')
+  return prisma.work.count({
+    where: {
+      assignedToUserId: userId,
+      status: { in: ACTIVE_STATUSES },
+      deadline: { gte: dayStart, lte: dayEnd },
+    },
+  })
+}
+
+/** Conteggio lavori assegnati con scadenza nel mese corrente (UTC). Autorizzato come getAssignedWorkWeeklyCount. */
+export async function getAssignedWorkMonthlyCount(userId: string): Promise<number> {
+  const user = await getCurrentUser()
+  if (!user) throw new Error('Non autorizzato')
+  const isSelf = user.id === userId
+  if (!isSelf && !isOverviewAdmin(user)) throw new Error('Non autorizzato')
+
+  const now = new Date()
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0))
+  const monthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999))
+  return prisma.work.count({
+    where: {
+      assignedToUserId: userId,
+      status: { in: ACTIVE_STATUSES },
+      deadline: { gte: monthStart, lte: monthEnd },
     },
   })
 }
@@ -252,13 +306,72 @@ export type WeeklyLoadUserRow = {
   total: number
 }
 
-/** Overview carico settimanale per tutti gli utenti. Solo per Cristian Palazzolo e Davide Piccolo. */
+export type LoadSnapshot = { taskCount: number; workCount: number; total: number }
+
+export type TeamLoadUserRow = {
+  userId: string
+  userName: string
+  daily: LoadSnapshot
+  weekly: LoadSnapshot
+  monthly: LoadSnapshot
+}
+
+/** Overview carico (giornaliero + settimanale + mensile) per i 5 utenti team. Solo per Cristian Palazzolo e Davide Piccolo. */
+export async function getTeamLoadOverview(): Promise<TeamLoadUserRow[]> {
+  const user = await getCurrentUser()
+  if (!user) throw new Error('Non autorizzato')
+  if (!isOverviewAdmin(user)) return []
+
+  const users = await prisma.user.findMany({
+    where: {
+      isActive: true,
+      name: { in: [...TEAM_OVERVIEW_USER_NAMES] },
+    },
+    select: { id: true, name: true },
+    orderBy: { name: 'asc' },
+  })
+
+  const today = new Date().toISOString().slice(0, 10)
+  const rows: TeamLoadUserRow[] = []
+
+  for (const u of users) {
+    const [dailyTask, dailyWork, weeklyTask, weeklyWork, monthlyTask, monthlyWork] = await Promise.all([
+      getPedDailyTaskCountForUser(u.id, today),
+      getAssignedWorkDailyCount(u.id, today),
+      getPedWeeklyTaskCountForUser(u.id),
+      getAssignedWorkWeeklyCount(u.id),
+      getPedMonthlyTaskCountForUser(u.id),
+      getAssignedWorkMonthlyCount(u.id),
+    ])
+    rows.push({
+      userId: u.id,
+      userName: u.name ?? 'Senza nome',
+      daily: {
+        taskCount: dailyTask,
+        workCount: dailyWork,
+        total: dailyTask + dailyWork,
+      },
+      weekly: {
+        taskCount: weeklyTask,
+        workCount: weeklyWork,
+        total: weeklyTask + weeklyWork,
+      },
+      monthly: {
+        taskCount: monthlyTask,
+        workCount: monthlyWork,
+        total: monthlyTask + monthlyWork,
+      },
+    })
+  }
+
+  return rows
+}
+
+/** Overview carico settimanale per tutti gli utenti. Solo per Cristian Palazzolo e Davide Piccolo. @deprecated Prefer getTeamLoadOverview per la dashboard. */
 export async function getWeeklyLoadOverviewForAllUsers(): Promise<WeeklyLoadUserRow[]> {
   const user = await getCurrentUser()
   if (!user) throw new Error('Non autorizzato')
-  if (user.name !== 'Cristian Palazzolo' && user.name !== 'Davide Piccolo') {
-    return []
-  }
+  if (!isOverviewAdmin(user)) return []
 
   const users = await prisma.user.findMany({
     where: { isActive: true },
