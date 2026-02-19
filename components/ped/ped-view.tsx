@@ -7,7 +7,7 @@ import { PedClientSettings } from './ped-client-settings'
 import { PedCalendar } from './ped-calendar'
 import { PedStats } from './ped-stats'
 import { PedItemModal } from './ped-item-modal'
-import { togglePedItemDone, updatePedItem, duplicatePedItem, deletePedItem, reorderPedItemsInDay, setPedItemLabel, fillPedMonth, emptyPedMonth, createPedItem } from '@/app/actions/ped'
+import { togglePedItemDone, updatePedItem, duplicatePedItem, deletePedItem, reorderPedItemsInDay, setPedItemLabel, fillPedMonth, emptyPedMonth, createPedItem, bulkMovePedItems, bulkSetPedItemLabel, bulkTogglePedItemDone, bulkDeletePedItems } from '@/app/actions/ped'
 import { Button } from '@/components/ui/button'
 import { PED_ITEM_TYPE_LABELS, getISOWeekStart, toDateString } from '@/lib/ped-utils'
 import { getEffectiveLabel } from '@/lib/pedLabels'
@@ -246,6 +246,46 @@ export function PedView({
     }
   }
 
+  const handleMoveItems = async (itemIds: string[], targetDate: string, targetIsExtra: boolean) => {
+    try {
+      const { applied, error } = await bulkMovePedItems(itemIds, targetDate, targetIsExtra)
+      if (error) alert(error)
+      else if (applied > 0) router.refresh()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Errore')
+    }
+  }
+
+  const handleBulkSetLabel = async (ids: string[], label: string) => {
+    try {
+      const { applied, error } = await bulkSetPedItemLabel(ids, label)
+      if (error) alert(error)
+      else if (applied > 0) router.refresh()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Errore')
+    }
+  }
+
+  const handleBulkToggleDone = async (ids: string[], done: boolean) => {
+    try {
+      const { applied, error } = await bulkTogglePedItemDone(ids, done)
+      if (error) alert(error)
+      else if (applied > 0) router.refresh()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Errore')
+    }
+  }
+
+  const handleBulkDelete = async (ids: string[]) => {
+    try {
+      const { applied, error } = await bulkDeletePedItems(ids)
+      if (error) alert(error)
+      else if (applied > 0) router.refresh()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Errore')
+    }
+  }
+
   const [filling, setFilling] = useState(false)
   const [emptying, setEmptying] = useState(false)
   const handleFillMonth = async () => {
@@ -435,8 +475,12 @@ export function PedView({
                 onToggleDone={handleToggleDone}
                 onSetLabel={handleSetLabel}
                 onMoveItem={handleMoveItem}
+                onMoveItems={handleMoveItems}
                 onDuplicateItem={handleDuplicateItem}
                 onDeleteItem={handleDeleteItem}
+                onBulkSetLabel={handleBulkSetLabel}
+                onBulkToggleDone={handleBulkToggleDone}
+                onBulkDelete={handleBulkDelete}
                 onReorderInDay={handleReorderInDay}
                 onSelectDay={setSelectedDateKey}
                 filterClientId={filterClientId}

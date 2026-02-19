@@ -16,6 +16,10 @@ import {
   fillPedMonthForClient,
   emptyPedMonthForClient,
   createPedItem,
+  bulkMovePedItems,
+  bulkSetPedItemLabel,
+  bulkTogglePedItemDone,
+  bulkDeletePedItems,
 } from '@/app/actions/ped'
 import { getISOWeekStart, toDateString } from '@/lib/ped-utils'
 import { getEffectiveLabel } from '@/lib/pedLabels'
@@ -306,6 +310,46 @@ export function ClientPedSection({
     }
   }
 
+  const handleMoveItems = async (itemIds: string[], targetDate: string, targetIsExtra: boolean) => {
+    try {
+      const { applied, error } = await bulkMovePedItems(itemIds, targetDate, targetIsExtra)
+      if (error) alert(error)
+      else if (applied > 0) await refetch()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Errore')
+    }
+  }
+
+  const handleBulkSetLabel = async (ids: string[], label: string) => {
+    try {
+      const { applied, error } = await bulkSetPedItemLabel(ids, label)
+      if (error) alert(error)
+      else if (applied > 0) await refetch()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Errore')
+    }
+  }
+
+  const handleBulkToggleDone = async (ids: string[], done: boolean) => {
+    try {
+      const { applied, error } = await bulkTogglePedItemDone(ids, done)
+      if (error) alert(error)
+      else if (applied > 0) await refetch()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Errore')
+    }
+  }
+
+  const handleBulkDelete = async (ids: string[]) => {
+    try {
+      const { applied, error } = await bulkDeletePedItems(ids)
+      if (error) alert(error)
+      else if (applied > 0) await refetch()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Errore')
+    }
+  }
+
   const handleReorderInDay = async (dateKey: string, isExtra: boolean, orderedItemIds: string[]) => {
     const previousOrder = getCurrentOrderForDay(dateKey, isExtra)
     setUndoEntry({ type: 'reorder', dateKey, isExtra, orderedItemIds: previousOrder })
@@ -479,8 +523,12 @@ export function ClientPedSection({
             onToggleDone={handleToggleDone}
             onSetLabel={handleSetLabel}
             onMoveItem={handleMoveItem}
+            onMoveItems={handleMoveItems}
             onDuplicateItem={handleDuplicateItem}
             onDeleteItem={handleDeleteItem}
+            onBulkSetLabel={handleBulkSetLabel}
+            onBulkToggleDone={handleBulkToggleDone}
+            onBulkDelete={handleBulkDelete}
             onReorderInDay={handleReorderInDay}
             onSelectDay={setSelectedDateKey}
             filterClientId={clientId}

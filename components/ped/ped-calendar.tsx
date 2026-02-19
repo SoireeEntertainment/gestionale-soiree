@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useEffect, useRef } from 'react'
+import { useMemo, useState, useEffect, useRef, useCallback } from 'react'
 import { PED_ITEM_TYPE_LABELS, PED_DELEGATED_STYLE, toDateString } from '@/lib/ped-utils'
 import { getItemLabelStyle, PED_LABELS, PED_LABEL_CONFIG } from '@/lib/pedLabels'
 
@@ -106,6 +106,7 @@ function buildCalendarGrid(year: number, month: number): { dateKey: string; dayN
 const DRAG_TYPE = 'application/x-ped-item'
 
 type ContextMenuState = { x: number; y: number; item: PedItem } | null
+type MarqueeRect = { startX: number; startY: number; endX: number; endY: number }
 
 /** Id dell'utente di cui si sta visualizzando il PED (per stile "delegated": usa i suoi colori, non quelli del loggato). */
 export function PedCalendar({
@@ -123,8 +124,12 @@ export function PedCalendar({
   onToggleDone,
   onSetLabel,
   onMoveItem,
+  onMoveItems,
   onDuplicateItem,
   onDeleteItem,
+  onBulkSetLabel,
+  onBulkToggleDone,
+  onBulkDelete,
   onReorderInDay,
   onSelectDay,
   filterClientId,
@@ -146,8 +151,12 @@ export function PedCalendar({
   onToggleDone: (id: string) => void
   onSetLabel?: (id: string, label: string) => void | Promise<void>
   onMoveItem: (itemId: string, targetDate: string, targetIsExtra: boolean) => void | Promise<void>
+  onMoveItems?: (itemIds: string[], targetDate: string, targetIsExtra: boolean) => void | Promise<void>
   onDuplicateItem: (itemId: string, targetDate: string, targetIsExtra: boolean) => void | Promise<void>
   onDeleteItem: (itemId: string) => void | Promise<void>
+  onBulkSetLabel?: (ids: string[], label: string) => void | Promise<void>
+  onBulkToggleDone?: (ids: string[], done: boolean) => void | Promise<void>
+  onBulkDelete?: (ids: string[]) => void | Promise<void>
   onReorderInDay: (dateKey: string, isExtra: boolean, orderedItemIds: string[]) => void | Promise<void>
   onSelectDay?: (dateKey: string) => void
   filterClientId: string
@@ -159,8 +168,15 @@ export function PedCalendar({
   const [columnWidths, setColumnWidths] = useState<number[]>(DEFAULT_COLUMN_WIDTHS)
   const [resizingCol, setResizingCol] = useState<number | null>(null)
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(null)
+  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set())
+  const [marquee, setMarquee] = useState<MarqueeRect | null>(null)
+  const marqueeStartRef = useRef<{ x: number; y: number } | null>(null)
+  const marqueeRectRef = useRef<MarqueeRect | null>(null)
+  const calendarScrollRef = useRef<HTMLDivElement>(null)
   const justDraggedRef = useRef(false)
   const mayPersistRef = useRef(false)
+  const itemIdOrderRef = useRef<string[]>([])
+  itemIdOrderRef.current = items.map((i) => i.id)
 
   useEffect(() => {
     if (!contextMenu) return
@@ -189,9 +205,128 @@ export function PedCalendar({
     } catch {}
   }, [columnWidths])
 
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSelectedItemIds(new Set())
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [])
+
+  const handleMarqueeStart = (e: React.MouseEvent) => {
+    if (readOnly || resizingCol !== null) return
+    const target = e.target as HTMLElement
+    if (target.closest('li[data-ped-item-id]') || target.closest('th')) return
+    e.preventDefault()
+    marqueeStartRef.current = { x: e.clientX, y: e.clientY }
+    setMarquee({ startX: e.clientX, startY: e.clientY, endX: e.clientX, endY: e.clientY })
+  }
+
+  const handleMarqueeMove = useMemo(() => {
+    let raf = 0
+    return (e: MouseEvent) => {
+      if (!marqueeStartRef.current) return
+      if (raf) cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(() => {
+        setMarquee((prev) => {
+          if (!prev || !marqueeStartRef.current) return prev
+          return {
+            ...prev,
+            endX: e.clientX,
+            endY: e.clientY,
+          }
+        })
+        raf = 0
+      })
+    }
+  }, [])
+
+  marqueeRectRef.current = marquee
+
+  const handleMarqueeEnd = useCallback(() => {
+    const rect = marqueeRectRef.current
+    setMarquee(null)
+    marqueeStartRef.current = null
+    if (!rect || !calendarScrollRef.current) return
+    const minX = Math.min(rect.startX, rect.endX)
+    const maxX = Math.max(rect.startX, rect.endX)
+    const minY = Math.min(rect.startY, rect.endY)
+    const maxY = Math.max(rect.startY, rect.endY)
+    const els = calendarScrollRef.current.querySelectorAll<HTMLElement>('[data-ped-item-id]')
+    const ids = new Set<string>()
+    els.forEach((el) => {
+      const id = el.getAttribute('data-ped-item-id')
+      if (!id) return
+      const r = el.getBoundingClientRect()
+      if (r.right < minX || r.left > maxX || r.bottom < minY || r.top > maxY) return
+      ids.add(id)
+    })
+    setSelectedItemIds(ids)
+  }, [])
+
+  useEffect(() => {
+    if (!marquee) return
+    const onMove = (e: MouseEvent) => handleMarqueeMove(e)
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      handleMarqueeEnd()
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+    return () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+    }
+  }, [marquee, handleMarqueeMove, handleMarqueeEnd])
+
+  const handleItemClick = (e: React.MouseEvent, item: PedItem) => {
+    if (justDraggedRef.current) return
+    if (e.metaKey || e.ctrlKey) {
+      setSelectedItemIds((prev) => {
+        const next = new Set(prev)
+        if (next.has(item.id)) next.delete(item.id)
+        else next.add(item.id)
+        return next
+      })
+      return
+    }
+    if (e.shiftKey) {
+      setSelectedItemIds((prev) => {
+        const next = new Set(prev)
+        const order = itemIdOrderRef.current
+        const idx = order.indexOf(item.id)
+        if (idx === -1) {
+          next.add(item.id)
+          return next
+        }
+        const lastIdx = order.findIndex((id) => prev.has(id))
+        if (lastIdx === -1) {
+          next.add(item.id)
+          return next
+        }
+        const from = Math.min(lastIdx, idx)
+        const to = Math.max(lastIdx, idx)
+        for (let i = from; i <= to; i++) next.add(order[i])
+        return next
+      })
+      return
+    }
+    setSelectedItemIds((prev) => (prev.has(item.id) && prev.size === 1 ? new Set() : new Set([item.id])))
+  }
+
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault()
     e.dataTransfer.dropEffect = e.altKey ? 'copy' : 'move'
+  }
+
+  type DragPayload = { id?: string; ids?: string[]; date: string; isExtra: boolean; copyMode?: boolean }
+  const parseDragPayload = (raw: string): DragPayload | null => {
+    try {
+      return JSON.parse(raw) as DragPayload
+    } catch {
+      return null
+    }
   }
 
   const handleDropOnDay = (targetDateKey: string) => (e: React.DragEvent) => {
@@ -199,19 +334,28 @@ export function PedCalendar({
     if (readOnly) return
     const raw = e.dataTransfer.getData(DRAG_TYPE)
     if (!raw) return
-    try {
-      const { id, date, isExtra, copyMode } = JSON.parse(raw) as { id: string; date: string; isExtra: boolean; copyMode?: boolean }
-      if (copyMode) {
-        if (typeof onDuplicateItem === 'function') {
-          queueMicrotask(() => { onDuplicateItem(id, targetDateKey, false) })
-        }
-        return
+    const payload = parseDragPayload(raw)
+    if (!payload) return
+    const { date, isExtra, copyMode } = payload
+    if (payload.ids && payload.ids.length > 0) {
+      if (copyMode) return // bulk copy not implemented
+      if (typeof onMoveItems === 'function') {
+        queueMicrotask(() => { onMoveItems(payload.ids!, targetDateKey, false) })
       }
-      if (targetDateKey === date && !isExtra) return
-      if (typeof onMoveItem === 'function') {
-        queueMicrotask(() => { onMoveItem(id, targetDateKey, false) })
+      return
+    }
+    const id = payload.id
+    if (!id) return
+    if (copyMode) {
+      if (typeof onDuplicateItem === 'function') {
+        queueMicrotask(() => { onDuplicateItem(id, targetDateKey, false) })
       }
-    } catch {}
+      return
+    }
+    if (targetDateKey === date && !isExtra) return
+    if (typeof onMoveItem === 'function') {
+      queueMicrotask(() => { onMoveItem(id, targetDateKey, false) })
+    }
   }
 
   const handleDropOnExtra = (weekStartKey: string) => (e: React.DragEvent) => {
@@ -219,20 +363,29 @@ export function PedCalendar({
     if (readOnly) return
     const raw = e.dataTransfer.getData(DRAG_TYPE)
     if (!raw) return
-    try {
-      const { id, date, isExtra, copyMode } = JSON.parse(raw) as { id: string; date: string; isExtra: boolean; copyMode?: boolean }
-      if (copyMode) {
-        if (typeof onDuplicateItem === 'function') {
-          queueMicrotask(() => { onDuplicateItem(id, weekStartKey, true) })
-        }
-        return
+    const payload = parseDragPayload(raw)
+    if (!payload) return
+    const { date, isExtra, copyMode } = payload
+    if (payload.ids && payload.ids.length > 0) {
+      if (copyMode) return
+      if (typeof onMoveItems === 'function') {
+        queueMicrotask(() => { onMoveItems(payload.ids!, weekStartKey, true) })
       }
-      const currentWeek = getISOWeekStartKey(date)
-      if (currentWeek === weekStartKey && isExtra) return
-      if (typeof onMoveItem === 'function') {
-        queueMicrotask(() => { onMoveItem(id, weekStartKey, true) })
+      return
+    }
+    const id = payload.id
+    if (!id) return
+    if (copyMode) {
+      if (typeof onDuplicateItem === 'function') {
+        queueMicrotask(() => { onDuplicateItem(id, weekStartKey, true) })
       }
-    } catch {}
+      return
+    }
+    const currentWeek = getISOWeekStartKey(date)
+    if (currentWeek === weekStartKey && isExtra) return
+    if (typeof onMoveItem === 'function') {
+      queueMicrotask(() => { onMoveItem(id, weekStartKey, true) })
+    }
   }
 
   const handleReorderInDay = (
@@ -246,28 +399,42 @@ export function PedCalendar({
     if (readOnly) return
     const raw = e.dataTransfer.getData(DRAG_TYPE)
     if (!raw) return
-    try {
-      const { id, date, isExtra: dragIsExtra, copyMode } = JSON.parse(raw) as {
-        id: string
-        date: string
-        isExtra: boolean
-        copyMode?: boolean
+    const payload = parseDragPayload(raw)
+    if (!payload) return
+    const { date, isExtra: dragIsExtra, copyMode } = payload
+    if (copyMode || dragIsExtra !== isExtra) return
+    if (isExtra) {
+      if (getISOWeekStartKey(date) !== dateKey) return
+    } else {
+      if (date !== dateKey && !payload.ids?.length) return
+    }
+    const currentIds = items.map((i) => i.id)
+    if (payload.ids && payload.ids.length > 0) {
+      const toInsert = payload.ids
+      const needMove = toInsert.some((id) => !currentIds.includes(id))
+      if (needMove) {
+        if (typeof onMoveItems === 'function') {
+          queueMicrotask(() => { onMoveItems(toInsert, dateKey, isExtra) })
+        }
+        return
       }
-      if (copyMode || dragIsExtra !== isExtra) return
-      if (isExtra) {
-        if (getISOWeekStartKey(date) !== dateKey) return
-      } else {
-        if (date !== dateKey) return
-      }
-      const ids = items.map((i) => i.id)
-      if (!ids.includes(id)) return
-      const newOrder = ids.filter((x) => x !== id)
-      newOrder.splice(dropIndex, 0, id)
+      const newOrder = currentIds.filter((x) => !toInsert.includes(x))
+      newOrder.splice(dropIndex, 0, ...toInsert)
       const orderToSave = isExtra ? newOrder.filter((id) => items.find((i) => i.id === id)?.isExtra) : newOrder
       if (orderToSave.length > 0 && typeof onReorderInDay === 'function') {
         queueMicrotask(() => { onReorderInDay(dateKey, isExtra, orderToSave) })
       }
-    } catch {}
+      return
+    }
+    const id = payload.id
+    if (!id) return
+    if (!currentIds.includes(id)) return
+    const newOrder = currentIds.filter((x) => x !== id)
+    newOrder.splice(dropIndex, 0, id)
+    const orderToSave = isExtra ? newOrder.filter((id) => items.find((i) => i.id === id)?.isExtra) : newOrder
+    if (orderToSave.length > 0 && typeof onReorderInDay === 'function') {
+      queueMicrotask(() => { onReorderInDay(dateKey, isExtra, orderToSave) })
+    }
   }
 
   const onColResizeStart = (colIndex: number) => (e: React.MouseEvent) => {
@@ -349,10 +516,37 @@ export function PedCalendar({
 
   return (
     <div className="flex flex-col h-full min-h-0 [font-size:1.15em]">
-      <div className="flex items-center gap-4 mb-2 pb-2 border-b border-white/10 flex-shrink-0">
+      <div className="flex items-center gap-4 mb-2 pb-2 border-b border-white/10 flex-shrink-0 flex-wrap">
         <span className="text-white/40 text-xs">Trascina il bordo destro di un’intestazione di colonna per ridimensionarla. Alt+trascina per duplicare una voce. Tasto destro sulla voce per menu.</span>
+        {selectedItemIds.size > 0 && (
+          <span className="flex items-center gap-2 text-accent text-sm font-medium">
+            <span>{selectedItemIds.size} selezionate</span>
+            <button
+              type="button"
+              onClick={() => setSelectedItemIds(new Set())}
+              className="px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-white text-xs"
+            >
+              Deseleziona
+            </button>
+          </span>
+        )}
       </div>
-      <div className="flex-1 min-h-0 overflow-auto">
+      <div
+        ref={calendarScrollRef}
+        className="flex-1 min-h-0 overflow-auto relative"
+        onMouseDown={handleMarqueeStart}
+      >
+        {marquee && (
+          <div
+            className="pointer-events-none fixed border-2 border-accent/80 bg-accent/10 z-20"
+            style={{
+              left: Math.min(marquee.startX, marquee.endX),
+              top: Math.min(marquee.startY, marquee.endY),
+              width: Math.abs(marquee.endX - marquee.startX),
+              height: Math.abs(marquee.endY - marquee.startY),
+            }}
+          />
+        )}
         <table className="w-full border-collapse" style={{ tableLayout: 'fixed' }}>
           <thead className="sticky top-0 z-10">
           <tr className="bg-accent/10">
@@ -439,7 +633,9 @@ export function PedCalendar({
                         return (
                           <li
                             key={item.id}
+                            data-ped-item-id={item.id}
                             draggable={!readOnly}
+                            onClick={readOnly ? undefined : (e) => handleItemClick(e, item)}
                             onDragOver={readOnly ? undefined : (e) => {
                               e.preventDefault()
                               e.stopPropagation()
@@ -448,13 +644,17 @@ export function PedCalendar({
                             onDrop={readOnly ? undefined : handleReorderInDay(cell.dateKey, false, cell.items, index)}
                             onDragStart={readOnly ? undefined : (e) => {
                               const copyMode = e.altKey
-                              e.dataTransfer.setData(DRAG_TYPE, JSON.stringify({
-                                id: item.id,
-                                date: itemDate,
-                                isExtra: Boolean(item.isExtra),
-                                copyMode,
-                              }))
+                              const ids = selectedItemIds.has(item.id) && selectedItemIds.size > 1
+                                ? Array.from(selectedItemIds)
+                                : [item.id]
+                              const payload = ids.length > 1
+                                ? { ids, date: itemDate, isExtra: Boolean(item.isExtra), copyMode }
+                                : { id: item.id, date: itemDate, isExtra: Boolean(item.isExtra), copyMode }
+                              e.dataTransfer.setData(DRAG_TYPE, JSON.stringify(payload))
                               e.dataTransfer.effectAllowed = copyMode ? 'copy' : 'move'
+                              if (ids.length > 1) {
+                                e.dataTransfer.setData('text/plain', `${ids.length} task`)
+                              }
                               justDraggedRef.current = true
                             }}
                             onDragEnd={readOnly ? undefined : () => {
@@ -464,14 +664,14 @@ export function PedCalendar({
                               e.preventDefault()
                               setContextMenu({ x: e.clientX, y: e.clientY, item })
                             }}
-                            className={`text-xs flex items-center gap-2 rounded px-2 py-1.5 ${readOnly ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'}`}
+                            className={`text-xs flex items-center gap-2 rounded px-2 py-1.5 ${readOnly ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'} ${selectedItemIds.has(item.id) ? 'ring-2 ring-accent ring-offset-1 ring-offset-dark' : ''}`}
                             style={itemStyle}
                           >
                             <input
                               type="checkbox"
                               checked={item.status === 'DONE'}
                               disabled={readOnly}
-                              onChange={readOnly ? undefined : () => onToggleDone(item.id)}
+                              onChange={readOnly ? undefined : (ev) => { ev.stopPropagation(); onToggleDone(item.id) }}
                               className="shrink-0 border-white/50"
                               aria-label={item.status === 'DONE' ? 'Fatto' : 'Da fare'}
                             />
@@ -480,7 +680,8 @@ export function PedCalendar({
                             )}
                             <span
                               className={`text-left truncate flex-1 min-w-0 font-medium ${readOnly ? '' : 'cursor-pointer hover:underline'}`}
-                              onClick={readOnly ? undefined : () => {
+                              onDoubleClick={readOnly ? undefined : (ev) => {
+                                ev.stopPropagation()
                                 if (justDraggedRef.current) return
                                 onOpenEdit(item)
                               }}
@@ -544,7 +745,9 @@ export function PedCalendar({
                       return (
                         <li
                           key={item.id}
+                          data-ped-item-id={item.id}
                           draggable={!readOnly}
+                          onClick={readOnly ? undefined : (e) => handleItemClick(e, item)}
                           onDragOver={readOnly ? undefined : (e) => {
                             e.preventDefault()
                             e.stopPropagation()
@@ -553,13 +756,17 @@ export function PedCalendar({
                           onDrop={readOnly ? undefined : handleReorderInDay(weekStartKey, true, extraItems, index)}
                           onDragStart={readOnly ? undefined : (e) => {
                             const copyMode = e.altKey
-                            e.dataTransfer.setData(DRAG_TYPE, JSON.stringify({
-                              id: item.id,
-                              date: itemDate,
-                              isExtra: Boolean(item.isExtra),
-                              copyMode,
-                            }))
+                            const ids = selectedItemIds.has(item.id) && selectedItemIds.size > 1
+                              ? Array.from(selectedItemIds)
+                              : [item.id]
+                            const payload = ids.length > 1
+                              ? { ids, date: itemDate, isExtra: Boolean(item.isExtra), copyMode }
+                              : { id: item.id, date: itemDate, isExtra: Boolean(item.isExtra), copyMode }
+                            e.dataTransfer.setData(DRAG_TYPE, JSON.stringify(payload))
                             e.dataTransfer.effectAllowed = copyMode ? 'copy' : 'move'
+                            if (ids.length > 1) {
+                              e.dataTransfer.setData('text/plain', `${ids.length} task`)
+                            }
                             justDraggedRef.current = true
                           }}
                           onDragEnd={readOnly ? undefined : () => {
@@ -569,14 +776,14 @@ export function PedCalendar({
                             e.preventDefault()
                             setContextMenu({ x: e.clientX, y: e.clientY, item })
                           }}
-                          className={`text-xs flex items-center gap-2 rounded px-2 py-1.5 ${readOnly ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'}`}
+                          className={`text-xs flex items-center gap-2 rounded px-2 py-1.5 ${readOnly ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'} ${selectedItemIds.has(item.id) ? 'ring-2 ring-accent ring-offset-1 ring-offset-dark' : ''}`}
                           style={itemStyle}
                         >
                           <input
                             type="checkbox"
                             checked={item.status === 'DONE'}
                             disabled={readOnly}
-                            onChange={readOnly ? undefined : () => onToggleDone(item.id)}
+                            onChange={readOnly ? undefined : (ev) => { ev.stopPropagation(); onToggleDone(item.id) }}
                             className="shrink-0 border-white/50"
                             aria-label={item.status === 'DONE' ? 'Fatto' : 'Da fare'}
                           />
@@ -585,7 +792,8 @@ export function PedCalendar({
                           )}
                           <span
                             className={`text-left truncate flex-1 min-w-0 font-medium ${readOnly ? '' : 'cursor-pointer hover:underline'}`}
-                            onClick={readOnly ? undefined : () => {
+                            onDoubleClick={readOnly ? undefined : (ev) => {
+                              ev.stopPropagation()
                               if (justDraggedRef.current) return
                               onOpenEdit(item)
                             }}
@@ -620,68 +828,108 @@ export function PedCalendar({
         </table>
       </div>
 
-      {contextMenu && !readOnly && (
-        <div
-          className="fixed z-50 min-w-[220px] py-1 bg-dark border border-accent/20 rounded-lg shadow-lg"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="px-2 py-1.5 text-xs font-semibold text-white/60 uppercase tracking-wide border-b border-white/10 mb-1">
-            Imposta etichetta
-          </div>
-          {PED_LABELS.map((labelKey) => {
-            const config = PED_LABEL_CONFIG[labelKey]
-            return (
-              <button
-                key={labelKey}
-                type="button"
-                className="w-full text-left px-4 py-2 text-sm flex items-center gap-2 hover:bg-white/10"
-                style={{ color: config.color }}
-                onClick={() => {
-                  if (typeof onSetLabel === 'function') {
-                    queueMicrotask(() => { onSetLabel(contextMenu.item.id, labelKey) })
+      {contextMenu && !readOnly && (() => {
+        const isBulk = selectedItemIds.size >= 2 && selectedItemIds.has(contextMenu.item.id)
+        const bulkIds = isBulk ? Array.from(selectedItemIds) : []
+        return (
+          <div
+            className="fixed z-50 min-w-[220px] py-1 bg-dark border border-accent/20 rounded-lg shadow-lg"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-2 py-1.5 text-xs font-semibold text-white/60 uppercase tracking-wide border-b border-white/10 mb-1">
+              {isBulk ? `${bulkIds.length} task selezionate` : 'Imposta etichetta'}
+            </div>
+            {PED_LABELS.map((labelKey) => {
+              const config = PED_LABEL_CONFIG[labelKey]
+              return (
+                <button
+                  key={labelKey}
+                  type="button"
+                  className="w-full text-left px-4 py-2 text-sm flex items-center gap-2 hover:bg-white/10"
+                  style={{ color: config.color }}
+                  onClick={() => {
+                    if (isBulk && typeof onBulkSetLabel === 'function') {
+                      queueMicrotask(() => { onBulkSetLabel(bulkIds, labelKey) })
+                    } else if (!isBulk && typeof onSetLabel === 'function') {
+                      queueMicrotask(() => { onSetLabel(contextMenu.item.id, labelKey) })
+                    }
+                    setContextMenu(null)
+                  }}
+                >
+                  <span
+                    className="w-3 h-3 rounded-full shrink-0"
+                    style={{ backgroundColor: config.backgroundColor }}
+                  />
+                  {config.label}
+                </button>
+              )
+            })}
+            <div className="border-t border-white/10 my-1" />
+            {isBulk && typeof onBulkToggleDone === 'function' && (
+              <>
+                <button
+                  type="button"
+                  className="w-full text-left px-4 py-2 text-sm text-white hover:bg-accent/10"
+                  onClick={() => {
+                    queueMicrotask(() => { onBulkToggleDone(bulkIds, true) })
+                    setContextMenu(null)
+                  }}
+                >
+                  Segna come fatto
+                </button>
+                <button
+                  type="button"
+                  className="w-full text-left px-4 py-2 text-sm text-white hover:bg-accent/10"
+                  onClick={() => {
+                    queueMicrotask(() => { onBulkToggleDone(bulkIds, false) })
+                    setContextMenu(null)
+                  }}
+                >
+                  Segna come non fatto
+                </button>
+              </>
+            )}
+            <button
+              type="button"
+              className="w-full text-left px-4 py-2 text-sm text-white hover:bg-accent/10"
+              onClick={() => {
+                if (isBulk && typeof onDuplicateItem === 'function') {
+                  const dateKey = contextMenu.item.date.slice(0, 10)
+                  const isExtra = Boolean(contextMenu.item.isExtra)
+                  bulkIds.forEach((id) => { onDuplicateItem(id, dateKey, isExtra) })
+                } else if (!isBulk && typeof onDuplicateItem === 'function') {
+                  const dateKey = contextMenu.item.date.slice(0, 10)
+                  onDuplicateItem(contextMenu.item.id, dateKey, Boolean(contextMenu.item.isExtra))
+                }
+                setContextMenu(null)
+              }}
+            >
+              Duplica
+            </button>
+            <button
+              type="button"
+              className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-red-500/20"
+              onClick={() => {
+                if (isBulk && typeof onBulkDelete === 'function') {
+                  if (confirm(`Eliminare le ${bulkIds.length} voci selezionate?`)) {
+                    onBulkDelete(bulkIds)
+                    setSelectedItemIds(new Set())
                   }
                   setContextMenu(null)
-                }}
-              >
-                <span
-                  className="w-3 h-3 rounded-full shrink-0"
-                  style={{ backgroundColor: config.backgroundColor }}
-                />
-                {config.label}
-              </button>
-            )
-          })}
-          <div className="border-t border-white/10 my-1" />
-          <button
-            type="button"
-            className="w-full text-left px-4 py-2 text-sm text-white hover:bg-accent/10"
-            onClick={() => {
-              const dateKey = contextMenu.item.date.slice(0, 10)
-              if (typeof onDuplicateItem === 'function') {
-                queueMicrotask(() => {
-                  onDuplicateItem(contextMenu.item.id, dateKey, Boolean(contextMenu.item.isExtra))
-                })
-              }
-              setContextMenu(null)
-            }}
-          >
-            Duplica
-          </button>
-          <button
-            type="button"
-            className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-red-500/20"
-            onClick={() => {
-              if (confirm('Eliminare questa voce?')) {
-                onDeleteItem(contextMenu.item.id)
-              }
-              setContextMenu(null)
-            }}
-          >
-            Elimina
-          </button>
-        </div>
-      )}
+                } else if (!isBulk) {
+                  if (confirm('Eliminare questa voce?')) {
+                    onDeleteItem(contextMenu.item.id)
+                  }
+                  setContextMenu(null)
+                }
+              }}
+            >
+              Elimina
+            </button>
+          </div>
+        )
+      })()}
     </div>
   )
 }

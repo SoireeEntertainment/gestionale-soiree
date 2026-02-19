@@ -729,6 +729,105 @@ export async function setPedItemLabel(id: string, label: string): Promise<{ ok: 
   }
 }
 
+async function canEditPedItem(id: string, ownerId: string): Promise<boolean> {
+  const item = await prisma.pedItem.findUnique({
+    where: { id },
+    select: { ownerId: true, assignedToUserId: true },
+  })
+  return !!(item && (item.ownerId === ownerId || item.assignedToUserId === ownerId))
+}
+
+/** Applica etichetta a più task. */
+export async function bulkSetPedItemLabel(ids: string[], label: string): Promise<{ applied: number; error?: string }> {
+  try {
+    const ownerId = await getOwnerId()
+    if (!ownerId) return { applied: 0, error: 'Non autorizzato' }
+    if (!label || !PED_LABELS.includes(label as (typeof PED_LABELS)[number])) return { applied: 0, error: 'Etichetta non valida' }
+    const status = label === DONE_LABEL ? 'DONE' : 'TODO'
+    let applied = 0
+    for (const id of ids) {
+      if (!(await canEditPedItem(id, ownerId))) continue
+      await prisma.pedItem.update({
+        where: { id },
+        data: { label, status },
+      })
+      applied++
+    }
+    revalidatePath('/ped')
+    return { applied }
+  } catch (err) {
+    console.error('[bulkSetPedItemLabel]', err)
+    return { applied: 0, error: err instanceof Error ? err.message : 'Errore' }
+  }
+}
+
+/** Segna come fatto/non fatto più task. */
+export async function bulkTogglePedItemDone(ids: string[], done: boolean): Promise<{ applied: number; error?: string }> {
+  try {
+    const ownerId = await getOwnerId()
+    if (!ownerId) return { applied: 0, error: 'Non autorizzato' }
+    const status = done ? 'DONE' : 'TODO'
+    const label = done ? DONE_LABEL : DEFAULT_LABEL
+    let applied = 0
+    for (const id of ids) {
+      if (!(await canEditPedItem(id, ownerId))) continue
+      await prisma.pedItem.update({
+        where: { id },
+        data: { status, label },
+      })
+      applied++
+    }
+    revalidatePath('/ped')
+    return { applied }
+  } catch (err) {
+    console.error('[bulkTogglePedItemDone]', err)
+    return { applied: 0, error: err instanceof Error ? err.message : 'Errore' }
+  }
+}
+
+/** Elimina più task. */
+export async function bulkDeletePedItems(ids: string[]): Promise<{ applied: number; error?: string }> {
+  try {
+    const ownerId = await getOwnerId()
+    if (!ownerId) return { applied: 0, error: 'Non autorizzato' }
+    let applied = 0
+    for (const id of ids) {
+      if (!(await canEditPedItem(id, ownerId))) continue
+      await prisma.pedItem.delete({ where: { id } })
+      applied++
+    }
+    revalidatePath('/ped')
+    return { applied }
+  } catch (err) {
+    console.error('[bulkDeletePedItems]', err)
+    return { applied: 0, error: err instanceof Error ? err.message : 'Errore' }
+  }
+}
+
+/** Sposta più task sulla stessa data. */
+export async function bulkMovePedItems(ids: string[], targetDate: string, targetIsExtra: boolean): Promise<{ applied: number; error?: string }> {
+  try {
+    const ownerId = await getOwnerId()
+    if (!ownerId) return { applied: 0, error: 'Non autorizzato' }
+    const date = parseDate(targetDate)
+    const dateStr = date.toISOString().slice(0, 10) + 'T00:00:00.000Z'
+    let applied = 0
+    for (const id of ids) {
+      if (!(await canEditPedItem(id, ownerId))) continue
+      await prisma.pedItem.update({
+        where: { id },
+        data: { date: new Date(dateStr), isExtra: targetIsExtra },
+      })
+      applied++
+    }
+    revalidatePath('/ped')
+    return { applied }
+  } catch (err) {
+    console.error('[bulkMovePedItems]', err)
+    return { applied: 0, error: err instanceof Error ? err.message : 'Errore' }
+  }
+}
+
 export async function reorderPedItemsInDay(dateKey: string, isExtra: boolean, orderedItemIds: string[]) {
   const ownerId = await getOwnerId()
   if (!ownerId) throw new Error('Non autorizzato')
