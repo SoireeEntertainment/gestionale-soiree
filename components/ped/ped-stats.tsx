@@ -88,41 +88,9 @@ function PieChart({
   )
 }
 
-function BarChart({
-  label,
-  done,
-  total,
-  doneColor = 'rgb(5, 150, 105)',
-  remainingColor = 'rgba(245, 158, 11, 0.6)',
-}: {
-  label: string
-  done: number
-  total: number
-  doneColor?: string
-  remainingColor?: string
-}) {
-  const pct = total > 0 ? Math.round((done / total) * 100) : 0
-  const doneW = total > 0 ? (done / total) * 100 : 0
-  const remW = 100 - doneW
-
-  return (
-    <div className="flex flex-col gap-1">
-      <div className="flex justify-between text-xs">
-        <span className="text-white/70">{label}</span>
-        <span className="text-white font-medium">{done}/{total} · {pct}% fatto</span>
-      </div>
-      <div className="h-4 rounded-full overflow-hidden bg-white/10 flex">
-        <div
-          className="h-full transition-all"
-          style={{ width: `${doneW}%`, backgroundColor: doneColor }}
-        />
-        <div
-          className="h-full transition-all"
-          style={{ width: `${remW}%`, backgroundColor: remainingColor }}
-        />
-      </div>
-    </div>
-  )
+function formatDayLabel(dateKey: string): string {
+  const [y, m, d] = dateKey.split('-').map(Number)
+  return `${d} ${MONTH_SHORT[m - 1]} ${y}`
 }
 
 export function PedStats({
@@ -154,8 +122,20 @@ export function PedStats({
         </p>
       )}
 
-      {/* Grafici a torta: settimana e mese */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-6">
+      {/* Grafici a torta: giorno selezionato, settimana, mese */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        {dayStat && (
+          <div className="flex flex-col items-center p-3 rounded-lg bg-white/5">
+            <PieChart
+              done={dayStat.done}
+              total={dayStat.total || 1}
+              label={`Giorno ${formatDayLabel(selectedDateKey!)}`}
+            />
+            <p className="text-xs text-white/60 mt-2">
+              {dayStat.done}/{dayStat.total} lavori nel giorno
+            </p>
+          </div>
+        )}
         {weekToShow && (
           <div className="flex flex-col items-center p-3 rounded-lg bg-white/5">
             <PieChart
@@ -178,29 +158,6 @@ export function PedStats({
             {stats.monthlyStats.done}/{stats.monthlyStats.total} lavori nel mese
           </p>
         </div>
-      </div>
-
-      {/* Barre: giorno (se selezionato), settimana, mese */}
-      <div className="space-y-3">
-        {dayStat && (
-          <BarChart
-            label="Giorno selezionato"
-            done={dayStat.done}
-            total={dayStat.total}
-          />
-        )}
-        {weekToShow && (
-          <BarChart
-            label={`Settimana ${weekRangeLabel}`}
-            done={weekToShow.done}
-            total={weekToShow.total}
-          />
-        )}
-        <BarChart
-          label="Mese"
-          done={stats.monthlyStats.done}
-          total={stats.monthlyStats.total}
-        />
       </div>
     </div>
   )
