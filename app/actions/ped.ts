@@ -6,7 +6,7 @@ import { Prisma } from '@prisma/client'
 import { getCurrentUser } from '@/lib/auth-dev'
 import { prisma } from '@/lib/prisma'
 import { toDateString, getISOWeekStart } from '@/lib/ped-utils'
-import { getEffectiveLabel, PED_LABEL_ORDER, DEFAULT_LABEL, DONE_LABEL } from '@/lib/pedLabels'
+import { getEffectiveLabel, PED_LABEL_ORDER, DEFAULT_LABEL, DONE_LABEL, PED_LABELS, type PedLabel } from '@/lib/pedLabels'
 import { pedClientSettingSchema, pedItemCreateSchema, pedItemUpdateSchema, pedItemSetLabelSchema } from '@/lib/validations'
 
 async function getOwnerId(): Promise<string | null> {
@@ -137,6 +137,66 @@ export async function getPedMonth(year: number, month: number, viewAsUserId?: st
       monthlyStats: { total: monthlyTotal, done: monthlyDone },
     },
   }
+}
+
+/** Statistiche PED per un giorno per un utente (owner o assignedTo). Autorizzato solo se currentUser.id === userId. */
+export async function getPedDailyStatsForUser(userId: string, dateKey: string): Promise<{
+  total: number
+  remaining: number
+  done: number
+  byLabel: Record<PedLabel, number>
+}> {
+  const current = await getCurrentUser()
+  if (!current || current.id !== userId) throw new Error('Non autorizzato')
+
+  const dayStart = new Date(dateKey + 'T00:00:00.000Z')
+  const dayEnd = new Date(dateKey + 'T23:59:59.999Z')
+  const itemWhere = {
+    OR: [{ ownerId: userId }, { assignedToUserId: userId }],
+    date: { gte: dayStart, lte: dayEnd },
+  }
+  const items = await prisma.pedItem.findMany({
+    where: itemWhere,
+    select: { status: true, label: true, priority: true },
+  })
+
+  const byLabel: Record<PedLabel, number> = {
+    IN_APPROVAZIONE: 0,
+    DA_FARE: 0,
+    PRONTO_NON_PUBBLICATO: 0,
+    FATTO: 0,
+  }
+  let done = 0
+  for (const item of items) {
+    const label = getEffectiveLabel(item)
+    byLabel[label] = (byLabel[label] ?? 0) + 1
+    if (item.status === 'DONE') done++
+  }
+  const total = items.length
+  const remaining = total - done
+  return { total, remaining, done, byLabel }
+}
+
+/** Conteggio task PED nella settimana ISO corrente per un utente. Autorizzato se currentUser.id === userId o utente è overview-admin. */
+export async function getPedWeeklyTaskCountForUser(userId: string): Promise<number> {
+  const current = await getCurrentUser()
+  if (!current) throw new Error('Non autorizzato')
+  const isSelf = current.id === userId
+  const isOverviewAdmin = current.name === 'Cristian Palazzolo' || current.name === 'Davide Piccolo'
+  if (!isSelf && !isOverviewAdmin) throw new Error('Non autorizzato')
+
+  const now = new Date()
+  const weekStart = getISOWeekStart(now)
+  const weekEnd = new Date(weekStart)
+  weekEnd.setUTCDate(weekEnd.getUTCDate() + 6)
+  weekEnd.setUTCHours(23, 59, 59, 999)
+  const count = await prisma.pedItem.count({
+    where: {
+      OR: [{ ownerId: userId }, { assignedToUserId: userId }],
+      date: { gte: weekStart, lte: weekEnd },
+    },
+  })
+  return count
 }
 
 /** Restituisce le date (YYYY-MM-DD) in cui inserire task in base ai contenuti/mese (4, 6, 8, 12). */

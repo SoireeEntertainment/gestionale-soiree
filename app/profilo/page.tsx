@@ -6,6 +6,7 @@ import {
   getProfileCalendarWorks,
   getProfileRecentComments,
   getWeeklyLoad,
+  getAreaOperativaData,
 } from '@/app/actions/profilo'
 import { getMyTodos } from '@/app/actions/user-todos'
 import { getMyPreferences } from '@/app/actions/user-preferences'
@@ -18,6 +19,7 @@ import { ProfileCalendar } from '@/components/profilo/profile-calendar'
 import { RecentUpdates } from '@/components/profilo/recent-updates'
 import { PersonalTodos } from '@/components/profilo/personal-todos'
 import { WeeklyLoad } from '@/components/profilo/weekly-load'
+import { PedDailyStats } from '@/components/profilo/ped-daily-stats'
 import { ProfileSettings } from '@/components/profilo/profile-settings'
 import { ProfileCalendarClient } from '@/components/profilo/profile-calendar-client'
 
@@ -33,6 +35,7 @@ export default async function ProfiloPage() {
     calendarWorks: [] as Awaited<ReturnType<typeof getProfileCalendarWorks>>,
     recentComments: [] as Awaited<ReturnType<typeof getProfileRecentComments>>,
     weeklyLoad: { total: 0, byStatus: {} as Record<string, number> },
+    areaOperativa: null as Awaited<ReturnType<typeof getAreaOperativaData>> | null,
     todos: [] as Awaited<ReturnType<typeof getMyTodos>>,
     preferences: { notifyDeadline24h: true, notifyDeadline48h: false, notifyInReview: true, notifyWaitingClient: true, timezone: 'Europe/Rome' as string },
     categories: [] as Awaited<ReturnType<typeof prisma.category.findMany>>,
@@ -46,6 +49,7 @@ export default async function ProfiloPage() {
     getProfileCalendarWorks(user.id, '30days'),
     getProfileRecentComments(user.id, 10),
     getWeeklyLoad(user.id),
+    getAreaOperativaData(user.id),
     getMyTodos(user.id),
     getMyPreferences(user.id),
     prisma.category.findMany({ orderBy: { name: 'asc' } }),
@@ -58,10 +62,11 @@ export default async function ProfiloPage() {
   const calendarWorks = results[3].status === 'fulfilled' ? results[3].value : defaults.calendarWorks
   const recentComments = results[4].status === 'fulfilled' ? results[4].value : defaults.recentComments
   const weeklyLoad = results[5].status === 'fulfilled' ? results[5].value : defaults.weeklyLoad
-  const todos = results[6].status === 'fulfilled' ? results[6].value : defaults.todos
-  const preferences = results[7].status === 'fulfilled' ? results[7].value : defaults.preferences
-  const categories = results[8].status === 'fulfilled' ? results[8].value : defaults.categories
-  const clients = results[9].status === 'fulfilled' ? results[9].value : defaults.clients
+  const areaOperativa = results[6].status === 'fulfilled' ? results[6].value : defaults.areaOperativa
+  const todos = results[7].status === 'fulfilled' ? results[7].value : defaults.todos
+  const preferences = results[8].status === 'fulfilled' ? results[8].value : defaults.preferences
+  const categories = results[9].status === 'fulfilled' ? results[9].value : defaults.categories
+  const clients = results[10].status === 'fulfilled' ? results[10].value : defaults.clients
 
   const canWriteUser = canWrite(user)
 
@@ -82,6 +87,21 @@ export default async function ProfiloPage() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2 space-y-0">
+            <PedDailyStats
+              stats={
+                areaOperativa?.pedDailyStats ?? {
+                  total: 0,
+                  remaining: 0,
+                  done: 0,
+                  byLabel: {
+                    IN_APPROVAZIONE: 0,
+                    DA_FARE: 0,
+                    PRONTO_NON_PUBBLICATO: 0,
+                    FATTO: 0,
+                  },
+                }
+              }
+            />
             <MyWorksActive
               works={activeWorks}
               categories={categories.map((c) => ({ id: c.id, name: c.name }))}
@@ -109,7 +129,11 @@ export default async function ProfiloPage() {
           </div>
 
           <div>
-            <WeeklyLoad total={weeklyLoad.total} byStatus={weeklyLoad.byStatus} />
+            <WeeklyLoad
+              total={weeklyLoad.total}
+              byStatus={weeklyLoad.byStatus}
+              weeklyLoadSummary={areaOperativa?.weeklyLoadSummary}
+            />
             <PersonalTodos todos={todos} userId={user.id} />
             <ProfileSettings userId={user.id} initial={preferences} />
           </div>

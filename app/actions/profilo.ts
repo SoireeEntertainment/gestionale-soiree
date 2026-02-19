@@ -2,6 +2,9 @@
 
 import { getCurrentUser } from '@/lib/auth-dev'
 import { prisma } from '@/lib/prisma'
+import { getISOWeekStart } from '@/lib/ped-utils'
+import { getPedDailyStatsForUser, getPedWeeklyTaskCountForUser } from '@/app/actions/ped'
+import type { PedLabel } from '@/lib/pedLabels'
 
 const ACTIVE_STATUSES = ['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'WAITING_CLIENT', 'PAUSED']
 const CLOSED_STATUSES = ['DONE', 'CANCELED']
@@ -151,21 +154,22 @@ export async function getProfileRecentComments(userId: string, limit = 10) {
   }
 }
 
+/** Settimana ISO (lun-dom). Restituisce lavori assegnati con scadenza in settimana + byStatus. */
 export async function getWeeklyLoad(userId: string) {
   const user = await getCurrentUser()
   if (!user || user.id !== userId) throw new Error('Non autorizzato')
 
   const now = new Date()
-  const startOfWeek = new Date(now)
-  startOfWeek.setDate(now.getDate() - now.getDay())
-  startOfWeek.setHours(0, 0, 0, 0)
-  const endOfWeek = new Date(startOfWeek.getTime() + 7 * 24 * 60 * 60 * 1000)
+  const weekStart = getISOWeekStart(now)
+  const weekEnd = new Date(weekStart)
+  weekEnd.setUTCDate(weekEnd.getUTCDate() + 6)
+  weekEnd.setUTCHours(23, 59, 59, 999)
 
   const works = await prisma.work.findMany({
     where: {
       assignedToUserId: userId,
       status: { in: ACTIVE_STATUSES },
-      deadline: { gte: startOfWeek, lt: endOfWeek },
+      deadline: { gte: weekStart, lte: weekEnd },
     },
   })
 
@@ -175,4 +179,107 @@ export async function getWeeklyLoad(userId: string) {
   })
 
   return { total: works.length, byStatus }
+}
+
+/** Conteggio lavori assegnati nella settimana ISO. Autorizzato se currentUser === userId o overview-admin. */
+export async function getAssignedWorkWeeklyCount(userId: string): Promise<number> {
+  const user = await getCurrentUser()
+  if (!user) throw new Error('Non autorizzato')
+  const isSelf = user.id === userId
+  const isOverviewAdmin = user.name === 'Cristian Palazzolo' || user.name === 'Davide Piccolo'
+  if (!isSelf && !isOverviewAdmin) throw new Error('Non autorizzato')
+
+  const now = new Date()
+  const weekStart = getISOWeekStart(now)
+  const weekEnd = new Date(weekStart)
+  weekEnd.setUTCDate(weekEnd.getUTCDate() + 6)
+  weekEnd.setUTCHours(23, 59, 59, 999)
+
+  return prisma.work.count({
+    where: {
+      assignedToUserId: userId,
+      status: { in: ACTIVE_STATUSES },
+      deadline: { gte: weekStart, lte: weekEnd },
+    },
+  })
+}
+
+export type PedDailyStats = {
+  total: number
+  remaining: number
+  done: number
+  byLabel: Record<PedLabel, number>
+}
+
+export type AreaOperativaData = {
+  pedDailyStats: PedDailyStats
+  pedWeeklyTaskCount: number
+  assignedWorkWeeklyCount: number
+  weeklyLoadSummary: { total: number; taskCount: number; workCount: number }
+}
+
+/** Dati unici per Area Operativa: stats PED oggi, conteggi settimana, summary carico. */
+export async function getAreaOperativaData(userId: string): Promise<AreaOperativaData> {
+  const user = await getCurrentUser()
+  if (!user || user.id !== userId) throw new Error('Non autorizzato')
+
+  const today = new Date().toISOString().slice(0, 10)
+  const [pedDailyStats, pedWeeklyTaskCount, assignedWorkWeeklyCount] = await Promise.all([
+    getPedDailyStatsForUser(userId, today),
+    getPedWeeklyTaskCountForUser(userId),
+    getAssignedWorkWeeklyCount(userId),
+  ])
+
+  const weeklyLoadSummary = {
+    taskCount: pedWeeklyTaskCount,
+    workCount: assignedWorkWeeklyCount,
+    total: pedWeeklyTaskCount + assignedWorkWeeklyCount,
+  }
+
+  return {
+    pedDailyStats,
+    pedWeeklyTaskCount,
+    assignedWorkWeeklyCount,
+    weeklyLoadSummary,
+  }
+}
+
+export type WeeklyLoadUserRow = {
+  userId: string
+  userName: string
+  taskCount: number
+  workCount: number
+  total: number
+}
+
+/** Overview carico settimanale per tutti gli utenti. Solo per Cristian Palazzolo e Davide Piccolo. */
+export async function getWeeklyLoadOverviewForAllUsers(): Promise<WeeklyLoadUserRow[]> {
+  const user = await getCurrentUser()
+  if (!user) throw new Error('Non autorizzato')
+  if (user.name !== 'Cristian Palazzolo' && user.name !== 'Davide Piccolo') {
+    return []
+  }
+
+  const users = await prisma.user.findMany({
+    where: { isActive: true },
+    select: { id: true, name: true },
+    orderBy: { name: 'asc' },
+  })
+
+  const rows: WeeklyLoadUserRow[] = []
+  for (const u of users) {
+    const [taskCount, workCount] = await Promise.all([
+      getPedWeeklyTaskCountForUser(u.id),
+      getAssignedWorkWeeklyCount(u.id),
+    ])
+    rows.push({
+      userId: u.id,
+      userName: u.name ?? 'Senza nome',
+      taskCount,
+      workCount,
+      total: taskCount + workCount,
+    })
+  }
+  rows.sort((a, b) => b.total - a.total)
+  return rows
 }

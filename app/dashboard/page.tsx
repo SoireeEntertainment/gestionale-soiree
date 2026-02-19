@@ -2,7 +2,12 @@ import { redirect } from 'next/navigation'
 import { connection } from 'next/server'
 import { requireAuth } from '@/lib/auth-dev'
 import { prisma } from '@/lib/prisma'
+import { getPedDailyStatsForUser } from '@/app/actions/ped'
+import { getWeeklyLoadOverviewForAllUsers } from '@/app/actions/profilo'
+import type { PedLabel } from '@/lib/pedLabels'
 import { DashboardStats } from '@/components/dashboard/dashboard-stats'
+import { DashboardPedToday } from '@/components/dashboard/dashboard-ped-today'
+import { DashboardWeeklyLoadOverview } from '@/components/dashboard/dashboard-weekly-load-overview'
 
 export default async function DashboardPage() {
   await connection()
@@ -15,6 +20,26 @@ export default async function DashboardPage() {
   let worksInDeadline: any[] = []
   let expiredWorks: any[] = []
   let inReviewWorks: any[] = []
+  const defaultByLabel: Record<PedLabel, number> = { IN_APPROVAZIONE: 0, DA_FARE: 0, PRONTO_NON_PUBBLICATO: 0, FATTO: 0 }
+  let pedDailyStats: { total: number; remaining: number; done: number; byLabel: Record<PedLabel, number> } = {
+    total: 0,
+    remaining: 0,
+    done: 0,
+    byLabel: defaultByLabel,
+  }
+  let weeklyLoadOverview: Awaited<ReturnType<typeof getWeeklyLoadOverviewForAllUsers>> = []
+
+  try {
+    const today = new Date().toISOString().slice(0, 10)
+    const [pedResult, overviewResult] = await Promise.all([
+      getPedDailyStatsForUser(user.id, today),
+      getWeeklyLoadOverviewForAllUsers(),
+    ])
+    pedDailyStats = pedResult
+    weeklyLoadOverview = overviewResult
+  } catch (e) {
+    // ignore
+  }
 
   // Prova a caricare i dati dal database
   try {
@@ -91,6 +116,16 @@ export default async function DashboardPage() {
           expiredWorks={expiredWorks}
           inReviewWorks={inReviewWorks}
         />
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6" style={{ display: 'grid', gap: '1.5rem', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
+          <DashboardPedToday byLabel={pedDailyStats.byLabel} />
+        </div>
+
+        {weeklyLoadOverview.length > 0 && (
+          <div className="mt-6">
+            <DashboardWeeklyLoadOverview rows={weeklyLoadOverview} />
+          </div>
+        )}
       </div>
     </div>
   )
