@@ -371,23 +371,24 @@ export async function getTeamLoadOverview(): Promise<TeamLoadUserRow[]> {
       ])
     const max = MAX_LAVORI_TOTALI
     const saturationPct = max > 0 ? Math.min(100, Math.round((activeWorkCount / max) * 100)) : 0
+    // Nel grafico a torta usiamo sempre i lavori attivi assegnati (come in capacità), non filtrati per scadenza nel periodo
     rows.push({
       userId: u.id,
       userName: u.name ?? 'Senza nome',
       daily: {
         taskCount: dailyTask,
-        workCount: dailyWork,
-        total: dailyTask + dailyWork,
+        workCount: activeWorkCount,
+        total: dailyTask + activeWorkCount,
       },
       weekly: {
         taskCount: weeklyTask,
-        workCount: weeklyWork,
-        total: weeklyTask + weeklyWork,
+        workCount: activeWorkCount,
+        total: weeklyTask + activeWorkCount,
       },
       monthly: {
         taskCount: monthlyTask,
-        workCount: monthlyWork,
-        total: monthlyTask + monthlyWork,
+        workCount: activeWorkCount,
+        total: monthlyTask + activeWorkCount,
       },
       capacity: {
         current: activeWorkCount,
