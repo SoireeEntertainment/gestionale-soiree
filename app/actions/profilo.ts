@@ -3,6 +3,7 @@
 import { getCurrentUser } from '@/lib/auth-dev'
 import { prisma } from '@/lib/prisma'
 import { getISOWeekStart } from '@/lib/ped-utils'
+import { MAX_LAVORI_TOTALI } from '@/lib/dashboard-types'
 import {
   getPedDailyStatsForUser,
   getPedWeeklyTaskCountForUser,
@@ -199,6 +200,21 @@ function isOverviewAdmin(user: { name: string | null }): boolean {
   return OVERVIEW_ADMIN_NAMES.some((n) => user.name === n)
 }
 
+/** Conteggio lavori attivi assegnati (per capacità). Autorizzato come getAssignedWorkWeeklyCount. */
+export async function getAssignedWorkActiveCount(userId: string): Promise<number> {
+  const user = await getCurrentUser()
+  if (!user) throw new Error('Non autorizzato')
+  const isSelf = user.id === userId
+  if (!isSelf && !isOverviewAdmin(user)) throw new Error('Non autorizzato')
+
+  return prisma.work.count({
+    where: {
+      assignedToUserId: userId,
+      status: { in: ACTIVE_STATUSES },
+    },
+  })
+}
+
 /** Conteggio lavori assegnati nella settimana ISO. Autorizzato se currentUser === userId o overview-admin. */
 export async function getAssignedWorkWeeklyCount(userId: string): Promise<number> {
   const user = await getCurrentUser()
@@ -308,12 +324,20 @@ export type WeeklyLoadUserRow = {
 
 export type LoadSnapshot = { taskCount: number; workCount: number; total: number }
 
+export type TeamLoadCapacity = {
+  current: number
+  max: number
+  saturationPct: number
+  isOverloaded: boolean
+}
+
 export type TeamLoadUserRow = {
   userId: string
   userName: string
   daily: LoadSnapshot
   weekly: LoadSnapshot
   monthly: LoadSnapshot
+  capacity: TeamLoadCapacity
 }
 
 /** Overview carico (giornaliero + settimanale + mensile) per i 5 utenti team. Solo per Cristian Palazzolo e Davide Piccolo. */
@@ -335,14 +359,18 @@ export async function getTeamLoadOverview(): Promise<TeamLoadUserRow[]> {
   const rows: TeamLoadUserRow[] = []
 
   for (const u of users) {
-    const [dailyTask, dailyWork, weeklyTask, weeklyWork, monthlyTask, monthlyWork] = await Promise.all([
-      getPedDailyTaskCountForUser(u.id, today),
-      getAssignedWorkDailyCount(u.id, today),
-      getPedWeeklyTaskCountForUser(u.id),
-      getAssignedWorkWeeklyCount(u.id),
-      getPedMonthlyTaskCountForUser(u.id),
-      getAssignedWorkMonthlyCount(u.id),
-    ])
+    const [dailyTask, dailyWork, weeklyTask, weeklyWork, monthlyTask, monthlyWork, activeWorkCount] =
+      await Promise.all([
+        getPedDailyTaskCountForUser(u.id, today),
+        getAssignedWorkDailyCount(u.id, today),
+        getPedWeeklyTaskCountForUser(u.id),
+        getAssignedWorkWeeklyCount(u.id),
+        getPedMonthlyTaskCountForUser(u.id),
+        getAssignedWorkMonthlyCount(u.id),
+        getAssignedWorkActiveCount(u.id),
+      ])
+    const max = MAX_LAVORI_TOTALI
+    const saturationPct = max > 0 ? Math.min(100, Math.round((activeWorkCount / max) * 100)) : 0
     rows.push({
       userId: u.id,
       userName: u.name ?? 'Senza nome',
@@ -360,6 +388,12 @@ export async function getTeamLoadOverview(): Promise<TeamLoadUserRow[]> {
         taskCount: monthlyTask,
         workCount: monthlyWork,
         total: monthlyTask + monthlyWork,
+      },
+      capacity: {
+        current: activeWorkCount,
+        max,
+        saturationPct,
+        isOverloaded: saturationPct >= 90,
       },
     })
   }

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import type { TeamLoadUserRow, LoadSnapshot } from '@/app/actions/profilo'
+import type { TeamLoadUserRow, LoadSnapshot, TeamLoadCapacity } from '@/app/actions/profilo'
 
 const TASK_COLOR = 'rgba(16, 249, 199, 0.9)' // accent
 const WORK_COLOR = 'rgba(245, 158, 11, 0.85)' // amber
@@ -12,6 +12,34 @@ const PERIOD_LABELS: Record<Period, string> = {
   daily: 'Giornaliero',
   weekly: 'Settimanale',
   monthly: 'Mensile',
+}
+
+function CapacityBlock({ capacity }: { capacity: TeamLoadCapacity }) {
+  const { current, max, saturationPct, isOverloaded } = capacity
+  return (
+    <div className="mt-3 w-full px-1">
+      <div className="flex justify-between items-center mb-1">
+        <span className="text-xs text-white/60">Capacità</span>
+        <span className="text-xs font-medium text-white">
+          {current} / {max}
+        </span>
+      </div>
+      <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
+        <div
+          className={`h-full rounded-full ${
+            isOverloaded ? 'bg-amber-500' : saturationPct > 70 ? 'bg-amber-500/80' : 'bg-accent/70'
+          }`}
+          style={{ width: `${Math.min(saturationPct, 100)}%` }}
+        />
+      </div>
+      <div className="flex justify-between mt-0.5">
+        <span className="text-[10px] text-white/50">{saturationPct}%</span>
+        {isOverloaded && (
+          <span className="text-[10px] font-medium text-amber-400">Sovraccarico</span>
+        )}
+      </div>
+    </div>
+  )
 }
 
 function PieChartTaskWork({ snapshot, size = 100 }: { snapshot: LoadSnapshot; size?: number }) {
@@ -102,6 +130,7 @@ export function DashboardTeamLoadOverview({ rows }: DashboardTeamLoadOverviewPro
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
         {rows.map((row) => {
           const snapshot = row[period]
+          const cap = row.capacity
           return (
             <div
               key={row.userId}
@@ -119,6 +148,7 @@ export function DashboardTeamLoadOverview({ rows }: DashboardTeamLoadOverviewPro
                   Lavori {snapshot.workCount}
                 </span>
               </div>
+              <CapacityBlock capacity={cap} />
             </div>
           )
         })}
