@@ -29,7 +29,7 @@ export function WorkForm({ work, clients, categories, users, clientId: initialCl
     status: work?.status || 'TODO',
     priority: work?.priority || '',
     deadline: work?.deadline
-      ? new Date(work.deadline).toISOString().slice(0, 16)
+      ? new Date(work.deadline).toISOString().slice(0, 10)
       : '',
     assignedToUserId: work?.assignedToUserId || null,
   })
@@ -168,10 +168,10 @@ export function WorkForm({ work, clients, categories, users, clientId: initialCl
             Scadenza
           </label>
           <input
-            type="datetime-local"
+            type="date"
             value={formData.deadline}
             onChange={(e) => setFormData({ ...formData, deadline: e.target.value })}
-            className="w-full px-3 py-2 bg-dark border border-accent/20 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-accent"
+            className="w-full px-3 py-2 bg-dark border border-accent/20 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-accent [color-scheme:dark]"
           />
         </div>
       </div>
