@@ -121,7 +121,7 @@ export function ClientForm({ client, users, onSuccess }: ClientFormProps) {
 
       <div>
         <label className="block text-sm font-medium text-white mb-1">
-          Link Meta Business Suite
+          Link Business Suite
         </label>
         <input
           type="url"
@@ -134,7 +134,7 @@ export function ClientForm({ client, users, onSuccess }: ClientFormProps) {
 
       <div>
         <label className="block text-sm font-medium text-white mb-1">
-          Link Gestione inserzioni
+          Link Gestione Inserzioni
         </label>
         <input
           type="url"

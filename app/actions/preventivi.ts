@@ -152,6 +152,14 @@ export async function getPreventiviByClient(clientId: string) {
 }
 
 const UPLOAD_DIR = 'uploads/preventivi'
+const MAX_PDF_SIZE_BYTES = 20 * 1024 * 1024 // 20 MB
+const PDF_MAGIC = new Uint8Array([0x25, 0x50, 0x44, 0x46]) // %PDF
+
+function isPdfBuffer(buf: ArrayBuffer): boolean {
+  if (buf.byteLength < 4) return false
+  const view = new Uint8Array(buf)
+  return PDF_MAGIC.every((b, i) => view[i] === b)
+}
 
 export async function createPreventivoWithUpload(
   clientId: string,
@@ -163,6 +171,14 @@ export async function createPreventivoWithUpload(
 
   const file = formData.get('pdf') as File | null
   if (!file || file.size === 0) throw new Error('Seleziona un file PDF')
+  if (file.size > MAX_PDF_SIZE_BYTES) {
+    throw new Error(`File troppo grande (max ${MAX_PDF_SIZE_BYTES / 1024 / 1024} MB)`)
+  }
+
+  const bytes = await file.arrayBuffer()
+  if (!isPdfBuffer(bytes)) {
+    throw new Error('Il file non è un PDF valido')
+  }
 
   const preventivo = await prisma.preventivo.create({
     data: {
@@ -179,7 +195,6 @@ export async function createPreventivoWithUpload(
   const ext = path.extname(file.name) || '.pdf'
   const safeName = `${preventivo.id}${ext}`
   const filePath = path.join(dir, safeName)
-  const bytes = await file.arrayBuffer()
   await fs.writeFile(filePath, Buffer.from(bytes))
 
   const relativePath = path.join(UPLOAD_DIR, clientId, safeName)

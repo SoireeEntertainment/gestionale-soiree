@@ -9,6 +9,8 @@ const isClerkConfigured = !!(
 )
 
 export default async function DevUsersPage() {
+  // In produzione la pagina dev-users non deve essere usata
+  if (process.env.NODE_ENV === 'production') redirect('/')
   if (isClerkConfigured) redirect('/sign-in')
 
   let users: { id: string; name: string; email: string; role: string }[]

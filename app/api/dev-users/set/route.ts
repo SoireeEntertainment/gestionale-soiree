@@ -9,6 +9,11 @@ function isValidId(s: string | null): s is string {
 }
 
 export async function GET(request: NextRequest) {
+  // In produzione non permettere mai l'accesso dev-users (impersonazione per id)
+  if (process.env.NODE_ENV === 'production') {
+    return NextResponse.redirect(new URL('/sign-in', request.url))
+  }
+
   const clerkConfigured = !!(
     process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY &&
     process.env.CLERK_SECRET_KEY
@@ -39,12 +44,13 @@ export async function GET(request: NextRequest) {
     status: 200,
     headers: { 'Content-Type': 'text/html; charset=utf-8' },
   })
+  const nodeEnv = process.env.NODE_ENV as string | undefined
   res.cookies.set(DEV_COOKIE_NAME, userId, {
     path: '/',
     maxAge: 60 * 60 * 24 * 30,
     sameSite: 'lax',
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: nodeEnv === 'production',
   })
   return res
 }

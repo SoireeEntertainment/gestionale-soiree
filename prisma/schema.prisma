@@ -52,8 +52,25 @@ model Client {
   pedClientSettings  PedClientSetting[]
   pedItems           PedItem[]
   credentials        ClientCredential[]
+  renewals           ClientRenewal[]
 
   @@map("clients")
+}
+
+model ClientRenewal {
+  id           String    @id @default(cuid())
+  clientId     String
+  serviceName  String
+  renewalDate  DateTime
+  billingDate  DateTime?
+  notes        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, renewalDate])
+  @@map("client_renewals")
 }
 
 model ClientCredential {

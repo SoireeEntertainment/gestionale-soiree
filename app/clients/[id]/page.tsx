@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { requireAuth } from '@/lib/auth-dev'
 import { getClient } from '@/app/actions/clients'
 import { getClientCredentials } from '@/app/actions/client-credentials'
+import { getClientRenewals } from '@/app/actions/client-renewals'
 import { getPedClientSettingByClient } from '@/app/actions/ped'
 import { ClientDetail, type ClientDetailProps } from '@/components/clients/client-detail'
 import { prisma } from '@/lib/prisma'
@@ -14,11 +15,12 @@ export default async function ClientDetailPage(props: {
   const { id } = await props.params
   const isAdmin = user.role === 'ADMIN'
 
-  const [client, categories, users, credentials, pedData] = await Promise.all([
+  const [client, categories, users, credentials, renewals, pedData] = await Promise.all([
     getClient(id),
     prisma.category.findMany(),
     getUsers(),
     getClientCredentials(id),
+    getClientRenewals(id),
     Promise.all([
       prisma.client.findMany({ orderBy: { name: 'asc' }, select: { id: true, name: true } }),
       prisma.work.findMany({ orderBy: { title: 'asc' }, select: { id: true, title: true } }),
@@ -48,6 +50,7 @@ export default async function ClientDetailPage(props: {
       currentUserId={user?.id ?? ''}
       metaBusinessSuiteUrl={(client as { metaBusinessSuiteUrl?: string | null }).metaBusinessSuiteUrl ?? undefined}
       gestioneInserzioniUrl={(client as { gestioneInserzioniUrl?: string | null }).gestioneInserzioniUrl ?? undefined}
+      renewals={renewals}
     />
   )
 }

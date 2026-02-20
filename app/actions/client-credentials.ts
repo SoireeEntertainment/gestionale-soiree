@@ -4,6 +4,10 @@ import { revalidatePath } from 'next/cache'
 import { getCurrentUser, canWrite } from '@/lib/auth-dev'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
+import {
+  encryptCredentialValue,
+  decryptCredentialValue,
+} from '@/lib/credentials-crypto'
 
 export type ClientCredentialRow = {
   id: string
@@ -16,17 +20,27 @@ export type ClientCredentialRow = {
   updatedAt: Date
 }
 
-export async function getClientCredentials(clientId: string): Promise<ClientCredentialRow[]> {
+export async function getClientCredentials(
+  clientId: string
+): Promise<ClientCredentialRow[]> {
   const user = await getCurrentUser()
   if (!user) throw new Error('Non autorizzato')
 
-  const rows = await prisma.$queryRaw<ClientCredentialRow[]>`
-    SELECT id, "clientId", label, username, password, notes, "createdAt", "updatedAt"
-    FROM client_credentials
-    WHERE "clientId" = ${clientId}
-    ORDER BY label ASC
-  `
-  return rows
+  const rows = await prisma.clientCredential.findMany({
+    where: { clientId },
+    orderBy: { label: 'asc' },
+  })
+
+  return rows.map((r) => ({
+    id: r.id,
+    clientId: r.clientId,
+    label: r.label,
+    username: decryptCredentialValue(r.username),
+    password: decryptCredentialValue(r.password),
+    notes: r.notes,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  }))
 }
 
 const credentialSchema = z.object({
@@ -38,7 +52,13 @@ const credentialSchema = z.object({
 
 export async function upsertClientCredential(
   clientId: string,
-  data: { id?: string; label: string; username?: string | null; password?: string | null; notes?: string | null }
+  data: {
+    id?: string
+    label: string
+    username?: string | null
+    password?: string | null
+    notes?: string | null
+  }
 ) {
   const user = await getCurrentUser()
   if (!user || !canWrite(user)) throw new Error('Non autorizzato')
@@ -53,39 +73,53 @@ export async function upsertClientCredential(
   const client = await prisma.client.findUnique({ where: { id: clientId } })
   if (!client) throw new Error('Cliente non trovato')
 
+  const usernameEnc = encryptCredentialValue(validated.username)
+  const passwordEnc = encryptCredentialValue(validated.password)
+
   if (data.id) {
-    const existing = await prisma.$queryRaw<{ id: string }[]>`
-      SELECT id FROM client_credentials WHERE id = ${data.id} AND "clientId" = ${clientId}
-    `
-    if (!existing.length) throw new Error('Credenziale non trovata')
-    await prisma.$executeRaw`
-      UPDATE client_credentials
-      SET label = ${validated.label}, username = ${validated.username}, password = ${validated.password}, notes = ${validated.notes}, "updatedAt" = datetime('now')
-      WHERE id = ${data.id}
-    `
+    const existing = await prisma.clientCredential.findFirst({
+      where: { id: data.id, clientId },
+    })
+    if (!existing) throw new Error('Credenziale non trovata')
+    await prisma.clientCredential.update({
+      where: { id: data.id },
+      data: {
+        label: validated.label,
+        username: usernameEnc,
+        password: passwordEnc,
+        notes: validated.notes,
+      },
+    })
   } else {
-    const id = `cuid_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`
-    await prisma.$executeRaw`
-      INSERT INTO client_credentials (id, "clientId", label, username, password, notes, "createdAt", "updatedAt")
-      VALUES (${id}, ${clientId}, ${validated.label}, ${validated.username}, ${validated.password}, ${validated.notes}, datetime('now'), datetime('now'))
-    `
+    await prisma.clientCredential.create({
+      data: {
+        clientId,
+        label: validated.label,
+        username: usernameEnc,
+        password: passwordEnc,
+        notes: validated.notes,
+      },
+    })
   }
 
   revalidatePath(`/clients/${clientId}`)
 }
 
-export async function deleteClientCredential(credentialId: string, clientId: string) {
+export async function deleteClientCredential(
+  credentialId: string,
+  clientId: string
+) {
   const user = await getCurrentUser()
   if (!user || !canWrite(user)) throw new Error('Non autorizzato')
 
-  const existing = await prisma.$queryRaw<{ id: string }[]>`
-    SELECT id FROM client_credentials WHERE id = ${credentialId} AND "clientId" = ${clientId}
-  `
-  if (!existing.length) throw new Error('Credenziale non trovata')
+  const existing = await prisma.clientCredential.findFirst({
+    where: { id: credentialId, clientId },
+  })
+  if (!existing) throw new Error('Credenziale non trovata')
 
-  await prisma.$executeRaw`
-    DELETE FROM client_credentials WHERE id = ${credentialId}
-  `
+  await prisma.clientCredential.delete({
+    where: { id: credentialId },
+  })
 
   revalidatePath(`/clients/${clientId}`)
 }

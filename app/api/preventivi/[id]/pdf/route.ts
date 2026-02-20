@@ -16,7 +16,11 @@ export async function GET(
   if (!preventivo) return NextResponse.json({ error: 'Preventivo non trovato' }, { status: 404 })
 
   if (preventivo.type === 'UPLOADED' && preventivo.filePath) {
-    const fullPath = path.join(process.cwd(), preventivo.filePath)
+    const uploadsRoot = path.resolve(process.cwd(), 'uploads')
+    const fullPath = path.resolve(process.cwd(), preventivo.filePath)
+    if (!fullPath.startsWith(uploadsRoot + path.sep)) {
+      return NextResponse.json({ error: 'Percorso file non valido' }, { status: 400 })
+    }
     try {
       const buf = await fs.readFile(fullPath)
       return new NextResponse(buf, {

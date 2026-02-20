@@ -8,6 +8,7 @@ import { ClientForm } from './client-form'
 import { ClientCategoryTab } from './client-category-tab'
 import { ClientPreventiviSection } from './client-preventivi-section'
 import { ClientCredentialsSection } from './client-credentials-section'
+import { ClientRenewalsSection } from './client-renewals-section'
 import { ClientPedSection } from './client-ped-section'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
@@ -42,9 +43,10 @@ export interface ClientDetailProps {
   currentUserId?: string
   metaBusinessSuiteUrl?: string | null
   gestioneInserzioniUrl?: string | null
+  renewals?: { id: string; clientId: string; serviceName: string; renewalDate: Date; billingDate: Date | null; notes: string | null; createdAt: Date; updatedAt: Date }[]
 }
 
-export function ClientDetail({ client, allCategories, users, canWrite = true, showPedSection = false, pedClients = [], pedWorks = [], pedContentsPerMonth = 0, currentUserId = '', metaBusinessSuiteUrl, gestioneInserzioniUrl }: ClientDetailProps) {
+export function ClientDetail({ client, allCategories, users, canWrite = true, showPedSection = false, pedClients = [], pedWorks = [], pedContentsPerMonth = 0, currentUserId = '', metaBusinessSuiteUrl, gestioneInserzioniUrl, renewals = [] }: ClientDetailProps) {
   const router = useRouter()
   const firstCategoryId = allCategories[0]?.id ?? ''
   const [activeTab, setActiveTab] = useState<string>(firstCategoryId)
@@ -129,30 +131,45 @@ export function ClientDetail({ client, allCategories, users, canWrite = true, sh
           )}
         </div>
 
-        {(metaBusinessSuiteUrl || gestioneInserzioniUrl) && (
-          <div className="flex flex-wrap gap-3 mb-6">
-            {metaBusinessSuiteUrl && (
-              <a
-                href={metaBusinessSuiteUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-4 py-2 rounded-md font-medium bg-accent/20 text-accent border border-accent/40 hover:bg-accent/30"
-              >
-                Meta Business Suite
-              </a>
-            )}
-            {gestioneInserzioniUrl && (
-              <a
-                href={gestioneInserzioniUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-4 py-2 rounded-md font-medium bg-accent/20 text-accent border border-accent/40 hover:bg-accent/30"
-              >
-                Gestione inserzioni
-              </a>
-            )}
-          </div>
-        )}
+        <div className="flex flex-wrap gap-3 mb-6 items-center">
+          {metaBusinessSuiteUrl ? (
+            <a
+              href={metaBusinessSuiteUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-4 py-2 rounded-md font-medium bg-accent/20 text-accent border border-accent/40 hover:bg-accent/30"
+            >
+              Business Suite
+            </a>
+          ) : (
+            <span
+              className="px-4 py-2 rounded-md font-medium bg-white/5 text-white/50 border border-white/10 cursor-not-allowed"
+              title="Imposta link in Modifica cliente"
+            >
+              Business Suite
+            </span>
+          )}
+          {gestioneInserzioniUrl ? (
+            <a
+              href={gestioneInserzioniUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-4 py-2 rounded-md font-medium bg-accent/20 text-accent border border-accent/40 hover:bg-accent/30"
+            >
+              Gestione Inserzioni
+            </a>
+          ) : (
+            <span
+              className="px-4 py-2 rounded-md font-medium bg-white/5 text-white/50 border border-white/10 cursor-not-allowed"
+              title="Imposta link in Modifica cliente"
+            >
+              Gestione Inserzioni
+            </span>
+          )}
+          {(!metaBusinessSuiteUrl || !gestioneInserzioniUrl) && canWrite && (
+            <span className="text-white/50 text-xs">Imposta i link in Modifica cliente</span>
+          )}
+        </div>
 
         <div className="bg-dark border border-accent/20 rounded-lg p-6 mb-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -180,6 +197,12 @@ export function ClientDetail({ client, allCategories, users, canWrite = true, sh
         <ClientCredentialsSection
           clientId={client.id}
           credentials={client.credentials ?? []}
+          canWrite={canWrite ?? false}
+        />
+
+        <ClientRenewalsSection
+          clientId={client.id}
+          initialRenewals={renewals}
           canWrite={canWrite ?? false}
         />
 

@@ -1,5 +1,12 @@
 import { z } from 'zod'
 
+const optionalUrl = z
+  .string()
+  .optional()
+  .default('')
+  .transform((s) => (s?.trim() ?? '') === '' ? '' : s.trim())
+  .refine((v) => v === '' || /^https?:\/\//i.test(v), 'URL deve iniziare con http:// o https://')
+
 export const clientSchema = z.object({
   name: z.string().min(1, 'Il nome è obbligatorio'),
   contactName: z.string().optional(),
@@ -7,8 +14,15 @@ export const clientSchema = z.object({
   phone: z.string().optional(),
   notes: z.string().optional(),
   assignedToUserId: z.string().optional().nullable(),
-  metaBusinessSuiteUrl: z.union([z.string().url('URL non valido'), z.literal('')]).optional().default(''),
-  gestioneInserzioniUrl: z.union([z.string().url('URL non valido'), z.literal('')]).optional().default(''),
+  metaBusinessSuiteUrl: optionalUrl,
+  gestioneInserzioniUrl: optionalUrl,
+})
+
+export const clientRenewalSchema = z.object({
+  serviceName: z.string().min(1, 'Nome servizio obbligatorio'),
+  renewalDate: z.string().min(1, 'Data rinnovo obbligatoria'),
+  billingDate: z.string().optional().or(z.literal('')),
+  notes: z.string().optional().nullable(),
 })
 
 export const categorySchema = z.object({
