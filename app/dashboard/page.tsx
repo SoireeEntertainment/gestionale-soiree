@@ -4,6 +4,7 @@ import { requireAuth } from '@/lib/auth-dev'
 import { prisma } from '@/lib/prisma'
 import { getPedDailyStatsForUser } from '@/app/actions/ped'
 import { getTeamLoadOverview } from '@/app/actions/profilo'
+import { getDashboardTaskStats, getDashboardWorkStats } from '@/app/actions/dashboard'
 import type { PedLabel } from '@/lib/pedLabels'
 import { DashboardGrid } from '@/components/dashboard/dashboard-grid'
 
@@ -27,77 +28,86 @@ export default async function DashboardPage() {
   }
   let teamLoadOverview: Awaited<ReturnType<typeof getTeamLoadOverview>> = []
 
+  let taskStats: Awaited<ReturnType<typeof getDashboardTaskStats>> = {
+    total: 0,
+    byType: {},
+    periodLabel: 'oggi',
+  }
+  let workStats: Awaited<ReturnType<typeof getDashboardWorkStats>> = {
+    total: 0,
+    byCategory: [],
+    capacity: { max: 40, current: 0, saturationPct: 0, isOverloaded: false },
+  }
   try {
     const today = new Date().toISOString().slice(0, 10)
-    const [pedResult, overviewResult] = await Promise.all([
+    const [pedResult, overviewResult, taskResult, workResult] = await Promise.all([
       getPedDailyStatsForUser(user.id, today),
       getTeamLoadOverview(),
+      getDashboardTaskStats(user.id),
+      getDashboardWorkStats(user.id),
     ])
     pedDailyStats = pedResult
     teamLoadOverview = overviewResult
+    taskStats = taskResult
+    workStats = workResult
   } catch (e) {
     // ignore
   }
 
-  // Prova a caricare i dati dal database
+  // Dati lavori: solo quelli assegnati all'utente (dashboard personale)
   try {
     const now = new Date()
     const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
+    const assignedWhere = { assignedToUserId: user.id }
 
     totalClients = await prisma.client.count()
     totalWorks = await prisma.work.count()
-    
-      worksInDeadline = await prisma.work.findMany({
-        where: {
-          deadline: {
-            gte: now,
-            lte: sevenDaysFromNow,
-          },
-          status: {
-            not: 'DONE',
-          },
-        },
-        include: {
-          client: true,
-          category: true,
-          assignedTo: true,
-        },
-        take: 10,
-      })
 
-      expiredWorks = await prisma.work.findMany({
-        where: {
-          deadline: {
-            lt: now,
-          },
-          status: {
-            not: 'DONE',
-          },
+    worksInDeadline = await prisma.work.findMany({
+      where: {
+        ...assignedWhere,
+        deadline: {
+          gte: now,
+          lte: sevenDaysFromNow,
         },
-        include: {
-          client: true,
-          category: true,
-          assignedTo: true,
-        },
-        take: 10,
-      })
+        status: { not: 'DONE' },
+      },
+      include: {
+        client: true,
+        category: true,
+        assignedTo: true,
+      },
+      take: 10,
+    })
 
-      inReviewWorks = await prisma.work.findMany({
-        where: {
-          status: {
-            in: ['IN_REVIEW', 'WAITING_CLIENT'],
-          },
-        },
-        include: {
-          client: true,
-          category: true,
-          assignedTo: true,
-        },
-        take: 10,
-      })
-  } catch (error: any) {
-    // Se c'è un errore, usa valori di default
-    console.error('Database error:', error?.message)
+    expiredWorks = await prisma.work.findMany({
+      where: {
+        ...assignedWhere,
+        deadline: { lt: now },
+        status: { not: 'DONE' },
+      },
+      include: {
+        client: true,
+        category: true,
+        assignedTo: true,
+      },
+      take: 10,
+    })
+
+    inReviewWorks = await prisma.work.findMany({
+      where: {
+        ...assignedWhere,
+        status: { in: ['IN_REVIEW', 'WAITING_CLIENT'] },
+      },
+      include: {
+        client: true,
+        category: true,
+        assignedTo: true,
+      },
+      take: 10,
+    })
+  } catch (error: unknown) {
+    console.error('Database error:', error instanceof Error ? error.message : error)
   }
 
   return (
@@ -115,6 +125,8 @@ export default async function DashboardPage() {
           inReviewWorks={inReviewWorks}
           pedDailyStatsByLabel={pedDailyStats.byLabel}
           teamLoadRows={teamLoadOverview}
+          taskStats={taskStats}
+          workStats={workStats}
         />
       </div>
     </div>

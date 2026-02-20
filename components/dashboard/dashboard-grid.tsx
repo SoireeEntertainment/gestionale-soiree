@@ -2,13 +2,16 @@
 
 import { useState, useCallback, useEffect } from 'react'
 import { DashboardStats } from './dashboard-stats'
+import { DashboardTaskCard } from './dashboard-task-card'
+import { DashboardLavoriCard } from './dashboard-lavori-card'
 import { DashboardPedToday } from './dashboard-ped-today'
 import { DashboardTeamLoadOverview } from './dashboard-team-load-overview'
 import type { PedLabel } from '@/lib/pedLabels'
 import type { TeamLoadUserRow } from '@/app/actions/profilo'
+import type { DashboardTaskStats, DashboardWorkStats } from '@/lib/dashboard-types'
 
 const STORAGE_KEY = 'dashboard-widget-order'
-const DEFAULT_ORDER: string[] = ['stats', 'ped-today', 'team-overview']
+const DEFAULT_ORDER: string[] = ['task', 'lavori', 'stats', 'ped-today', 'team-overview']
 
 interface Work {
   id: string
@@ -26,6 +29,8 @@ export type DashboardGridProps = {
   inReviewWorks: Work[]
   pedDailyStatsByLabel: Record<PedLabel, number>
   teamLoadRows: TeamLoadUserRow[]
+  taskStats: DashboardTaskStats
+  workStats: DashboardWorkStats
 }
 
 export function DashboardGrid({
@@ -36,6 +41,8 @@ export function DashboardGrid({
   inReviewWorks,
   pedDailyStatsByLabel,
   teamLoadRows,
+  taskStats,
+  workStats,
 }: DashboardGridProps) {
   const [order, setOrder] = useState<string[]>(DEFAULT_ORDER)
   const [draggedId, setDraggedId] = useState<string | null>(null)
@@ -98,6 +105,8 @@ export function DashboardGrid({
   }
 
   const widgets: Record<string, React.ReactNode> = {
+    task: <DashboardTaskCard stats={taskStats} />,
+    lavori: <DashboardLavoriCard stats={workStats} />,
     stats: (
       <DashboardStats
         totalClients={totalClients}
@@ -112,7 +121,9 @@ export function DashboardGrid({
   }
 
   const widgetLabels: Record<string, string> = {
-    stats: 'Statistiche e lavori',
+    task: 'Task',
+    lavori: 'Lavori',
+    stats: 'Scadenze e revisioni',
     'ped-today': 'Task di oggi (PED)',
     'team-overview': 'Carico team',
   }
