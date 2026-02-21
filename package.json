@@ -16,7 +16,9 @@
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
-    "db:migrate-to-postgres": "tsx scripts/migrate-sqlite-to-postgres.ts"
+    "db:migrate-to-postgres": "tsx scripts/migrate-sqlite-to-postgres.ts",
+    "import-domain-expiries": "tsx scripts/import-domain-expiries.ts",
+    "import-domain-expiries-mapped": "tsx scripts/import-domain-expiries-mapped.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "^5.7.5",
