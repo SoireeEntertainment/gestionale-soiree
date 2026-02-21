@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import {
   analyzeDomainsInput,
@@ -18,6 +18,9 @@ const DATE_FMT = new Intl.DateTimeFormat('it-IT', {
 
 export function DomainImportForm() {
   const [text, setText] = useState('')
+  const [imageFile, setImageFile] = useState<File | null>(null)
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null)
+  const [extracting, setExtracting] = useState(false)
   const [loading, setLoading] = useState(false)
   const [applying, setApplying] = useState(false)
   const [result, setResult] = useState<DomainMatchResult | null>(null)
@@ -26,6 +29,58 @@ export function DomainImportForm() {
     clientsWithWebsite: number
   } | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const clearImage = useCallback(() => {
+    if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl)
+    setImageFile(null)
+    setImagePreviewUrl(null)
+  }, [imagePreviewUrl])
+
+  const setImage = useCallback(
+    (file: File | null) => {
+      clearImage()
+      if (!file) return
+      if (!file.type.startsWith('image/')) return
+      setImageFile(file)
+      setImagePreviewUrl(URL.createObjectURL(file))
+    },
+    [clearImage]
+  )
+
+  const handleExtractFromImage = useCallback(async () => {
+    if (!imageFile) return
+    setError(null)
+    setExtracting(true)
+    try {
+      const { createWorker } = await import('tesseract.js')
+      const worker = await createWorker('ita+eng', 0)
+      const { data } = await worker.recognize(imageFile)
+      await worker.terminate()
+      const extracted = (data as { text?: string }).text ?? ''
+      setText((prev) => (prev ? prev + '\n' + extracted : extracted))
+      clearImage()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Errore durante l\'estrazione dal screenshot')
+    } finally {
+      setExtracting(false)
+    }
+  }, [imageFile, clearImage])
+
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    const item = e.clipboardData?.items?.[0]
+    if (item?.kind === 'file' && item.type.startsWith('image/')) {
+      e.preventDefault()
+      const file = item.getAsFile()
+      if (file) setImage(file)
+    }
+  }, [])
+
+  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) setImage(file)
+    e.target.value = ''
+  }, [])
 
   const handleAnalyze = async () => {
     setError(null)
@@ -61,20 +116,69 @@ export function DomainImportForm() {
   const hasAmbiguous = result && result.ambiguous.length > 0
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" onPaste={handlePaste}>
       <div className="flex items-center gap-4">
         <Link href="/clients" className="text-accent hover:underline">
           ← Torna ai clienti
         </Link>
       </div>
 
-      <h1 className="text-3xl font-bold text-white">Importa domini Hostinger</h1>
+      <h1 className="text-3xl font-bold text-white">Importa domini</h1>
       <p className="text-white/70 text-sm">
-        Incolla l&apos;elenco domini e scadenze. Formati supportati: <code className="bg-white/10 px-1 rounded">dominio.tld | YYYY-MM-DD</code> oppure <code className="bg-white/10 px-1 rounded">dominio.tld,YYYY-MM-DD</code> (una riga per dominio, o testo grezzo).
+        Incolla l&apos;elenco domini e scadenze, oppure carica uno screenshot della lista (es. Hostinger). Formati testo: <code className="bg-white/10 px-1 rounded">dominio.tld | YYYY-MM-DD</code> oppure <code className="bg-white/10 px-1 rounded">dominio.tld,YYYY-MM-DD</code>.
       </p>
 
+      {/* Import da screenshot */}
+      <div
+        className="rounded-lg border border-dashed border-accent/30 bg-white/5 p-4"
+        onPaste={handlePaste}
+      >
+        <div className="text-sm font-medium text-white mb-2">Da screenshot</div>
+        <div className="flex flex-wrap items-center gap-3">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handleFileChange}
+            className="hidden"
+          />
+          <Button
+            type="button"
+            variant="secondary"
+            className="border-accent/30 text-accent"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            Carica immagine
+          </Button>
+          <span className="text-white/50 text-sm">oppure incolla qui (Ctrl+V) con uno screenshot negli appunti</span>
+        </div>
+        {imageFile && (
+          <div className="mt-3 flex flex-wrap items-start gap-3">
+            {imagePreviewUrl && (
+              <img
+                src={imagePreviewUrl}
+                alt="Screenshot"
+                className="max-h-40 rounded border border-white/10 object-contain"
+              />
+            )}
+            <div className="flex flex-col gap-2">
+              <Button
+                type="button"
+                onClick={handleExtractFromImage}
+                disabled={extracting}
+              >
+                {extracting ? 'Estrazione testo...' : 'Estrai testo dall\'immagine'}
+              </Button>
+              <Button type="button" variant="ghost" onClick={clearImage} className="text-white/70">
+                Annulla
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+
       <div>
-        <label className="block text-sm font-medium text-white mb-1">Incolla qui l&apos;elenco</label>
+        <label className="block text-sm font-medium text-white mb-1">Testo elenco (incolla o ricavato da screenshot)</label>
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}

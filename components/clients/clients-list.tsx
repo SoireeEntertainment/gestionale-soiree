@@ -65,7 +65,7 @@ export function ClientsList({ clients, users, canWrite = true }: ClientsListProp
           <>
             <Link href="/clients/import-domains">
               <Button variant="secondary" className="border-accent/30 text-accent">
-                Importa domini Hostinger
+                Importa domini
               </Button>
             </Link>
             <Dialog>
