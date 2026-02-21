@@ -12,17 +12,14 @@ export default async function WorkDetailPage(props: {
   if (user.role === 'AGENTE') redirect('/clients')
 
   const { id } = await props.params
-  const work = await getWork(id)
-
-  if (!work) {
-    redirect('/works')
-  }
-
-  const [clients, categories, users] = await Promise.all([
+  const [work, clients, categories, users] = await Promise.all([
+    getWork(id),
     prisma.client.findMany({ orderBy: { name: 'asc' } }),
     prisma.category.findMany({ orderBy: { name: 'asc' } }),
     getUsers(),
   ])
+
+  if (!work) redirect('/works')
 
   return <WorkDetail work={work} clients={clients} categories={categories} users={users} />
 }

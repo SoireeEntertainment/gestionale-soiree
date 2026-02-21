@@ -11,12 +11,12 @@ export default async function CategoryDetailPage(props: {
   if (user.role === 'AGENTE') redirect('/clients')
 
   const { id } = await props.params
-  const category = await getCategory(id)
-  const clients = await prisma.client.findMany()
+  const [category, clients] = await Promise.all([
+    getCategory(id),
+    prisma.client.findMany({ orderBy: { name: 'asc' } }),
+  ])
 
-  if (!category) {
-    redirect('/categories')
-  }
+  if (!category) redirect('/categories')
 
   return <CategoryDetail category={category} allClients={clients} />
 }

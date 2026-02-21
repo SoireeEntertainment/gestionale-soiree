@@ -39,75 +39,50 @@ export default async function DashboardPage() {
     capacity: { max: 40, current: 0, saturationPct: 0, isOverloaded: false },
   }
   try {
-    const today = new Date().toISOString().slice(0, 10)
-    const [pedResult, overviewResult, taskResult, workResult] = await Promise.all([
+    const now = new Date()
+    const today = now.toISOString().slice(0, 10)
+    const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
+    const assignedWhere = { assignedToUserId: user.id }
+    const includeRel = { client: true, category: true, assignedTo: true }
+
+    const [pedResult, overviewResult, taskResult, workResult, clientsCount, worksCount, inDeadline, expired, inReview] = await Promise.all([
       getPedDailyStatsForUser(user.id, today),
       getTeamLoadOverview(),
       getDashboardTaskStats(user.id),
       getDashboardWorkStats(user.id),
+      prisma.client.count(),
+      prisma.work.count(),
+      prisma.work.findMany({
+        where: {
+          ...assignedWhere,
+          deadline: { gte: now, lte: sevenDaysFromNow },
+          status: { not: 'DONE' },
+        },
+        include: includeRel,
+        take: 10,
+      }),
+      prisma.work.findMany({
+        where: { ...assignedWhere, deadline: { lt: now }, status: { not: 'DONE' } },
+        include: includeRel,
+        take: 10,
+      }),
+      prisma.work.findMany({
+        where: { ...assignedWhere, status: { in: ['IN_REVIEW', 'WAITING_CLIENT'] } },
+        include: includeRel,
+        take: 10,
+      }),
     ])
     pedDailyStats = pedResult
     teamLoadOverview = overviewResult
     taskStats = taskResult
     workStats = workResult
-  } catch (e) {
-    // ignore
-  }
-
-  // Dati lavori: solo quelli assegnati all'utente (dashboard personale)
-  try {
-    const now = new Date()
-    const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
-    const assignedWhere = { assignedToUserId: user.id }
-
-    totalClients = await prisma.client.count()
-    totalWorks = await prisma.work.count()
-
-    worksInDeadline = await prisma.work.findMany({
-      where: {
-        ...assignedWhere,
-        deadline: {
-          gte: now,
-          lte: sevenDaysFromNow,
-        },
-        status: { not: 'DONE' },
-      },
-      include: {
-        client: true,
-        category: true,
-        assignedTo: true,
-      },
-      take: 10,
-    })
-
-    expiredWorks = await prisma.work.findMany({
-      where: {
-        ...assignedWhere,
-        deadline: { lt: now },
-        status: { not: 'DONE' },
-      },
-      include: {
-        client: true,
-        category: true,
-        assignedTo: true,
-      },
-      take: 10,
-    })
-
-    inReviewWorks = await prisma.work.findMany({
-      where: {
-        ...assignedWhere,
-        status: { in: ['IN_REVIEW', 'WAITING_CLIENT'] },
-      },
-      include: {
-        client: true,
-        category: true,
-        assignedTo: true,
-      },
-      take: 10,
-    })
+    totalClients = clientsCount
+    totalWorks = worksCount
+    worksInDeadline = inDeadline
+    expiredWorks = expired
+    inReviewWorks = inReview
   } catch (error: unknown) {
-    console.error('Database error:', error instanceof Error ? error.message : error)
+    console.error('Dashboard error:', error instanceof Error ? error.message : error)
   }
 
   return (

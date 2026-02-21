@@ -15,24 +15,17 @@ export default async function ClientDetailPage(props: {
   const { id } = await props.params
   const isAdmin = user.role === 'ADMIN'
 
-  let client = await getClient(id)
+  const client = await getClient(id)
   if (!client) redirect('/clients')
 
-  try {
-    await ensureClientSocialIfInPed(id)
-    client = (await getClient(id)) ?? client
-  } catch {
-    // Non bloccare il caricamento scheda se l'auto-associazione Social fallisce
-  }
+  // Auto-associazione Social in background (non blocca il caricamento)
+  ensureClientSocialIfInPed(id).catch(() => {})
 
   const now = new Date()
   const currentYear = now.getFullYear()
   const currentMonth = now.getMonth() + 1
 
-  let pedTaskCounts: { monthCount: number; totalCount: number } | undefined
-  let clientInPed = false
-
-  const [categories, users, credentials, renewals, pedData] = await Promise.all([
+  const [categories, users, credentials, renewals, pedData, pedCountsResult] = await Promise.all([
     prisma.category.findMany(),
     getUsers(),
     getClientCredentials(id),
@@ -46,18 +39,13 @@ export default async function ClientDetailPage(props: {
       pedWorks,
       pedContentsPerMonth: pedSetting?.contentsPerWeek ?? 0,
     })),
-  ])
-
-  try {
-    const [counts, inPed] = await Promise.all([
+    Promise.all([
       getClientPedTaskCounts(id, currentYear, currentMonth),
       isClientInPed(id),
-    ])
-    pedTaskCounts = counts
-    clientInPed = inPed
-  } catch {
-    // Conteggi PED opzionali: scheda cliente caricabile anche se falliscono
-  }
+    ]).then(([counts, inPed]) => ({ pedTaskCounts: counts, clientInPed: inPed })).catch(() => ({ pedTaskCounts: undefined as undefined, clientInPed: false })),
+  ])
+  const pedTaskCounts = pedCountsResult.pedTaskCounts
+  const clientInPed = pedCountsResult.clientInPed
 
   const canWrite = isAdmin
   const clientWithCredentials = { ...client, credentials }

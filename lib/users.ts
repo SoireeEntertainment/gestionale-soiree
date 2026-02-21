@@ -1,3 +1,4 @@
+import { unstable_cache } from 'next/cache'
 import { prisma } from './prisma'
 
 /** Email degli utenti che possono essere mostrati nel selettore "Guarda PED di..." (e in altre liste PED). */
@@ -9,14 +10,18 @@ export const ALLOWED_PED_USER_EMAILS = [
   'enrico@soiree.it',
 ] as const
 
-/**
- * Ottiene tutti gli utenti attivi
- */
+/** Ottiene tutti gli utenti attivi (cached 60s per ridurre carico DB su navigazione). */
 export async function getUsers() {
-  return await prisma.user.findMany({
-    where: { isActive: true },
-    orderBy: { name: 'asc' },
-  })
+  return unstable_cache(
+    async () => {
+      return prisma.user.findMany({
+        where: { isActive: true },
+        orderBy: { name: 'asc' },
+      })
+    },
+    ['users-active-list'],
+    { revalidate: 60 }
+  )()
 }
 
 /**
