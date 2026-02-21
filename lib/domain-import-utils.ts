@@ -67,14 +67,32 @@ export function matchDomainToClient(
   return { clientId: candidates[0].id, clientName: candidates[0].name }
 }
 
+/** Righe che sono intestazioni di tabella (es. Hostinger) da ignorare. */
+const TABLE_HEADER_PATTERNS = [
+  'nome di dominio',
+  'data di scadenza',
+  'auto-rinnovo',
+  'stato',
+  'azioni',
+  'dominio',
+  'scadenza',
+  'expir',
+  'renewal',
+]
+
+function isTableHeaderLine(line: string): boolean {
+  const lower = line.toLowerCase()
+  return TABLE_HEADER_PATTERNS.some((p) => lower.includes(p)) && !/\d{4}-\d{2}-\d{2}/.test(line)
+}
+
 /**
  * Parsing input: righe in formato dominio.tld | YYYY-MM-DD o dominio.tld,YYYY-MM-DD.
- * Bonus: estrae dominio + data con regex da testo grezzo.
+ * Per testo da OCR (screenshot tabella): estrae solo "nome di dominio" + "Data di scadenza"
+ * da ogni riga, ignorando intestazioni e altre colonne (Stato, Auto-rinnovo, ecc.).
  */
 export function parseDomainsInput(text: string): DomainImportRow[] {
   const seen = new Set<string>()
   const result: DomainImportRow[] = []
-  const dateRegex = /\b(\d{4}-\d{2}-\d{2})\b/
 
   function add(domain: string, expiryDate: string) {
     const d = domain.trim().toLowerCase()
@@ -87,6 +105,8 @@ export function parseDomainsInput(text: string): DomainImportRow[] {
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
 
   for (const line of lines) {
+    if (isTableHeaderLine(line)) continue
+
     const pipeOrComma = line.match(/^([^|,]+)[|,]\s*(\d{4}-\d{2}-\d{2})\s*$/)
     if (pipeOrComma) {
       add(pipeOrComma[1], pipeOrComma[2])
@@ -99,13 +119,12 @@ export function parseDomainsInput(text: string): DomainImportRow[] {
     }
     if (withDelim.length > 0) continue
 
-    const dateInLine = line.match(dateRegex)
-    const expiryDate = dateInLine ? dateInLine[1] : ''
-    const domainInLine = line.match(/([a-z0-9][a-z0-9.-]*\.[a-z]{2,})/gi)
-    if (domainInLine && expiryDate) {
-      for (const d of [...new Set(domainInLine.map((x) => x.trim().toLowerCase()))]) {
-        add(d, expiryDate)
-      }
+    const datesInLine = line.match(/\b(\d{4}-\d{2}-\d{2})\b/g)
+    const domainsInLine = [...line.matchAll(/([a-z0-9][a-z0-9.-]*\.[a-z]{2,})/gi)].map((m) => m[1].trim().toLowerCase())
+    if (domainsInLine.length > 0 && datesInLine && datesInLine.length > 0) {
+      const firstDate = datesInLine[0]
+      const firstDomain = domainsInLine[0]
+      add(firstDomain, firstDate)
     }
   }
 
