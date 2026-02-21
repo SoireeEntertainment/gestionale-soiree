@@ -36,6 +36,8 @@ interface ClientCategoryTabProps {
   categories: Category[]
   users: User[]
   canWrite?: boolean
+  /** Se true, mostra badge/tooltip "assegnato perché presente nel PED" per categoria Social */
+  isSocialAutoFromPed?: boolean
 }
 
 export function ClientCategoryTab({
@@ -47,6 +49,7 @@ export function ClientCategoryTab({
   categories,
   users,
   canWrite = true,
+  isSocialAutoFromPed = false,
 }: ClientCategoryTabProps) {
   const handleStatusChange = async (newStatus: string) => {
     if (!newStatus) return
@@ -64,6 +67,11 @@ export function ClientCategoryTab({
       {/* Stato categoria per questo cliente */}
       <div className="bg-dark border border-accent/20 rounded-lg p-4">
         <div className="text-sm text-white/50 mb-2">Stato categoria per questo cliente</div>
+        {isSocialAutoFromPed && (
+          <p className="text-accent/90 text-sm mb-2" title="Il cliente è nel PED di almeno un utente; la categoria Social è stata associata automaticamente.">
+            Auto (assegnato perché presente nel PED)
+          </p>
+        )}
         <div className="flex items-center gap-4 flex-wrap">
           {canWrite ? (
             <>

@@ -350,6 +350,59 @@ export async function getPedClientSettingByClient(clientId: string) {
   return setting ? { contentsPerWeek: setting.contentsPerWeek } : null
 }
 
+/** Conteggio task PED per un cliente: mese corrente (range calendario) e totale. Per scheda cliente. */
+export async function getClientPedTaskCounts(
+  clientId: string,
+  year: number,
+  month: number
+): Promise<{ monthCount: number; totalCount: number }> {
+  const user = await getCurrentUser()
+  if (!user) throw new Error('Non autorizzato')
+
+  const startMonth = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0))
+  const lastDay = new Date(Date.UTC(year, month, 0))
+  const endMonth = new Date(lastDay.getTime() + 23 * 60 * 60 * 1000 + 59 * 60 * 1000 + 59 * 1000 + 999)
+
+  const [monthCount, totalCount] = await Promise.all([
+    prisma.pedItem.count({
+      where: { clientId, date: { gte: startMonth, lte: endMonth } },
+    }),
+    prisma.pedItem.count({ where: { clientId } }),
+  ])
+
+  return { monthCount, totalCount }
+}
+
+/** Cliente "nel PED": esiste almeno un PedClientSetting O almeno un PedItem per questo clientId. */
+export async function isClientInPed(clientId: string): Promise<boolean> {
+  const user = await getCurrentUser()
+  if (!user) return false
+  const [hasSetting, hasItem] = await Promise.all([
+    prisma.pedClientSetting.count({ where: { clientId } }).then((n) => n > 0),
+    prisma.pedItem.count({ where: { clientId } }).then((n) => n > 0),
+  ])
+  return hasSetting || hasItem
+}
+
+/** Se il cliente è nel PED di almeno un utente, associa la categoria Social (solo creazione, non sovrascrive esistente). Non rimuove Social se poi esce dal PED. */
+export async function ensureClientSocialIfInPed(clientId: string): Promise<void> {
+  const user = await getCurrentUser()
+  if (!user) return
+
+  const inPed = await isClientInPed(clientId)
+  if (!inPed) return
+
+  const socialCategory = await prisma.category.findFirst({ where: { name: 'Social' } })
+  if (!socialCategory) return
+
+  await prisma.clientCategory.upsert({
+    where: { clientId_categoryId: { clientId, categoryId: socialCategory.id } },
+    create: { clientId, categoryId: socialCategory.id, status: 'ACTIVE' },
+    update: {},
+  })
+  revalidatePath(`/clients/${clientId}`)
+}
+
 /** PED per la scheda cliente: tutti i PedItem e tutti i PedClientSetting del cliente (tutti gli owner), visibili a tutti. */
 export async function getPedMonthForClient(clientId: string, year: number, month: number) {
   const currentUser = await getCurrentUser()

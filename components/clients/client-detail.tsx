@@ -44,9 +44,11 @@ export interface ClientDetailProps {
   metaBusinessSuiteUrl?: string | null
   gestioneInserzioniUrl?: string | null
   renewals?: { id: string; clientId: string; serviceName: string; renewalDate: Date; billingDate: Date | null; notes: string | null; createdAt: Date; updatedAt: Date }[]
+  pedTaskCounts?: { monthCount: number; totalCount: number }
+  clientInPed?: boolean
 }
 
-export function ClientDetail({ client, allCategories, users, canWrite = true, showPedSection = false, pedClients = [], pedWorks = [], pedContentsPerMonth = 0, currentUserId = '', metaBusinessSuiteUrl, gestioneInserzioniUrl, renewals = [] }: ClientDetailProps) {
+export function ClientDetail({ client, allCategories, users, canWrite = true, showPedSection = false, pedClients = [], pedWorks = [], pedContentsPerMonth = 0, currentUserId = '', metaBusinessSuiteUrl, gestioneInserzioniUrl, renewals = [], pedTaskCounts, clientInPed = false }: ClientDetailProps) {
   const router = useRouter()
   const firstCategoryId = allCategories[0]?.id ?? ''
   const [activeTab, setActiveTab] = useState<string>(firstCategoryId)
@@ -130,6 +132,24 @@ export function ClientDetail({ client, allCategories, users, canWrite = true, sh
           </div>
           )}
         </div>
+
+        {(pedTaskCounts != null || clientInPed) && (
+          <div className="flex flex-wrap gap-3 mb-4 items-center">
+            {pedTaskCounts != null && (
+              <span className="px-3 py-1.5 rounded-md text-sm font-medium bg-white/10 text-white/90 border border-accent/20">
+                Task nel PED: <strong>{pedTaskCounts.monthCount}</strong> questo mese
+                {pedTaskCounts.totalCount !== pedTaskCounts.monthCount && (
+                  <> · Totale: <strong>{pedTaskCounts.totalCount}</strong></>
+                )}
+              </span>
+            )}
+            {clientInPed && (
+              <span className="px-3 py-1.5 rounded-md text-sm font-medium bg-accent/20 text-accent border border-accent/40" title="Cliente presente nel PED di almeno un utente">
+                Nel PED
+              </span>
+            )}
+          </div>
+        )}
 
         <div className="flex flex-wrap gap-3 mb-6 items-center">
           {metaBusinessSuiteUrl ? (
@@ -251,6 +271,7 @@ export function ClientDetail({ client, allCategories, users, canWrite = true, sh
             categories={allCategories}
             users={users}
             canWrite={canWrite}
+            isSocialAutoFromPed={clientInPed && activeCategory.name === 'Social'}
           />
         )}
 

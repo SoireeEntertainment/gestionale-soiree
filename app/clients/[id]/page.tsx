@@ -3,7 +3,7 @@ import { requireAuth } from '@/lib/auth-dev'
 import { getClient } from '@/app/actions/clients'
 import { getClientCredentials } from '@/app/actions/client-credentials'
 import { getClientRenewals } from '@/app/actions/client-renewals'
-import { getPedClientSettingByClient } from '@/app/actions/ped'
+import { getPedClientSettingByClient, getClientPedTaskCounts, ensureClientSocialIfInPed, isClientInPed } from '@/app/actions/ped'
 import { ClientDetail, type ClientDetailProps } from '@/components/clients/client-detail'
 import { prisma } from '@/lib/prisma'
 import { getUsers } from '@/lib/users'
@@ -15,7 +15,13 @@ export default async function ClientDetailPage(props: {
   const { id } = await props.params
   const isAdmin = user.role === 'ADMIN'
 
-  const [client, categories, users, credentials, renewals, pedData] = await Promise.all([
+  await ensureClientSocialIfInPed(id)
+
+  const now = new Date()
+  const currentYear = now.getFullYear()
+  const currentMonth = now.getMonth() + 1
+
+  const [client, categories, users, credentials, renewals, pedData, pedTaskCounts, clientInPed] = await Promise.all([
     getClient(id),
     prisma.category.findMany(),
     getUsers(),
@@ -30,6 +36,8 @@ export default async function ClientDetailPage(props: {
       pedWorks,
       pedContentsPerMonth: pedSetting?.contentsPerWeek ?? 0,
     })),
+    getClientPedTaskCounts(id, currentYear, currentMonth),
+    isClientInPed(id),
   ])
 
   if (!client) redirect('/clients')
@@ -51,6 +59,8 @@ export default async function ClientDetailPage(props: {
       metaBusinessSuiteUrl={(client as { metaBusinessSuiteUrl?: string | null }).metaBusinessSuiteUrl ?? undefined}
       gestioneInserzioniUrl={(client as { gestioneInserzioniUrl?: string | null }).gestioneInserzioniUrl ?? undefined}
       renewals={renewals}
+      pedTaskCounts={pedTaskCounts}
+      clientInPed={clientInPed}
     />
   )
 }
