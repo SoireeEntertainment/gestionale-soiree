@@ -62,10 +62,16 @@ export function ClientsList({ clients, users, canWrite = true }: ClientsListProp
           className="flex-1 min-w-[200px] px-3 py-2 bg-dark border border-accent/20 rounded text-white placeholder-white/40"
         />
         {canWrite && (
-          <Dialog>
-            <DialogTrigger asChild>
-              <Button>+ Nuovo Cliente</Button>
-            </DialogTrigger>
+          <>
+            <Link href="/clients/import-domains">
+              <Button variant="secondary" className="border-accent/30 text-accent">
+                Importa domini Hostinger
+              </Button>
+            </Link>
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button>+ Nuovo Cliente</Button>
+              </DialogTrigger>
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Nuovo Cliente</DialogTitle>
@@ -73,6 +79,7 @@ export function ClientsList({ clients, users, canWrite = true }: ClientsListProp
               <ClientForm users={users} />
             </DialogContent>
           </Dialog>
+          </>
         )}
       </div>
 

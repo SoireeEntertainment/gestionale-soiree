@@ -156,7 +156,7 @@ export function ClientRenewalsSection({
                     <td className="py-2 pr-4 text-white">{r.serviceName}</td>
                     <td className="py-2 pr-4 text-white">{DATE_FMT.format(new Date(r.renewalDate))}</td>
                     <td className="py-2 pr-4 text-white">
-                      {r.billingDate ? DATE_FMT.format(new Date(r.billingDate)) : '-'}
+                      {r.billingDate ? DATE_FMT.format(new Date(r.billingDate)) : '—'}
                     </td>
                     <td className="py-2 pr-4">
                       {status === 'scaduto' && (
