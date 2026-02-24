@@ -4,13 +4,20 @@ import { getPedMonth } from '@/app/actions/ped'
 import { prisma } from '@/lib/prisma'
 import { getUsersForPed } from '@/lib/users'
 import { PedView } from '@/components/ped/ped-view'
+import { getCurrentWeekStartString } from '@/lib/ped-utils'
+
 export const dynamic = 'force-dynamic'
 
-/** Restituisce anno e mese da usare per la vista PED. Precedenza: week param → year/month params → settimana corrente. */
-function resolveYearMonth(searchParams: { year?: string; month?: string; week?: string }): { year: number; month: number } {
+/** Restituisce anno, mese e weekStart. Precedenza: week param → year/month params → settimana corrente (ISO lunedì). */
+function resolveYearMonthAndWeek(searchParams: { year?: string; month?: string; week?: string }): {
+  year: number
+  month: number
+  weekStart: string
+} {
   const now = new Date()
   const currentYear = now.getUTCFullYear()
   const currentMonth = now.getUTCMonth() + 1
+  const currentWeekStart = getCurrentWeekStartString()
 
   const weekParam = searchParams.week?.trim()
   if (weekParam) {
@@ -20,8 +27,13 @@ function resolveYearMonth(searchParams: { year?: string; month?: string; week?: 
       const m = parseInt(match[2], 10)
       const d = parseInt(match[3], 10)
       const date = new Date(Date.UTC(y, m - 1, d))
-      if (!Number.isNaN(date.getTime()) && date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d) {
-        return { year: y, month: m }
+      if (
+        !Number.isNaN(date.getTime()) &&
+        date.getUTCFullYear() === y &&
+        date.getUTCMonth() === m - 1 &&
+        date.getUTCDate() === d
+      ) {
+        return { year: y, month: m, weekStart: weekParam }
       }
     }
   }
@@ -30,7 +42,7 @@ function resolveYearMonth(searchParams: { year?: string; month?: string; week?: 
   const month = searchParams.month ? parseInt(searchParams.month, 10) : currentMonth
   const validYear = Number.isFinite(year) && year >= 2020 && year <= 2030 ? year : currentYear
   const validMonth = Number.isFinite(month) && month >= 1 && month <= 12 ? month : currentMonth
-  return { year: validYear, month: validMonth }
+  return { year: validYear, month: validMonth, weekStart: currentWeekStart }
 }
 
 export default async function PedPage(props: {
@@ -40,7 +52,12 @@ export default async function PedPage(props: {
   if (user.role === 'AGENTE') redirect('/dashboard')
 
   const searchParams = await props.searchParams
-  const { year: validYear, month: validMonth } = resolveYearMonth(searchParams)
+  const hasAnyParam = searchParams.week?.trim() || searchParams.year?.trim() || searchParams.month?.trim()
+  if (!hasAnyParam) {
+    const weekStart = getCurrentWeekStartString()
+    redirect(`/ped?week=${weekStart}`)
+  }
+  const { year: validYear, month: validMonth, weekStart } = resolveYearMonthAndWeek(searchParams)
 
   const users = await getUsersForPed()
   const requestedUserId = searchParams.userId?.trim() || null
@@ -87,6 +104,7 @@ export default async function PedPage(props: {
           isViewingOtherUser={isViewingOtherUser}
           year={validYear}
           month={validMonth}
+          weekStart={weekStart}
         />
       </div>
     </div>

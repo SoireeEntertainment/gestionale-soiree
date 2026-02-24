@@ -110,3 +110,10 @@ export function getISOWeekStart(d: Date): Date {
 export function getCurrentWeekStartString(): string {
   return toDateString(getISOWeekStart(new Date()))
 }
+
+/** Aggiunge N giorni a una data YYYY-MM-DD, restituisce YYYY-MM-DD. */
+export function addDaysToDateString(dateStr: string, days: number): string {
+  const d = new Date(dateStr + 'T00:00:00.000Z')
+  d.setUTCDate(d.getUTCDate() + days)
+  return toDateString(d)
+}

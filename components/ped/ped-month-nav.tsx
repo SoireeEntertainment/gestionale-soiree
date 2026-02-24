@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
+import { addDaysToDateString } from '@/lib/ped-utils'
 
 const MONTH_NAMES = [
   'Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno',
@@ -14,21 +15,31 @@ function pedQuery(year: number, month: number, userId?: string | null): string {
   return `/ped?${params.toString()}`
 }
 
+function pedWeekQuery(weekStart: string, userId?: string | null): string {
+  const params = new URLSearchParams({ week: weekStart })
+  if (userId) params.set('userId', userId)
+  return `/ped?${params.toString()}`
+}
+
 export function PedMonthNav({
   year,
   month,
+  weekStart,
   userName,
   viewAsUserId = null,
   children,
 }: {
   year: number
   month: number
+  weekStart: string
   userName?: string
   viewAsUserId?: string | null
   children?: React.ReactNode
 }) {
   const prevMonth = month === 1 ? { year: year - 1, month: 12 } : { year, month: month - 1 }
   const nextMonth = month === 12 ? { year: year + 1, month: 1 } : { year, month: month + 1 }
+  const prevWeek = addDaysToDateString(weekStart, -7)
+  const nextWeek = addDaysToDateString(weekStart, 7)
 
   const monthLabel = `${MONTH_NAMES[month - 1]} ${year}`
 
@@ -39,14 +50,22 @@ export function PedMonthNav({
       </h1>
       <div className="flex flex-col items-center gap-2">
         <div className="flex items-center gap-2">
-          <Link href={pedQuery(prevMonth.year, prevMonth.month, viewAsUserId)}>
-            <Button variant="ghost" size="sm">← Mese precedente</Button>
+          <Link href={pedWeekQuery(prevWeek, viewAsUserId)}>
+            <Button variant="ghost" size="sm">← Settimana precedente</Button>
           </Link>
           <span className="text-white/90 font-medium min-w-[140px] text-center text-sm md:text-base">
             {monthLabel}
           </span>
+          <Link href={pedWeekQuery(nextWeek, viewAsUserId)}>
+            <Button variant="ghost" size="sm">Settimana successiva →</Button>
+          </Link>
+        </div>
+        <div className="flex items-center gap-2">
+          <Link href={pedQuery(prevMonth.year, prevMonth.month, viewAsUserId)}>
+            <Button variant="ghost" size="sm" className="text-white/70">← Mese precedente</Button>
+          </Link>
           <Link href={pedQuery(nextMonth.year, nextMonth.month, viewAsUserId)}>
-            <Button variant="ghost" size="sm">Mese successivo →</Button>
+            <Button variant="ghost" size="sm" className="text-white/70">Mese successivo →</Button>
           </Link>
         </div>
         {children && <div className="flex items-center justify-center gap-2">{children}</div>}

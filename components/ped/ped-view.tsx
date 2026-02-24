@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo, useRef, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { PedMonthNav } from './ped-month-nav'
 import { PedClientSettings } from './ped-client-settings'
 import { PedCalendar } from './ped-calendar'
@@ -57,8 +57,13 @@ type InitialData = {
 
 type User = { id: string; name: string }
 
-function pedPageUrl(year: number, month: number, userId?: string | null): string {
-  const params = new URLSearchParams({ year: String(year), month: String(month) })
+function pedPageUrl(year: number, month: number, userId?: string | null, weekStart?: string): string {
+  const params = new URLSearchParams()
+  if (weekStart) params.set('week', weekStart)
+  else {
+    params.set('year', String(year))
+    params.set('month', String(month))
+  }
   if (userId) params.set('userId', userId)
   return `/ped?${params.toString()}`
 }
@@ -75,6 +80,7 @@ export function PedView({
   isViewingOtherUser,
   year,
   month,
+  weekStart,
 }: {
   initialData: InitialData
   clients: Client[]
@@ -87,8 +93,15 @@ export function PedView({
   isViewingOtherUser: boolean
   year: number
   month: number
+  weekStart: string
 }) {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  useEffect(() => {
+    if (!searchParams.get('week') && weekStart) {
+      router.replace(pedPageUrl(year, month, isViewingOtherUser ? viewAsUserId : undefined, weekStart), { scroll: false })
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps -- sync URL once on mount when missing week
   const [modalOpen, setModalOpen] = useState(false)
   const [modalDateKey, setModalDateKey] = useState<string | null>(null)
   const [modalEditItem, setModalEditItem] = useState<PedItem | null>(null)
@@ -369,7 +382,7 @@ export function PedView({
 
   const handleSelectUser = (userId: string) => {
     setUserDropdownOpen(false)
-    const url = pedPageUrl(year, month, userId === currentUserId ? undefined : userId)
+    const url = pedPageUrl(year, month, userId === currentUserId ? undefined : userId, weekStart)
     router.push(url)
   }
 
@@ -378,6 +391,7 @@ export function PedView({
       <PedMonthNav
           year={year}
           month={month}
+          weekStart={weekStart}
           userName={viewAsUserName}
           viewAsUserId={isViewingOtherUser ? viewAsUserId : null}
         >
