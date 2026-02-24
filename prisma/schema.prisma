@@ -248,12 +248,13 @@ model PedClientSetting {
   @@map("ped_client_settings")
 }
 
+/// Task PED: la data (`date`) è la single source of truth per la colonna/giorno in cui la task è mostrata. Aggiornata al move (drag o menu).
 model PedItem {
   id               String   @id @default(cuid())
   ownerId          String
   assignedToUserId String?  // utente a cui è assegnata la task; se null = assegnata all'owner
   clientId         String
-  date             DateTime
+  date             DateTime // date-only (00:00 UTC): giorno/colonna in cui la task è posizionata
   kind             String   // CONTENT | WORK_TASK
   type             String   // REEL, POST, STORY, CAROUSEL, ADV, SHOOTING, WEBSITE_TASK, GRAPHIC_TASK, COPY_TASK, MEETING, OTHER
   title            String

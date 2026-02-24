@@ -702,24 +702,38 @@ export async function createPedItem(payload: unknown) {
   revalidatePath('/ped')
 }
 
+/** Aggiorna una task PED. Quando si cambia giorno/colonna (date o isExtra), la data salvata è sempre quella del giorno di destinazione (single source of truth). */
 export async function updatePedItem(id: string, payload: unknown) {
   const ownerId = await getOwnerId()
   if (!ownerId) throw new Error('Non autorizzato')
 
   const existing = await prisma.pedItem.findUnique({
     where: { id },
-    select: { ownerId: true, assignedToUserId: true },
+    select: { ownerId: true, assignedToUserId: true, date: true, isExtra: true },
   })
   const canEdit = existing && (existing.ownerId === ownerId || existing.assignedToUserId === ownerId)
   if (!canEdit) throw new Error('Non autorizzato')
 
   const validated = pedItemUpdateSchema.parse(payload)
 
+  // Idempotenza: se destinazione = giorno attuale (e isExtra uguale se fornito), nessun update DB
+  const currentDateOnly = existing.date.toISOString().slice(0, 10)
+  if (validated.date !== undefined) {
+    const targetDateOnly = parseDate(validated.date).toISOString().slice(0, 10)
+    if (validated.isExtra !== undefined) {
+      if (targetDateOnly === currentDateOnly && validated.isExtra === existing.isExtra) return
+    } else if (targetDateOnly === currentDateOnly) {
+      return
+    }
+  } else if (validated.isExtra !== undefined && validated.isExtra === existing.isExtra) {
+    return
+  }
+
   // Costruiamo solo i campi da aggiornare con tipo Prisma esplicito (evita "Invalid invocation")
   const data: Prisma.PedItemUncheckedUpdateInput = {}
   if (validated.date !== undefined) {
     const d = parseDate(validated.date)
-    // Passiamo come stringa ISO per evitare problemi di serializzazione nelle server action
+    // Date-only: mezzanotte UTC per evitare problemi di timezone (date is derived from column)
     data.date = d.toISOString().slice(0, 10) + 'T00:00:00.000Z'
   }
   if (validated.isExtra !== undefined) data.isExtra = validated.isExtra

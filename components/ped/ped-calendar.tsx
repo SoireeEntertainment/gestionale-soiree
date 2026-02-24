@@ -461,6 +461,7 @@ export function PedCalendar({
 
   const grid = useMemo(() => buildCalendarGrid(year, month), [year, month])
 
+  // Date is derived from column: items are grouped by item.date (single source of truth dal DB)
   const itemsByDay = useMemo(() => {
     const map: Record<string, PedItem[]> = {}
     for (const item of items) {

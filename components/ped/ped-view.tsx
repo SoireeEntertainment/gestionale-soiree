@@ -11,6 +11,7 @@ import { togglePedItemDone, updatePedItem, duplicatePedItem, deletePedItem, reor
 import { Button } from '@/components/ui/button'
 import { PED_ITEM_TYPE_LABELS, getISOWeekStart, toDateString } from '@/lib/ped-utils'
 import { getEffectiveLabel } from '@/lib/pedLabels'
+import { showToast } from '@/lib/toast'
 
 function getISOWeekStartKey(dateKey: string): string {
   return toDateString(getISOWeekStart(new Date(dateKey + 'T00:00:00.000Z')))
@@ -99,6 +100,20 @@ export function PedView({
   const [userDropdownOpen, setUserDropdownOpen] = useState(false)
   const userDropdownRef = useRef<HTMLDivElement>(null)
 
+  // Items con date come stringa (YYYY-MM-DD). Sync da server; usato per optimistic update su spostamento.
+  const normalizedInitialItems = useMemo(
+    () =>
+      initialData.pedItems.map((item) => ({
+        ...item,
+        date: typeof item.date === 'string' ? item.date : (item.date as unknown as Date).toISOString?.()?.slice(0, 10) ?? '',
+      })),
+    [initialData.pedItems]
+  )
+  const [items, setItems] = useState(normalizedInitialItems)
+  useEffect(() => {
+    setItems(normalizedInitialItems)
+  }, [normalizedInitialItems])
+
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (userDropdownRef.current && !userDropdownRef.current.contains(e.target as Node)) {
@@ -111,12 +126,8 @@ export function PedView({
     }
   }, [userDropdownOpen])
 
-  const itemsWithDateString = useMemo(() => {
-    return initialData.pedItems.map((item) => ({
-      ...item,
-      date: typeof item.date === 'string' ? item.date : (item.date as unknown as Date).toISOString?.()?.slice(0, 10) ?? '',
-    }))
-  }, [initialData.pedItems])
+  // Lista usata per il rendering: date is derived from column (single source of truth dal DB, qui con optimistic update)
+  const itemsWithDateString = items
 
   const handleOpenAdd = (dateKey: string) => {
     setSelectedDateKey(dateKey)
@@ -157,17 +168,24 @@ export function PedView({
   const handleMoveItem = async (itemId: string, targetDate: string, targetIsExtra: boolean) => {
     const item = itemsWithDateString.find((i) => i.id === itemId)
     const dateStr = item?.date?.slice(0, 10)
-    if (item && dateStr != null) setUndoEntry({ type: 'move', itemId, date: dateStr, isExtra: Boolean(item.isExtra) })
+    if (!item) return
+    if (dateStr === targetDate && Boolean(item.isExtra) === targetIsExtra) return
+    if (typeof updatePedItem !== 'function') {
+      alert('Errore: azione non disponibile. Ricarica la pagina.')
+      return
+    }
+    if (dateStr != null) setUndoEntry({ type: 'move', itemId, date: dateStr, isExtra: Boolean(item.isExtra) })
+    const previousItems = items
+    setItems((prev) =>
+      prev.map((i) => (i.id === itemId ? { ...i, date: targetDate, isExtra: targetIsExtra } : i))
+    )
     try {
-      if (typeof updatePedItem !== 'function') {
-        alert('Errore: azione non disponibile. Ricarica la pagina.')
-        return
-      }
       await updatePedItem(itemId, { date: targetDate, isExtra: targetIsExtra })
       router.refresh()
     } catch (e) {
+      setItems(previousItems)
       setUndoEntry(null)
-      alert(e instanceof Error ? e.message : 'Errore')
+      showToast(e instanceof Error ? e.message : 'Errore durante lo spostamento', 'error')
     }
   }
 
@@ -247,12 +265,21 @@ export function PedView({
   }
 
   const handleMoveItems = async (itemIds: string[], targetDate: string, targetIsExtra: boolean) => {
+    const previousItems = items
+    setItems((prev) =>
+      prev.map((i) => (itemIds.includes(i.id) ? { ...i, date: targetDate, isExtra: targetIsExtra } : i))
+    )
     try {
       const { applied, error } = await bulkMovePedItems(itemIds, targetDate, targetIsExtra)
-      if (error) alert(error)
-      else if (applied > 0) router.refresh()
+      if (error) {
+        setItems(previousItems)
+        showToast(error, 'error')
+        return
+      }
+      if (applied > 0) router.refresh()
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Errore')
+      setItems(previousItems)
+      showToast(e instanceof Error ? e.message : 'Errore durante lo spostamento', 'error')
     }
   }
 

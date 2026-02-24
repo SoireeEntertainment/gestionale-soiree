@@ -23,6 +23,7 @@ import {
 } from '@/app/actions/ped'
 import { getISOWeekStart, toDateString } from '@/lib/ped-utils'
 import { getEffectiveLabel } from '@/lib/pedLabels'
+import { showToast } from '@/lib/toast'
 
 function getISOWeekStartKey(dateKey: string): string {
   return toDateString(getISOWeekStart(new Date(dateKey + 'T00:00:00.000Z')))
@@ -240,17 +241,29 @@ export function ClientPedSection({
   const handleMoveItem = async (itemId: string, targetDate: string, targetIsExtra: boolean) => {
     const item = itemsWithDateString.find((i) => i.id === itemId)
     const dateStr = item?.date?.slice(0, 10)
-    if (item && dateStr != null) setUndoEntry({ type: 'move', itemId, date: dateStr, isExtra: Boolean(item.isExtra) })
+    if (!item) return
+    if (dateStr === targetDate && Boolean(item.isExtra) === targetIsExtra) return
+    if (typeof updatePedItem !== 'function') {
+      alert('Errore: azione non disponibile. Ricarica la pagina.')
+      return
+    }
+    if (dateStr != null) setUndoEntry({ type: 'move', itemId, date: dateStr, isExtra: Boolean(item.isExtra) })
+    const previousData = data
+    if (data) {
+      setData({
+        ...data,
+        pedItems: data.pedItems.map((i) =>
+          i.id === itemId ? { ...i, date: targetDate, isExtra: targetIsExtra } : i
+        ),
+      })
+    }
     try {
-      if (typeof updatePedItem !== 'function') {
-        alert('Errore: azione non disponibile. Ricarica la pagina.')
-        return
-      }
       await updatePedItem(itemId, { date: targetDate, isExtra: targetIsExtra })
       await refetch()
     } catch (e) {
+      if (previousData) setData(previousData)
       setUndoEntry(null)
-      alert(e instanceof Error ? e.message : 'Errore')
+      showToast(e instanceof Error ? e.message : 'Errore durante lo spostamento', 'error')
     }
   }
 
@@ -311,12 +324,26 @@ export function ClientPedSection({
   }
 
   const handleMoveItems = async (itemIds: string[], targetDate: string, targetIsExtra: boolean) => {
+    const previousData = data
+    if (data) {
+      setData({
+        ...data,
+        pedItems: data.pedItems.map((i) =>
+          itemIds.includes(i.id) ? { ...i, date: targetDate, isExtra: targetIsExtra } : i
+        ),
+      })
+    }
     try {
       const { applied, error } = await bulkMovePedItems(itemIds, targetDate, targetIsExtra)
-      if (error) alert(error)
-      else if (applied > 0) await refetch()
+      if (error) {
+        if (previousData) setData(previousData)
+        showToast(error, 'error')
+        return
+      }
+      if (applied > 0) await refetch()
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Errore')
+      if (previousData) setData(previousData)
+      showToast(e instanceof Error ? e.message : 'Errore durante lo spostamento', 'error')
     }
   }
 
