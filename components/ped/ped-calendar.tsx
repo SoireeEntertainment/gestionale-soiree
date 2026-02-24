@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState, useEffect, useRef, useCallback } from 'react'
-import { PED_ITEM_TYPE_LABELS, PED_DELEGATED_STYLE, toDateString } from '@/lib/ped-utils'
+import { PED_ITEM_TYPE_LABELS, PED_DELEGATED_STYLE, toDateString, getCurrentWeekStartString } from '@/lib/ped-utils'
 import { getItemLabelStyle, PED_LABELS, PED_LABEL_CONFIG } from '@/lib/pedLabels'
 
 const STORAGE_KEY_COLUMNS = 'ped-calendar-column-widths'
@@ -176,7 +176,11 @@ export function PedCalendar({
   const justDraggedRef = useRef(false)
   const mayPersistRef = useRef(false)
   const itemIdOrderRef = useRef<string[]>([])
+  const didAutoScrollRef = useRef(false)
   itemIdOrderRef.current = items.map((i) => i.id)
+
+  // Settimana corrente (ISO lunedì) per marcare la riga e auto-scroll una tantum
+  const currentWeekStart = useMemo(() => getCurrentWeekStartString(), [])
 
   useEffect(() => {
     if (!contextMenu) return
@@ -279,6 +283,25 @@ export function PedCalendar({
       document.removeEventListener('mouseup', onUp)
     }
   }, [marquee, handleMarqueeMove, handleMarqueeEnd])
+
+  // Auto-scroll alla settimana corrente una sola volta all'apertura (UX: evitare scroll manuale)
+  useEffect(() => {
+    if (didAutoScrollRef.current) return
+    let attempts = 0
+    const maxAttempts = 10
+    const tryScroll = () => {
+      const el = document.querySelector<HTMLElement>('[data-current-week="true"]')
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        didAutoScrollRef.current = true
+        return
+      }
+      attempts += 1
+      if (attempts < maxAttempts) setTimeout(tryScroll, 80)
+    }
+    const t = setTimeout(tryScroll, 100)
+    return () => clearTimeout(t)
+  }, [])
 
   const handleItemClick = (e: React.MouseEvent, item: PedItem) => {
     if (justDraggedRef.current) return
@@ -576,8 +599,14 @@ export function PedCalendar({
           {cells.map((week, wi) => {
             const weekStartKey = getISOWeekStartKey(week[0].dateKey)
             const extraItems = extraItemsByWeek[weekStartKey] ?? []
+            const isCurrentWeek = weekStartKey === currentWeekStart
             return (
-              <tr key={wi} style={{ minHeight: ROW_HEIGHT }}>
+              <tr
+                key={wi}
+                style={{ minHeight: ROW_HEIGHT }}
+                data-week-start={weekStartKey}
+                {...(isCurrentWeek ? { 'data-current-week': 'true' as const } : {})}
+              >
                 {week.map((cell, colIndex) => (
                   <td
                     key={cell.dateKey}
