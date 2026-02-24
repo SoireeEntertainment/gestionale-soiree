@@ -105,3 +105,8 @@ export function getISOWeekStart(d: Date): Date {
   monday.setUTCHours(0, 0, 0, 0)
   return monday
 }
+
+/** Lunedì della settimana corrente (ISO). Restituisce YYYY-MM-DD. */
+export function getCurrentWeekStartString(): string {
+  return toDateString(getISOWeekStart(new Date()))
+}

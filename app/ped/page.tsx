@@ -4,23 +4,43 @@ import { getPedMonth } from '@/app/actions/ped'
 import { prisma } from '@/lib/prisma'
 import { getUsersForPed } from '@/lib/users'
 import { PedView } from '@/components/ped/ped-view'
-
 export const dynamic = 'force-dynamic'
 
-const DEFAULT_YEAR = 2026
-const DEFAULT_MONTH = 2
+/** Restituisce anno e mese da usare per la vista PED. Precedenza: week param → year/month params → settimana corrente. */
+function resolveYearMonth(searchParams: { year?: string; month?: string; week?: string }): { year: number; month: number } {
+  const now = new Date()
+  const currentYear = now.getUTCFullYear()
+  const currentMonth = now.getUTCMonth() + 1
+
+  const weekParam = searchParams.week?.trim()
+  if (weekParam) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(weekParam)
+    if (match) {
+      const y = parseInt(match[1], 10)
+      const m = parseInt(match[2], 10)
+      const d = parseInt(match[3], 10)
+      const date = new Date(Date.UTC(y, m - 1, d))
+      if (!Number.isNaN(date.getTime()) && date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d) {
+        return { year: y, month: m }
+      }
+    }
+  }
+
+  const year = searchParams.year ? parseInt(searchParams.year, 10) : currentYear
+  const month = searchParams.month ? parseInt(searchParams.month, 10) : currentMonth
+  const validYear = Number.isFinite(year) && year >= 2020 && year <= 2030 ? year : currentYear
+  const validMonth = Number.isFinite(month) && month >= 1 && month <= 12 ? month : currentMonth
+  return { year: validYear, month: validMonth }
+}
 
 export default async function PedPage(props: {
-  searchParams: Promise<{ year?: string; month?: string; userId?: string }>
+  searchParams: Promise<{ year?: string; month?: string; week?: string; userId?: string }>
 }) {
   const user = await requireAuth()
   if (user.role === 'AGENTE') redirect('/dashboard')
 
   const searchParams = await props.searchParams
-  const year = searchParams.year ? parseInt(searchParams.year, 10) : DEFAULT_YEAR
-  const month = searchParams.month ? parseInt(searchParams.month, 10) : DEFAULT_MONTH
-  const validYear = Number.isFinite(year) && year >= 2020 && year <= 2030 ? year : DEFAULT_YEAR
-  const validMonth = Number.isFinite(month) && month >= 1 && month <= 12 ? month : DEFAULT_MONTH
+  const { year: validYear, month: validMonth } = resolveYearMonth(searchParams)
 
   const users = await getUsersForPed()
   const requestedUserId = searchParams.userId?.trim() || null
