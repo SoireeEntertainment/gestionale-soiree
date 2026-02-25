@@ -10,6 +10,8 @@ import { PED_LABELS, PED_LABEL_CONFIG, getEffectiveLabel, DEFAULT_LABEL, DONE_LA
 import { createPedItem, updatePedItem, deletePedItem, togglePedItemDone, duplicatePedItem } from '@/app/actions/ped'
 import { createClient } from '@/app/actions/clients'
 import Link from 'next/link'
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths, isSameMonth, parseISO, startOfWeek, endOfWeek } from 'date-fns'
+import { it } from 'date-fns/locale'
 
 type Client = { id: string; name: string }
 type Work = { id: string; title: string }
@@ -76,6 +78,10 @@ export function PedItemModal({
   const [isExtra, setIsExtra] = useState(false)
   const [assignedToUserId, setAssignedToUserId] = useState('')
   const [saving, setSaving] = useState(false)
+  const [modalDateKey, setModalDateKey] = useState('')
+  const [calendarOpen, setCalendarOpen] = useState(false)
+  const [calendarMonth, setCalendarMonth] = useState(new Date())
+  const calendarRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     setClientList(clients)
@@ -83,6 +89,9 @@ export function PedItemModal({
 
   useEffect(() => {
     if (editItem) {
+      const dateStr = typeof editItem.date === 'string' ? editItem.date.slice(0, 10) : ''
+      setModalDateKey(dateStr)
+      setCalendarMonth(dateStr ? parseISO(dateStr) : new Date())
       setClientId(editItem.clientId)
       setClientSearch(editItem.client.name)
       setKind(editItem.kind as 'CONTENT' | 'WORK_TASK')
@@ -96,6 +105,9 @@ export function PedItemModal({
       setIsExtra(Boolean(editItem.isExtra))
       setAssignedToUserId(editItem.assignedToUserId ?? editItem.assignedTo?.id ?? currentUserId)
     } else {
+      const dateKeyVal = dateKey ?? format(new Date(), 'yyyy-MM-dd')
+      setModalDateKey(dateKeyVal)
+      setCalendarMonth(dateKeyVal ? parseISO(dateKeyVal) : new Date())
       const initialClient = initialClientId ? clients.find((c) => c.id === initialClientId) : null
       setClientId(initialClient ? initialClient.id : '')
       setClientSearch(initialClient ? initialClient.name : '')
@@ -109,7 +121,19 @@ export function PedItemModal({
       setIsExtra(initialIsExtra)
       setAssignedToUserId(currentUserId)
     }
-  }, [editItem, initialIsExtra, initialClientId, clients, currentUserId, open])
+  }, [editItem, initialIsExtra, initialClientId, clients, currentUserId, open, dateKey])
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (calendarOpen && calendarRef.current && !calendarRef.current.contains(e.target as Node)) {
+        setCalendarOpen(false)
+      }
+    }
+    if (calendarOpen) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [calendarOpen])
 
   const filteredClients = clientSearch.trim()
     ? clientList.filter((c) => c.name.toLowerCase().includes(clientSearch.toLowerCase()))
@@ -144,16 +168,14 @@ export function PedItemModal({
     }
   }
 
-  const currentDateKey = editItem ? (typeof editItem.date === 'string' ? editItem.date.slice(0, 10) : '') : dateKey ?? ''
-
   const handleSave = async () => {
-    if (!title.trim() || !clientId || !currentDateKey) return
+    if (!title.trim() || !clientId || !modalDateKey) return
     setSaving(true)
     try {
       if (editItem) {
         await updatePedItem(editItem.id, {
           clientId,
-          date: currentDateKey,
+          date: modalDateKey,
           kind,
           type,
           title: title.trim(),
@@ -167,7 +189,7 @@ export function PedItemModal({
       } else {
         await createPedItem({
           clientId,
-          date: currentDateKey,
+          date: modalDateKey,
           kind,
           type,
           title: title.trim(),
@@ -233,9 +255,53 @@ export function PedItemModal({
           </div>
         )}
         <div className="space-y-4">
-          <div>
+          <div className="relative" ref={calendarRef}>
             <label className="block text-sm text-white/70 mb-1">Data</label>
-            <input type="text" value={currentDateKey} readOnly className="w-full px-3 py-2 bg-white/5 border border-accent/20 rounded text-white" />
+            <button
+              type="button"
+              onClick={() => setCalendarOpen((o) => !o)}
+              className="w-full px-3 py-2 bg-dark border border-accent/20 rounded text-white text-left hover:border-accent/40 flex items-center justify-between"
+            >
+              <span>{modalDateKey ? format(parseISO(modalDateKey), 'd MMMM yyyy', { locale: it }) : 'Seleziona data'}</span>
+              <span className="text-white/50">📅</span>
+            </button>
+            {calendarOpen && (
+              <div className="absolute z-50 top-full left-0 mt-1 p-3 bg-dark border border-accent/20 rounded-lg shadow-xl min-w-[280px]">
+                <div className="flex items-center justify-between mb-2">
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setCalendarMonth((m) => subMonths(m, 1))} className="text-white">‹</Button>
+                  <span className="text-white font-medium">{format(calendarMonth, 'MMMM yyyy', { locale: it })}</span>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setCalendarMonth((m) => addMonths(m, 1))} className="text-white">›</Button>
+                </div>
+                <div className="grid grid-cols-7 gap-0.5 text-center text-sm">
+                  {['Lu', 'Ma', 'Me', 'Gi', 'Ve', 'Sa', 'Do'].map((d) => (
+                    <div key={d} className="text-white/50 py-1">{d}</div>
+                  ))}
+                  {(() => {
+                    const start = startOfWeek(startOfMonth(calendarMonth), { weekStartsOn: 1 })
+                    const end = endOfWeek(endOfMonth(calendarMonth), { weekStartsOn: 1 })
+                    const days = eachDayOfInterval({ start, end })
+                    return days.map((day) => {
+                      const dayKey = format(day, 'yyyy-MM-dd')
+                      const sameMonth = isSameMonth(day, calendarMonth)
+                      const selected = modalDateKey === dayKey
+                      return (
+                        <button
+                          key={dayKey}
+                          type="button"
+                          onClick={() => {
+                            setModalDateKey(dayKey)
+                            setCalendarOpen(false)
+                          }}
+                          className={`py-1.5 rounded ${!sameMonth ? 'text-white/30' : 'text-white'} ${selected ? 'bg-accent text-dark font-semibold' : 'hover:bg-white/10'}`}
+                        >
+                          {format(day, 'd')}
+                        </button>
+                      )
+                    })
+                  })()}
+                </div>
+              </div>
+            )}
           </div>
           <div>
             <label className="block text-sm text-white/70 mb-1">Assegnato a</label>
@@ -382,9 +448,9 @@ export function PedItemModal({
           <div className="flex gap-2">
             {editItem && (
               <>
-                <Button variant="secondary" size="sm" onClick={() => handleDuplicate(currentDateKey)}>Duplica (stesso giorno)</Button>
+                <Button variant="secondary" size="sm" onClick={() => handleDuplicate(modalDateKey)}>Duplica (stesso giorno)</Button>
                 <Button variant="secondary" size="sm" onClick={() => {
-                  const d = new Date(currentDateKey + 'T00:00:00.000Z')
+                  const d = new Date(modalDateKey + 'T00:00:00.000Z')
                   d.setUTCDate(d.getUTCDate() + 1)
                   handleDuplicate(d.toISOString().slice(0, 10))
                 }}>Duplica (giorno dopo)</Button>
