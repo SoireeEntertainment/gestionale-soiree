@@ -54,6 +54,26 @@ npm run db:seed
 npm run dev
 ```
 
+## Google Calendar Integration Setup
+
+Per integrare il calendario Google (account soiree.teamwork@gmail.com) con creazione/modifica/eliminazione eventi dal gestionale:
+
+1. **Google Cloud Console**: crea un progetto (o usa uno esistente).
+2. **Abilita "Google Calendar API"**: API e servizi → Libreria → cerca "Google Calendar API" → Abilita.
+3. **Crea un Service Account**: API e servizi → Credenziali → Crea credenziali → Account di servizio. Inserisci nome e continua (nessun ruolo necessario a livello progetto).
+4. **Crea e scarica la key JSON**: nella scheda dell’account di servizio → Chiavi → Aggiungi chiave → Nuova chiave → JSON. Salva il file in locale (non committarlo).
+5. **Condivisione calendario** (account soiree.teamwork@gmail.com):
+   - Apri [Google Calendar](https://calendar.google.com) con soiree.teamwork@gmail.com.
+   - Impostazioni del calendario da usare → Condividi con determinate persone.
+   - Aggiungi l’**email del Service Account** (es. `xxx@xxx.iam.gserviceaccount.com`).
+   - Permesso: **"Apporta modifiche agli eventi"**.
+6. **Variabili d’ambiente** (locale e su Vercel):
+   - `GOOGLE_SERVICE_ACCOUNT_EMAIL`: email del service account (es. `xxx@progetto.iam.gserviceaccount.com`).
+   - `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY`: contenuto del campo `private_key` del JSON (gestione newline: in env sostituire `\n` con `\\n`; il codice ripristina `\n`).
+   - `GOOGLE_CALENDAR_ID`: ID del calendario (es. `primary` per il calendario principale, oppure l’ID specifico dalla configurazione del calendario).
+   - `CALENDAR_ADMIN_USER_IDS`: ID Clerk (separati da virgola) degli utenti che possono creare/modificare/eliminare eventi (es. Davide Piccolo, Cristian Palazzolo).
+7. **Scope utilizzato** (solo lettura/scrittura calendario): `https://www.googleapis.com/auth/calendar`.
+
 ## Configurazione Clerk
 
 1. Crea un account su [Clerk](https://clerk.com)
