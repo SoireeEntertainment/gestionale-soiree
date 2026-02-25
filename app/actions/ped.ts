@@ -716,19 +716,6 @@ export async function updatePedItem(id: string, payload: unknown) {
 
   const validated = pedItemUpdateSchema.parse(payload)
 
-  // Idempotenza: se destinazione = giorno attuale (e isExtra uguale se fornito), nessun update DB
-  const currentDateOnly = existing.date.toISOString().slice(0, 10)
-  if (validated.date !== undefined) {
-    const targetDateOnly = parseDate(validated.date).toISOString().slice(0, 10)
-    if (validated.isExtra !== undefined) {
-      if (targetDateOnly === currentDateOnly && validated.isExtra === existing.isExtra) return
-    } else if (targetDateOnly === currentDateOnly) {
-      return
-    }
-  } else if (validated.isExtra !== undefined && validated.isExtra === existing.isExtra) {
-    return
-  }
-
   // Costruiamo solo i campi da aggiornare con tipo Prisma esplicito (evita "Invalid invocation")
   const data: Prisma.PedItemUncheckedUpdateInput = {}
   if (validated.date !== undefined) {
