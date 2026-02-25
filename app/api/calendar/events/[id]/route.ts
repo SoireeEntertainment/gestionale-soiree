@@ -4,6 +4,19 @@ import { getCurrentUser } from '@/lib/auth-dev'
 import { updateEvent, deleteEvent } from '@/lib/googleCalendar'
 import { z } from 'zod'
 
+function isCredentialError(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e)
+  return msg.includes('Google Calendar credentials') || msg.includes('GOOGLE_') || msg.includes('malformed PEM') || msg.includes('missing env')
+}
+
+function safeCalendarErrorDetail(e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e)
+  if (msg.includes('missing env') || msg.includes('required')) return 'missing env'
+  if (msg.includes('malformed PEM') || msg.includes('PEM header')) return 'malformed PEM header'
+  if (msg.includes('invalid JSON') || msg.includes('invalid base64')) return 'invalid base64 or JSON'
+  return 'credentials error'
+}
+
 const calendarAdminIds = (process.env.CALENDAR_ADMIN_USER_IDS ?? '')
   .split(',')
   .map((s) => s.trim())
@@ -56,6 +69,12 @@ export async function PATCH(
     return NextResponse.json(event)
   } catch (err) {
     console.error('[PATCH /api/calendar/events/:id]', err)
+    if (isCredentialError(err)) {
+      return NextResponse.json(
+        { error: 'Google Calendar credentials misconfigured', detail: safeCalendarErrorDetail(err) },
+        { status: 500 }
+      )
+    }
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Errore nell\'aggiornamento evento' },
       { status: 500 }
@@ -82,6 +101,12 @@ export async function DELETE(
     return NextResponse.json({ ok: true })
   } catch (err) {
     console.error('[DELETE /api/calendar/events/:id]', err)
+    if (isCredentialError(err)) {
+      return NextResponse.json(
+        { error: 'Google Calendar credentials misconfigured', detail: safeCalendarErrorDetail(err) },
+        { status: 500 }
+      )
+    }
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Errore nell\'eliminazione evento' },
       { status: 500 }

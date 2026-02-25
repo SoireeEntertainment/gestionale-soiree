@@ -4,6 +4,19 @@ import { getCurrentUser } from '@/lib/auth-dev'
 import { listEvents, createEvent } from '@/lib/googleCalendar'
 import { z } from 'zod'
 
+function isCredentialError(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e)
+  return msg.includes('Google Calendar credentials') || msg.includes('GOOGLE_') || msg.includes('malformed PEM') || msg.includes('missing env')
+}
+
+function safeCalendarErrorDetail(e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e)
+  if (msg.includes('missing env') || msg.includes('required')) return 'missing env'
+  if (msg.includes('malformed PEM') || msg.includes('PEM header')) return 'malformed PEM header'
+  if (msg.includes('invalid JSON') || msg.includes('invalid base64')) return 'invalid base64 or JSON'
+  return 'credentials error'
+}
+
 const calendarAdminIds = (process.env.CALENDAR_ADMIN_USER_IDS ?? '')
   .split(',')
   .map((s) => s.trim())
@@ -43,6 +56,12 @@ export async function GET(request: Request) {
     return NextResponse.json(events)
   } catch (err) {
     console.error('[GET /api/calendar/events]', err)
+    if (isCredentialError(err)) {
+      return NextResponse.json(
+        { error: 'Google Calendar credentials misconfigured', detail: safeCalendarErrorDetail(err) },
+        { status: 500 }
+      )
+    }
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Errore nel caricamento eventi' },
       { status: 500 }
@@ -72,6 +91,12 @@ export async function POST(request: Request) {
     return NextResponse.json(event)
   } catch (err) {
     console.error('[POST /api/calendar/events]', err)
+    if (isCredentialError(err)) {
+      return NextResponse.json(
+        { error: 'Google Calendar credentials misconfigured', detail: safeCalendarErrorDetail(err) },
+        { status: 500 }
+      )
+    }
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Errore nella creazione evento' },
       { status: 500 }

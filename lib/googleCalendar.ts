@@ -1,6 +1,10 @@
 /**
  * Google Calendar API client via Service Account.
- * Env: GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY, GOOGLE_CALENDAR_ID
+ * Env (in ordine di preferenza):
+ * 1) GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 (JSON intero in base64)
+ * 2) GOOGLE_SERVICE_ACCOUNT_KEY_BASE64 + opzionale client_email nel JSON
+ * 3) GOOGLE_SERVICE_ACCOUNT_EMAIL + GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY
+ * + GOOGLE_CALENDAR_ID, CALENDAR_ADMIN_USER_IDS
  */
 
 import { google } from 'googleapis'
@@ -9,8 +13,8 @@ import type { calendar_v3 } from 'googleapis'
 export type CalendarEvent = {
   id: string
   title: string
-  start: string // ISO
-  end: string // ISO
+  start: string
+  end: string
   allDay: boolean
   location?: string
   description?: string
@@ -27,14 +31,117 @@ export type CreateEventPayload = {
 
 export type UpdateEventPayload = Partial<CreateEventPayload>
 
-function getCalendarClient() {
-  const clientEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL
-  const privateKey = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, '\n')
-  const calendarId = process.env.GOOGLE_CALENDAR_ID || 'primary'
+const PEM_HEADERS = ['BEGIN PRIVATE KEY', 'BEGIN RSA PRIVATE KEY']
 
-  if (!clientEmail || !privateKey) {
-    throw new Error('GOOGLE_SERVICE_ACCOUNT_EMAIL and GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY are required')
+function stripWrappingQuotes(s: string): string {
+  const t = s.trim()
+  if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
+    return t.slice(1, -1)
   }
+  return t
+}
+
+function normalizePem(key: string): string {
+  let out = stripWrappingQuotes(key)
+  out = out.replace(/\\n/g, '\n')
+  return out.trim()
+}
+
+function hasPemHeader(key: string): boolean {
+  return PEM_HEADERS.some((h) => key.includes(h))
+}
+
+/** Safe log: never the full key; length + masked prefix + header presence. */
+function logKeySafe(label: string, key: string): void {
+  const len = key.length
+  const prefix = key.slice(0, 20).replace(/[\s\S]/g, '*') + '***'
+  const hasHeader = hasPemHeader(key)
+  console.log(`[googleCalendar] ${label} length=${len} prefix=${prefix} hasPemHeader=${hasHeader}`)
+}
+
+/**
+ * Returns { clientEmail, privateKey } from env.
+ * Prefer: GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 > GOOGLE_SERVICE_ACCOUNT_KEY_BASE64 > EMAIL + PRIVATE_KEY.
+ * Validates PEM header; throws with clear message if missing or malformed (never logs full key).
+ */
+export function getGoogleCredentials(): { clientEmail: string; privateKey: string } {
+  // 1) JSON intero in base64 (metodo consigliato su Vercel)
+  const jsonBase64 = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64?.trim()
+  if (jsonBase64) {
+    try {
+      const decoded = Buffer.from(jsonBase64, 'base64').toString('utf8')
+      const data = JSON.parse(decoded) as { client_email?: string; private_key?: string }
+      const email = data.client_email?.trim()
+      const rawKey = data.private_key?.trim()
+      if (!email || !rawKey) {
+        throw new Error('Google Calendar credentials misconfigured: JSON base64 missing client_email or private_key')
+      }
+      const privateKey = normalizePem(rawKey)
+      if (!hasPemHeader(privateKey)) {
+        logKeySafe('json_base64 key', privateKey)
+        throw new Error('Google Calendar credentials misconfigured: malformed PEM header')
+      }
+      return { clientEmail: email, privateKey }
+    } catch (e) {
+      if (e instanceof SyntaxError) {
+        throw new Error('Google Calendar credentials misconfigured: invalid JSON in GOOGLE_SERVICE_ACCOUNT_JSON_BASE64')
+      }
+      throw e
+    }
+  }
+
+  // 2) Key (o JSON parziale) in base64
+  const keyBase64 = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_BASE64?.trim()
+  if (keyBase64) {
+    try {
+      const decoded = Buffer.from(keyBase64, 'base64').toString('utf8')
+      let privateKey: string
+      let clientEmail: string | undefined
+      if (decoded.includes('"private_key"') && decoded.includes('{')) {
+        try {
+          const data = JSON.parse(decoded) as { client_email?: string; private_key?: string }
+          clientEmail = data.client_email?.trim()
+          privateKey = normalizePem((data.private_key ?? '').trim())
+        } catch {
+          privateKey = normalizePem(decoded)
+        }
+      } else {
+        privateKey = normalizePem(decoded)
+      }
+      if (!hasPemHeader(privateKey)) {
+        logKeySafe('key_base64', privateKey)
+        throw new Error('Google Calendar credentials misconfigured: malformed PEM header')
+      }
+      const email = clientEmail ?? process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL?.trim()
+      if (!email) {
+        throw new Error('Google Calendar credentials misconfigured: missing env GOOGLE_SERVICE_ACCOUNT_EMAIL')
+      }
+      return { clientEmail: email, privateKey }
+    } catch (e) {
+      if (e instanceof SyntaxError) {
+        throw new Error('Google Calendar credentials misconfigured: invalid base64 or JSON in GOOGLE_SERVICE_ACCOUNT_KEY_BASE64')
+      }
+      throw e
+    }
+  }
+
+  // 3) Fallback: EMAIL + PRIVATE_KEY
+  const clientEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL?.trim()
+  const rawKey = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.trim()
+  if (!clientEmail || !rawKey) {
+    throw new Error('Google Calendar credentials misconfigured: missing env (set GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 or EMAIL + PRIVATE_KEY)')
+  }
+  const privateKey = normalizePem(rawKey)
+  if (!hasPemHeader(privateKey)) {
+    logKeySafe('private_key env', privateKey)
+    throw new Error('Google Calendar credentials misconfigured: malformed PEM header')
+  }
+  return { clientEmail, privateKey }
+}
+
+function getCalendarClient() {
+  const calendarId = process.env.GOOGLE_CALENDAR_ID || 'primary'
+  const { clientEmail, privateKey } = getGoogleCredentials()
 
   const auth = new google.auth.JWT({
     email: clientEmail,

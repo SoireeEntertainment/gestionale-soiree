@@ -72,7 +72,10 @@ Per integrare il calendario Google (account soiree.teamwork@gmail.com) con creaz
    - `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY`: contenuto del campo `private_key` del JSON (gestione newline: in env sostituire `\n` con `\\n`; il codice ripristina `\n`).
    - `GOOGLE_CALENDAR_ID`: ID del calendario (es. `primary` per il calendario principale, oppure l’ID specifico dalla configurazione del calendario).
    - `CALENDAR_ADMIN_USER_IDS`: ID Clerk (separati da virgola) degli utenti che possono creare/modificare/eliminare eventi (es. Davide Piccolo, Cristian Palazzolo).
+   - **Opzionale (consigliato su Vercel):** `GOOGLE_SERVICE_ACCOUNT_JSON_BASE64`: intero JSON del service account in base64 (evita problemi di newline sulla PEM).
 7. **Scope utilizzato** (solo lettura/scrittura calendario): `https://www.googleapis.com/auth/calendar`.
+
+**Vercel – evitare errore DECODER:** la PEM in env con newline spesso causa `error:1E08010C:DECODER routines::unsupported`. Metodo consigliato: usare un solo env `GOOGLE_SERVICE_ACCOUNT_JSON_BASE64` con il file JSON del service account codificato in base64 (macOS: `base64 -i service-account.json | pbcopy`; Linux: `base64 -w 0 service-account.json`). In alternativa usare `GOOGLE_SERVICE_ACCOUNT_KEY_BASE64` con la sola private key in base64.
 
 ## Configurazione Clerk
 
