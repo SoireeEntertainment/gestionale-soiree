@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useEffect, useRef, useCallback } from 'react'
+import { useMemo, useState, useEffect, useRef, useCallback, memo } from 'react'
 import { PED_ITEM_TYPE_LABELS, PED_DELEGATED_STYLE, toDateString, getCurrentWeekStartString } from '@/lib/ped-utils'
 import { getItemLabelStyle, PED_LABELS, PED_LABEL_CONFIG } from '@/lib/pedLabels'
 
@@ -106,10 +106,11 @@ function buildCalendarGrid(year: number, month: number): { dateKey: string; dayN
 const DRAG_TYPE = 'application/x-ped-item'
 
 type ContextMenuState = { x: number; y: number; item: PedItem } | null
+type InlineEditTitleState = { item: PedItem; x: number; y: number } | null
 type MarqueeRect = { startX: number; startY: number; endX: number; endY: number }
 
 /** Id dell'utente di cui si sta visualizzando il PED (per stile "delegated": usa i suoi colori, non quelli del loggato). */
-export function PedCalendar({
+function PedCalendarInner({
   year,
   month,
   items,
@@ -132,6 +133,7 @@ export function PedCalendar({
   onBulkDelete,
   onReorderInDay,
   onSelectDay,
+  onUpdateTitle,
   filterClientId,
   filterType,
 }: {
@@ -159,6 +161,7 @@ export function PedCalendar({
   onBulkDelete?: (ids: string[]) => void | Promise<void>
   onReorderInDay: (dateKey: string, isExtra: boolean, orderedItemIds: string[]) => void | Promise<void>
   onSelectDay?: (dateKey: string) => void
+  onUpdateTitle?: (id: string, title: string) => void | Promise<void>
   filterClientId: string
   filterType: string
 }) {
@@ -168,6 +171,9 @@ export function PedCalendar({
   const [columnWidths, setColumnWidths] = useState<number[]>(DEFAULT_COLUMN_WIDTHS)
   const [resizingCol, setResizingCol] = useState<number | null>(null)
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(null)
+  const [inlineEditTitle, setInlineEditTitle] = useState<InlineEditTitleState>(null)
+  const [inlineEditValue, setInlineEditValue] = useState('')
+  const inlineEditInputRef = useRef<HTMLInputElement>(null)
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set())
   const [marquee, setMarquee] = useState<MarqueeRect | null>(null)
   const marqueeStartRef = useRef<{ x: number; y: number } | null>(null)
@@ -192,6 +198,13 @@ export function PedCalendar({
       document.removeEventListener('contextmenu', close)
     }
   }, [contextMenu])
+
+  useEffect(() => {
+    if (inlineEditTitle) {
+      setInlineEditValue(inlineEditTitle.item.title)
+      queueMicrotask(() => inlineEditInputRef.current?.focus())
+    }
+  }, [inlineEditTitle])
 
   useEffect(() => {
     const storedCols = loadColumnWidthsFromStorage()
@@ -920,6 +933,18 @@ export function PedCalendar({
                 </button>
               </>
             )}
+            {!isBulk && typeof onUpdateTitle === 'function' && (
+              <button
+                type="button"
+                className="w-full text-left px-4 py-2 text-sm text-white hover:bg-accent/10"
+                onClick={() => {
+                  setInlineEditTitle({ item: contextMenu.item, x: contextMenu.x, y: contextMenu.y })
+                  setContextMenu(null)
+                }}
+              >
+                Modifica
+              </button>
+            )}
             <button
               type="button"
               className="w-full text-left px-4 py-2 text-sm text-white hover:bg-accent/10"
@@ -960,6 +985,46 @@ export function PedCalendar({
           </div>
         )
       })()}
+
+      {inlineEditTitle && typeof onUpdateTitle === 'function' && (
+        <div
+          className="fixed z-[60] min-w-[240px] p-2 bg-dark border border-accent/20 rounded-lg shadow-lg"
+          style={{ left: inlineEditTitle.x, top: inlineEditTitle.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="text-xs text-white/70 mb-1.5">Modifica titolo</div>
+          <input
+            ref={inlineEditInputRef}
+            type="text"
+            value={inlineEditValue}
+            onChange={(e) => setInlineEditValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                const title = inlineEditValue.trim()
+                if (title) {
+                  onUpdateTitle(inlineEditTitle.item.id, title)
+                  setInlineEditTitle(null)
+                }
+              }
+              if (e.key === 'Escape') {
+                setInlineEditTitle(null)
+              }
+            }}
+            onBlur={() => {
+              const title = inlineEditValue.trim()
+              if (title && title !== inlineEditTitle.item.title) {
+                onUpdateTitle(inlineEditTitle.item.id, title)
+              }
+              setInlineEditTitle(null)
+            }}
+            className="w-full px-3 py-2 bg-white/10 border border-accent/20 rounded text-white text-sm"
+            placeholder="Titolo"
+          />
+        </div>
+      )}
     </div>
   )
 }
+
+export const PedCalendar = memo(PedCalendarInner)

@@ -323,6 +323,15 @@ export function ClientPedSection({
     }
   }
 
+  const handleUpdateTitle = async (id: string, title: string) => {
+    try {
+      await updatePedItem(id, { title: title.trim() })
+      await refetch()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Errore')
+    }
+  }
+
   const handleMoveItems = async (itemIds: string[], targetDate: string, targetIsExtra: boolean) => {
     const previousData = data
     if (data) {
@@ -549,6 +558,7 @@ export function ClientPedSection({
             onOpenEdit={handleOpenEdit}
             onToggleDone={handleToggleDone}
             onSetLabel={handleSetLabel}
+            onUpdateTitle={handleUpdateTitle}
             onMoveItem={handleMoveItem}
             onMoveItems={handleMoveItems}
             onDuplicateItem={handleDuplicateItem}

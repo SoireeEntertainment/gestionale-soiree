@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useRef, useEffect } from 'react'
+import { useState, useMemo, useRef, useEffect, useCallback, startTransition } from 'react'
 import dynamic from 'next/dynamic'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { PedMonthNav } from './ped-month-nav'
@@ -150,31 +150,37 @@ export function PedView({
   // Lista usata per il rendering: date is derived from column (single source of truth dal DB, qui con optimistic update)
   const itemsWithDateString = items
 
-  const handleOpenAdd = (dateKey: string) => {
-    setSelectedDateKey(dateKey)
-    setModalDateKey(dateKey)
-    setModalEditItem(null)
-    setModalIsExtra(false)
-    setModalOpen(true)
-  }
+  const handleOpenAdd = useCallback((dateKey: string) => {
+    startTransition(() => {
+      setSelectedDateKey(dateKey)
+      setModalDateKey(dateKey)
+      setModalEditItem(null)
+      setModalIsExtra(false)
+      setModalOpen(true)
+    })
+  }, [])
 
-  const handleOpenAddExtra = (weekStartDateKey: string) => {
-    setModalDateKey(weekStartDateKey)
-    setModalEditItem(null)
-    setModalIsExtra(true)
-    setModalOpen(true)
-  }
+  const handleOpenAddExtra = useCallback((weekStartDateKey: string) => {
+    startTransition(() => {
+      setModalDateKey(weekStartDateKey)
+      setModalEditItem(null)
+      setModalIsExtra(true)
+      setModalOpen(true)
+    })
+  }, [])
 
-  const handleOpenEdit = (item: PedItem) => {
+  const handleOpenEdit = useCallback((item: PedItem) => {
     const dateStr = typeof item.date === 'string' ? item.date.slice(0, 10) : (item.date as unknown as Date).toISOString?.()?.slice(0, 10) ?? ''
-    setSelectedDateKey(dateStr)
-    setModalDateKey(dateStr)
-    setModalEditItem({ ...item, date: dateStr })
-    setModalIsExtra(Boolean(item.isExtra))
-    setModalOpen(true)
-  }
+    startTransition(() => {
+      setSelectedDateKey(dateStr)
+      setModalDateKey(dateStr)
+      setModalEditItem({ ...item, date: dateStr })
+      setModalIsExtra(Boolean(item.isExtra))
+      setModalOpen(true)
+    })
+  }, [])
 
-  const handleToggleDone = async (id: string) => {
+  const handleToggleDone = useCallback(async (id: string) => {
     const item = itemsWithDateString.find((i) => i.id === id)
     if (item) setUndoEntry({ type: 'toggleDone', itemId: id, previousStatus: item.status, previousLabel: getEffectiveLabel(item) })
     const result = await togglePedItemDone(id)
@@ -184,9 +190,9 @@ export function PedView({
       if (item) setUndoEntry(null)
       alert(result.error ?? 'Errore')
     }
-  }
+  }, [itemsWithDateString])
 
-  const handleMoveItem = async (itemId: string, targetDate: string, targetIsExtra: boolean) => {
+  const handleMoveItem = useCallback(async (itemId: string, targetDate: string, targetIsExtra: boolean) => {
     const item = itemsWithDateString.find((i) => i.id === itemId)
     const dateStr = item?.date?.slice(0, 10)
     if (!item) return
@@ -208,18 +214,18 @@ export function PedView({
       setUndoEntry(null)
       showToast(e instanceof Error ? e.message : 'Errore durante lo spostamento', 'error')
     }
-  }
+  }, [itemsWithDateString, items])
 
-  const handleDuplicateItem = async (itemId: string, targetDate: string, targetIsExtra: boolean) => {
+  const handleDuplicateItem = useCallback(async (itemId: string, targetDate: string, targetIsExtra: boolean) => {
     try {
       await duplicatePedItem(itemId, targetDate, targetIsExtra)
       router.refresh()
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Errore')
     }
-  }
+  }, [])
 
-  const handleDeleteItem = async (itemId: string) => {
+  const handleDeleteItem = useCallback(async (itemId: string) => {
     const item = itemsWithDateString.find((i) => i.id === itemId)
     if (item) {
       const dateStr = typeof item.date === 'string' ? item.date.slice(0, 10) : ''
@@ -248,16 +254,16 @@ export function PedView({
       setUndoEntry(null)
       alert(e instanceof Error ? e.message : 'Errore')
     }
-  }
+  }, [itemsWithDateString])
 
-  const getCurrentOrderForDay = (dateKey: string, isExtra: boolean): string[] => {
+  const getCurrentOrderForDay = useCallback((dateKey: string, isExtra: boolean): string[] => {
     if (isExtra) {
       return itemsWithDateString.filter((i) => getISOWeekStartKey(i.date.slice(0, 10)) === dateKey && i.isExtra).map((i) => i.id)
     }
     return itemsWithDateString.filter((i) => i.date.slice(0, 10) === dateKey && !i.isExtra).map((i) => i.id)
-  }
+  }, [itemsWithDateString])
 
-  const handleReorderInDay = async (dateKey: string, isExtra: boolean, orderedItemIds: string[]) => {
+  const handleReorderInDay = useCallback(async (dateKey: string, isExtra: boolean, orderedItemIds: string[]) => {
     const previousOrder = getCurrentOrderForDay(dateKey, isExtra)
     setUndoEntry({ type: 'reorder', dateKey, isExtra, orderedItemIds: previousOrder })
     try {
@@ -267,25 +273,34 @@ export function PedView({
       setUndoEntry(null)
       alert(e instanceof Error ? e.message : 'Errore')
     }
-  }
+  }, [getCurrentOrderForDay])
 
-  const handleCloseModal = () => {
+  const handleCloseModal = useCallback(() => {
     setModalOpen(false)
     setModalDateKey(null)
     setModalEditItem(null)
     setModalIsExtra(false)
-  }
+  }, [])
 
-  const handleSetLabel = async (id: string, label: string) => {
+  const handleSetLabel = useCallback(async (id: string, label: string) => {
     const result = await setPedItemLabel(id, label)
     if (result.ok) {
       router.refresh()
     } else {
       alert(result.error ?? 'Errore')
     }
-  }
+  }, [])
 
-  const handleMoveItems = async (itemIds: string[], targetDate: string, targetIsExtra: boolean) => {
+  const handleUpdateTitle = useCallback(async (id: string, title: string) => {
+    try {
+      await updatePedItem(id, { title: title.trim() })
+      router.refresh()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Errore')
+    }
+  }, [])
+
+  const handleMoveItems = useCallback(async (itemIds: string[], targetDate: string, targetIsExtra: boolean) => {
     const previousItems = items
     setItems((prev) =>
       prev.map((i) => (itemIds.includes(i.id) ? { ...i, date: targetDate, isExtra: targetIsExtra } : i))
@@ -302,9 +317,9 @@ export function PedView({
       setItems(previousItems)
       showToast(e instanceof Error ? e.message : 'Errore durante lo spostamento', 'error')
     }
-  }
+  }, [items])
 
-  const handleBulkSetLabel = async (ids: string[], label: string) => {
+  const handleBulkSetLabel = useCallback(async (ids: string[], label: string) => {
     try {
       const { applied, error } = await bulkSetPedItemLabel(ids, label)
       if (error) alert(error)
@@ -312,9 +327,9 @@ export function PedView({
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Errore')
     }
-  }
+  }, [])
 
-  const handleBulkToggleDone = async (ids: string[], done: boolean) => {
+  const handleBulkToggleDone = useCallback(async (ids: string[], done: boolean) => {
     try {
       const { applied, error } = await bulkTogglePedItemDone(ids, done)
       if (error) alert(error)
@@ -322,9 +337,9 @@ export function PedView({
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Errore')
     }
-  }
+  }, [])
 
-  const handleBulkDelete = async (ids: string[]) => {
+  const handleBulkDelete = useCallback(async (ids: string[]) => {
     try {
       const { applied, error } = await bulkDeletePedItems(ids)
       if (error) alert(error)
@@ -332,7 +347,7 @@ export function PedView({
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Errore')
     }
-  }
+  }, [])
 
   const [filling, setFilling] = useState(false)
   const [emptying, setEmptying] = useState(false)
@@ -532,6 +547,7 @@ export function PedView({
                 onBulkDelete={handleBulkDelete}
                 onReorderInDay={handleReorderInDay}
                 onSelectDay={setSelectedDateKey}
+                onUpdateTitle={handleUpdateTitle}
                 filterClientId={filterClientId}
                 filterType={filterType}
               />
