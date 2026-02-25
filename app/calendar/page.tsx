@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation'
 import { requireAuth } from '@/lib/auth-dev'
 import { prisma } from '@/lib/prisma'
-import { CalendarView } from '@/components/calendar/calendar-view'
+import { CalendarViewDynamic } from '@/components/calendar/calendar-view-dynamic'
 
 const calendarAdminIds = (process.env.CALENDAR_ADMIN_USER_IDS ?? '')
   .split(',')
@@ -68,7 +68,7 @@ export default async function CalendarPage(props: {
     <div className="min-h-screen bg-dark p-6">
       <div className="w-[90vw] max-w-[90vw] mx-auto">
         <h1 className="text-3xl font-bold mb-6 text-white">Calendario</h1>
-        <CalendarView
+        <CalendarViewDynamic
           works={works}
           initialRange={searchParams.range}
           initialFrom={startDate.toISOString().slice(0, 10)}

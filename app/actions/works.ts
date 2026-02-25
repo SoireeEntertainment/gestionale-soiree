@@ -1,41 +1,18 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, unstable_cache } from 'next/cache'
 import { getCurrentUser, canWrite } from '@/lib/auth-dev'
 import { prisma } from '@/lib/prisma'
 import { workSchema } from '@/lib/validations'
+import { parseDeadlineFromInput } from '@/lib/date-utils'
 
 export async function createWork(data: unknown) {
   const user = await getCurrentUser()
   if (!user || !canWrite(user)) throw new Error('Non autorizzato')
 
   const validated = workSchema.parse(data)
-  
-  // Converti deadline in Date se presente
-  // Il formato datetime-local è "YYYY-MM-DDTHH:mm", convertilo correttamente
-  let deadlineDate: Date | null = null
-  if (validated.deadline && validated.deadline.trim() !== '') {
-    try {
-      // Se è nel formato datetime-local (YYYY-MM-DDTHH:mm), aggiungi i secondi
-      let dateString = validated.deadline
-      if (dateString.includes('T') && !dateString.includes('Z') && !dateString.includes('+')) {
-        // Conta i due punti per vedere se ha già i secondi
-        const colonCount = (dateString.match(/:/g) || []).length
-        if (colonCount === 1) {
-          // Ha solo ore:minuti, aggiungi secondi
-          dateString = `${dateString}:00`
-        }
-      }
-      deadlineDate = new Date(dateString)
-      // Verifica che la data sia valida
-      if (isNaN(deadlineDate.getTime())) {
-        deadlineDate = null
-      }
-    } catch {
-      deadlineDate = null
-    }
-  }
-  
+  const deadlineDate = parseDeadlineFromInput(validated.deadline ?? undefined)
+
   const work = await prisma.work.create({
     data: {
       ...validated,
@@ -58,32 +35,8 @@ export async function updateWork(id: string, data: unknown) {
   if (!user || !canWrite(user)) throw new Error('Non autorizzato')
 
   const validated = workSchema.parse(data)
-  
-  // Converti deadline in Date se presente
-  // Il formato datetime-local è "YYYY-MM-DDTHH:mm", convertilo correttamente
-  let deadlineDate: Date | null = null
-  if (validated.deadline && validated.deadline.trim() !== '') {
-    try {
-      // Se è nel formato datetime-local (YYYY-MM-DDTHH:mm), aggiungi i secondi
-      let dateString = validated.deadline
-      if (dateString.includes('T') && !dateString.includes('Z') && !dateString.includes('+')) {
-        // Conta i due punti per vedere se ha già i secondi
-        const colonCount = (dateString.match(/:/g) || []).length
-        if (colonCount === 1) {
-          // Ha solo ore:minuti, aggiungi secondi
-          dateString = `${dateString}:00`
-        }
-      }
-      deadlineDate = new Date(dateString)
-      // Verifica che la data sia valida
-      if (isNaN(deadlineDate.getTime())) {
-        deadlineDate = null
-      }
-    } catch {
-      deadlineDate = null
-    }
-  }
-  
+  const deadlineDate = parseDeadlineFromInput(validated.deadline ?? undefined)
+
   const work = await prisma.work.update({
     where: { id },
     data: {
@@ -129,14 +82,15 @@ export async function getWork(id: string) {
   const user = await getCurrentUser()
   if (!user) throw new Error('Non autorizzato')
 
-  return prisma.work.findUnique({
-    where: { id },
-    include: {
-      client: true,
-      category: true,
-      assignedTo: true,
-    },
-  })
+  return unstable_cache(
+    async () =>
+      prisma.work.findUnique({
+        where: { id },
+        include: { client: true, category: true, assignedTo: true },
+      }),
+    ['work', id],
+    { revalidate: 60 }
+  )()
 }
 
 export async function getWorks(filters?: {

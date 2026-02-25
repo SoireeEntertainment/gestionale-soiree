@@ -1,6 +1,6 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, unstable_cache } from 'next/cache'
 import { getCurrentUser, canWrite } from '@/lib/auth-dev'
 import { prisma } from '@/lib/prisma'
 import { preventivoSchema } from '@/lib/validations'
@@ -116,13 +116,15 @@ export async function getPreventivo(id: string) {
   const user = await getCurrentUser()
   if (!user) throw new Error('Non autorizzato')
 
-  return prisma.preventivo.findUnique({
-    where: { id },
-    include: {
-      client: true,
-      items: { orderBy: { order: 'asc' } },
-    },
-  })
+  return unstable_cache(
+    async () =>
+      prisma.preventivo.findUnique({
+        where: { id },
+        include: { client: true, items: { orderBy: { order: 'asc' } } },
+      }),
+    ['preventivo', id],
+    { revalidate: 60 }
+  )()
 }
 
 export async function getPreventivi() {

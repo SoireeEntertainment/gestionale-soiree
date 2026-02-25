@@ -1,6 +1,6 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, unstable_cache } from 'next/cache'
 import { getCurrentUser, canWrite } from '@/lib/auth-dev'
 import { prisma } from '@/lib/prisma'
 import { clientSchema } from '@/lib/validations'
@@ -60,27 +60,22 @@ export async function getClient(id: string) {
   const user = await getCurrentUser()
   if (!user) throw new Error('Non autorizzato')
 
-  return prisma.client.findUnique({
-    where: { id },
-    include: {
-      assignedTo: true,
-      clientCategories: {
+  return unstable_cache(
+    async () =>
+      prisma.client.findUnique({
+        where: { id },
         include: {
-          category: true,
-        },
-      },
-      works: {
-        include: {
-          category: true,
           assignedTo: true,
+          clientCategories: { include: { category: true } },
+          works: {
+            include: { category: true, assignedTo: true },
+            orderBy: { createdAt: 'desc' },
+          },
+          preventivi: { orderBy: { createdAt: 'desc' }, include: { items: true } },
         },
-        orderBy: { createdAt: 'desc' },
-      },
-      preventivi: {
-        orderBy: { createdAt: 'desc' },
-        include: { items: true },
-      },
-    },
-  })
+      }),
+    ['client', id],
+    { revalidate: 60 }
+  )()
 }
 

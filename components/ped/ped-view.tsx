@@ -1,17 +1,25 @@
 'use client'
 
 import { useState, useMemo, useRef, useEffect } from 'react'
+import dynamic from 'next/dynamic'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { PedMonthNav } from './ped-month-nav'
 import { PedClientSettings } from './ped-client-settings'
-import { PedCalendar } from './ped-calendar'
 import { PedStats } from './ped-stats'
-import { PedItemModal } from './ped-item-modal'
 import { togglePedItemDone, updatePedItem, duplicatePedItem, deletePedItem, reorderPedItemsInDay, setPedItemLabel, fillPedMonth, emptyPedMonth, createPedItem, bulkMovePedItems, bulkSetPedItemLabel, bulkTogglePedItemDone, bulkDeletePedItems } from '@/app/actions/ped'
 import { Button } from '@/components/ui/button'
 import { PED_ITEM_TYPE_LABELS, getISOWeekStart, toDateString } from '@/lib/ped-utils'
 import { getEffectiveLabel } from '@/lib/pedLabels'
 import { showToast } from '@/lib/toast'
+
+const PedCalendar = dynamic(
+  () => import('./ped-calendar').then((m) => ({ default: m.PedCalendar })),
+  { ssr: false, loading: () => <div className="text-white/50 p-4">Caricamento calendario…</div> }
+)
+const PedItemModal = dynamic(
+  () => import('./ped-item-modal').then((m) => ({ default: m.PedItemModal })),
+  { ssr: false }
+)
 
 function getISOWeekStartKey(dateKey: string): string {
   return toDateString(getISOWeekStart(new Date(dateKey + 'T00:00:00.000Z')))

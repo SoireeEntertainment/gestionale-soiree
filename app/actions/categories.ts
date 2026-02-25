@@ -1,6 +1,6 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, unstable_cache } from 'next/cache'
 import { getCurrentUser, canWrite } from '@/lib/auth-dev'
 import { prisma } from '@/lib/prisma'
 import { categorySchema } from '@/lib/validations'
@@ -51,21 +51,17 @@ export async function getCategory(id: string) {
   const user = await getCurrentUser()
   if (!user) throw new Error('Non autorizzato')
 
-  return prisma.category.findUnique({
-    where: { id },
-    include: {
-      clientCategories: {
+  return unstable_cache(
+    async () =>
+      prisma.category.findUnique({
+        where: { id },
         include: {
-          client: true,
+          clientCategories: { include: { client: true } },
+          works: { include: { client: true }, orderBy: { createdAt: 'desc' } },
         },
-      },
-      works: {
-        include: {
-          client: true,
-        },
-        orderBy: { createdAt: 'desc' },
-      },
-    },
-  })
+      }),
+    ['category', id],
+    { revalidate: 60 }
+  )()
 }
 
