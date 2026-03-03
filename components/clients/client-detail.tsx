@@ -10,7 +10,7 @@ import { ClientCredentialsSection } from './client-credentials-section'
 import { ClientRenewalsSection } from './client-renewals-section'
 import { ClientPedSection } from './client-ped-section'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { User } from '@prisma/client'
 import { deleteClient } from '@/app/actions/clients'
 import { showToast } from '@/lib/toast'
@@ -71,9 +71,10 @@ export function ClientDetail({ client, allCategories, users, canWrite = true, sh
               <DialogTrigger asChild>
                 <Button>Modifica Cliente</Button>
               </DialogTrigger>
-              <DialogContent>
+              <DialogContent aria-describedby="edit-client-desc">
                 <DialogHeader>
                   <DialogTitle>Modifica Cliente</DialogTitle>
+                  <DialogDescription id="edit-client-desc">Modifica i dati del cliente.</DialogDescription>
                 </DialogHeader>
                 <ClientForm
                   client={client}
@@ -88,9 +89,10 @@ export function ClientDetail({ client, allCategories, users, canWrite = true, sh
                   Elimina Cliente
                 </Button>
               </DialogTrigger>
-              <DialogContent>
+              <DialogContent aria-describedby="delete-client-desc">
                 <DialogHeader>
                   <DialogTitle>Elimina cliente</DialogTitle>
+                  <DialogDescription id="delete-client-desc">Questa azione non può essere annullata.</DialogDescription>
                 </DialogHeader>
                 <p className="text-white/80 text-sm">
                   Stai per eliminare <strong>{client.name}</strong>. Verranno eliminati anche tutti i lavori, i preventivi e i dati collegati. Questa azione non può essere annullata.
@@ -210,11 +212,11 @@ export function ClientDetail({ client, allCategories, users, canWrite = true, sh
                 <div className="text-white">{(client as { industryCategory: string }).industryCategory}</div>
               </div>
             )}
-            {((client as { assignees?: { userId: string; role: string; user: User }[] }).assignees?.length ?? 0) > 0 && (
+            {((client as { assignees?: { userId: string; role: string; user: User }[] }).assignees ?? []).length > 0 && (
               <div className="md:col-span-2">
                 <div className="text-sm text-white/50 mb-1">Assegnatari</div>
                 <div className="text-white flex flex-wrap gap-2">
-                  {(client as { assignees: { userId: string; role: string; user: User }[] }).assignees.map((a) => (
+                  {((client as { assignees?: { userId: string; role: string; user: User }[] }).assignees ?? []).map((a) => (
                     <span key={a.userId} className={a.role === 'OWNER' ? 'px-2 py-0.5 rounded bg-accent/20 text-accent font-medium' : 'text-white/90'}>
                       {a.user.name}{a.role === 'OWNER' ? ' (owner)' : ''}
                     </span>
@@ -222,7 +224,7 @@ export function ClientDetail({ client, allCategories, users, canWrite = true, sh
                 </div>
               </div>
             )}
-            {!((client as { assignees?: unknown[] }).assignees?.length) && client.assignedTo && (
+            {((client as { assignees?: unknown[] }).assignees ?? []).length === 0 && client.assignedTo && (
               <div>
                 <div className="text-sm text-white/50 mb-1">Assegnato a</div>
                 <div className="text-white">{client.assignedTo.name}</div>

@@ -53,7 +53,7 @@ export default async function ClientDetailPage(props: {
 
   return (
     <ClientDetail
-      client={clientWithCredentials as ClientDetailProps['client']}
+      client={clientWithCredentials as unknown as ClientDetailProps['client']}
       allCategories={categories}
       users={users}
       canWrite={canWrite}

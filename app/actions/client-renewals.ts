@@ -29,11 +29,16 @@ export async function getClientRenewals(
   const user = await getCurrentUser()
   if (!user) throw new Error('Non autorizzato')
 
-  const rows = await prisma.clientRenewal.findMany({
-    where: { clientId },
-    orderBy: { renewalDate: 'asc' },
-  })
-  return rows
+  try {
+    const rows = await prisma.clientRenewal.findMany({
+      where: { clientId },
+      orderBy: { renewalDate: 'asc' },
+    })
+    return rows.map((r) => ({ ...r, status: (r as { status?: string }).status ?? 'DA_FARE' }))
+  } catch (err) {
+    console.warn('[getClientRenewals] Query failed (migration may be missing):', err instanceof Error ? err.message : err)
+    return []
+  }
 }
 
 export async function createClientRenewal(

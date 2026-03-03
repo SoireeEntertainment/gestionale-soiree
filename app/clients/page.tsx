@@ -6,13 +6,31 @@ import { ClientsList } from '@/components/clients/clients-list'
 export default async function ClientsPage() {
   const user = await requireAuth()
 
-  const [clients, users] = await Promise.all([
-    prisma.client.findMany({
+  let clients: Awaited<ReturnType<typeof prisma.client.findMany>>
+  try {
+    clients = await prisma.client.findMany({
       include: { assignedTo: true },
       orderBy: { name: 'asc' },
-    }),
-    getUsers(),
-  ])
+    })
+  } catch (err) {
+    console.warn('[ClientsPage] findMany with full schema failed, using minimal select:', err instanceof Error ? err.message : err)
+    clients = (await prisma.client.findMany({
+      select: {
+        id: true,
+        name: true,
+        contactName: true,
+        email: true,
+        phone: true,
+        assignedToUserId: true,
+        assignedTo: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+      orderBy: { name: 'asc' },
+    })) as unknown as Awaited<ReturnType<typeof prisma.client.findMany>>
+  }
+
+  const users = await getUsers()
 
   const canWrite = user.role === 'ADMIN'
 

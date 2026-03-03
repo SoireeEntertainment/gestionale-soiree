@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Client, User } from '@prisma/client'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { ClientForm } from './client-form'
 import { deleteClient } from '@/app/actions/clients'
 import { showToast } from '@/lib/toast'
@@ -73,9 +73,10 @@ export function ClientsList({ clients, users, canWrite = true }: ClientsListProp
               <DialogTrigger asChild>
                 <Button>+ Nuovo Cliente</Button>
               </DialogTrigger>
-              <DialogContent>
+              <DialogContent aria-describedby="new-client-desc">
                 <DialogHeader>
                   <DialogTitle>Nuovo Cliente</DialogTitle>
+                  <DialogDescription id="new-client-desc">Compila i campi per creare un nuovo cliente.</DialogDescription>
                 </DialogHeader>
                 <ClientForm
                   users={users}

@@ -86,25 +86,64 @@ export async function deleteClient(id: string) {
   return { success: true }
 }
 
+/** Query completa (richiede migration con assignees, websiteUrl, industryCategory). */
+async function getClientFull(id: string) {
+  return prisma.client.findUnique({
+    where: { id },
+    include: {
+      assignedTo: true,
+      assignees: { include: { user: true } },
+      clientCategories: { include: { category: true } },
+      works: {
+        include: { category: true, assignedTo: true },
+        orderBy: { createdAt: 'desc' },
+      },
+      preventivi: { orderBy: { createdAt: 'desc' }, include: { items: true } },
+    },
+  })
+}
+
+/** Query compatibile con DB senza migration (no assignees, no websiteUrl/industryCategory). */
+async function getClientLegacy(id: string) {
+  return prisma.client.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      name: true,
+      contactName: true,
+      email: true,
+      phone: true,
+      notes: true,
+      assignedToUserId: true,
+      metaBusinessSuiteUrl: true,
+      gestioneInserzioniUrl: true,
+      createdAt: true,
+      updatedAt: true,
+      assignedTo: true,
+      clientCategories: { include: { category: true } },
+      works: {
+        include: { category: true, assignedTo: true },
+        orderBy: { createdAt: 'desc' },
+      },
+      preventivi: { orderBy: { createdAt: 'desc' }, include: { items: true } },
+    },
+  }).then((row) => row ? { ...row, assignees: [] as { userId: string; role: string; user: { id: string; name: string; email: string } }[], websiteUrl: null as string | null, industryCategory: null as string | null } : null)
+}
+
 export async function getClient(id: string) {
   const user = await getCurrentUser()
   if (!user) throw new Error('Non autorizzato')
 
   return unstable_cache(
-    async () =>
-      prisma.client.findUnique({
-        where: { id },
-        include: {
-          assignedTo: true,
-          assignees: { include: { user: true } },
-          clientCategories: { include: { category: true } },
-          works: {
-            include: { category: true, assignedTo: true },
-            orderBy: { createdAt: 'desc' },
-          },
-          preventivi: { orderBy: { createdAt: 'desc' }, include: { items: true } },
-        },
-      }),
+    async () => {
+      try {
+        const full = await getClientFull(id)
+        return full ?? null
+      } catch (err) {
+        console.warn('[getClient] Full query failed (migration may be missing), falling back to legacy:', err instanceof Error ? err.message : err)
+        return getClientLegacy(id)
+      }
+    },
     ['client', id],
     { revalidate: 60 }
   )()
@@ -142,23 +181,28 @@ export async function getClientCategoryOverview(
   const user = await getCurrentUser()
   if (!user) return []
 
-  const start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0))
-  const end = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999))
+  try {
+    const start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0))
+    const end = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999))
 
-  const works = await prisma.work.findMany({
-    where: {
-      clientId,
-      updatedAt: { gte: start, lte: end },
-    },
-    select: { categoryId: true, status: true },
-  })
+    const works = await prisma.work.findMany({
+      where: {
+        clientId,
+        updatedAt: { gte: start, lte: end },
+      },
+      select: { categoryId: true, status: true },
+    })
 
-  const categories = await prisma.category.findMany({ orderBy: { name: 'asc' } })
-  return categories.map((cat) => {
-    const inCat = works.filter((w) => w.categoryId === cat.id)
-    const total = inCat.length
-    const completed = inCat.filter((w) => w.status === 'DONE').length
-    return { categoryId: cat.id, categoryName: cat.name, completed, total }
-  })
+    const categories = await prisma.category.findMany({ orderBy: { name: 'asc' } })
+    return categories.map((cat) => {
+      const inCat = works.filter((w) => w.categoryId === cat.id)
+      const total = inCat.length
+      const completed = inCat.filter((w) => w.status === 'DONE').length
+      return { categoryId: cat.id, categoryName: cat.name, completed, total }
+    })
+  } catch (err) {
+    console.warn('[getClientCategoryOverview] Query failed:', err instanceof Error ? err.message : err)
+    return []
+  }
 }
 
