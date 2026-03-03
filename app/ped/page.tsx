@@ -81,22 +81,35 @@ export default async function PedPage(props: {
     throw err
   }
 
-  const initialData = {
-    ...pedData,
-    pedItems: pedData.pedItems.map((item) => ({
-      ...item,
-      date: typeof item.date === 'string' ? item.date : item.date.toISOString().slice(0, 10),
-    })),
+  const pedItems = pedData?.pedItems ?? []
+  const pedClientSettings = pedData?.pedClientSettings ?? []
+  const computedStats = pedData?.computedStats ?? {
+    dailyStats: {} as Record<string, { total: number; done: number; remainingPct: number; remainingCount: number }>,
+    weeklyStats: [] as { weekStart: string; weekEnd: string; total: number; done: number }[],
+    monthlyStats: { total: 0, done: 0 },
   }
+
+  const initialData = {
+    pedClientSettings,
+    pedItems: pedItems.map((item) => ({
+      ...item,
+      date: typeof item.date === 'string' ? item.date : (item.date as Date).toISOString?.()?.slice(0, 10) ?? '',
+    })),
+    computedStats,
+  }
+
+  const usersList = users?.map((u) => ({ id: u.id, name: u.name })) ?? []
+  const clientsList = clients ?? []
+  const worksList = works ?? []
 
   return (
     <div className="min-h-screen bg-dark p-6">
       <div className="w-[90vw] max-w-[90vw] mx-auto">
         <PedView
           initialData={initialData}
-          clients={clients}
-          works={works}
-          users={users.map((u) => ({ id: u.id, name: u.name }))}
+          clients={clientsList}
+          works={worksList}
+          users={usersList}
           currentUserId={user.id}
           currentUserName={user.name ?? 'Utente'}
           viewAsUserId={viewAsUserId}

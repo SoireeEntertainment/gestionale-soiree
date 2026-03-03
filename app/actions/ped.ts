@@ -44,15 +44,41 @@ export async function getPedMonth(year: number, month: number, viewAsUserId?: st
   const startDate = new Date(startMs)
   const endDate = new Date(endMs)
 
+  // Select esplicito senza `platforms` per compatibilità con DB dove la migration non è ancora applicata
   const settings = await prisma.pedClientSetting.findMany({
     where: { ownerId },
-    include: { client: { select: { id: true, name: true } } },
+    select: {
+      id: true,
+      ownerId: true,
+      clientId: true,
+      contentsPerWeek: true,
+      createdAt: true,
+      updatedAt: true,
+      client: { select: { id: true, name: true } },
+    },
   })
 
   const itemWhere = { OR: [{ ownerId }, { assignedToUserId: ownerId }] }
   const allItemsRaw = await prisma.pedItem.findMany({
     where: itemWhere,
-    include: {
+    select: {
+      id: true,
+      ownerId: true,
+      assignedToUserId: true,
+      clientId: true,
+      date: true,
+      kind: true,
+      type: true,
+      title: true,
+      description: true,
+      priority: true,
+      label: true,
+      status: true,
+      workId: true,
+      isExtra: true,
+      sortOrder: true,
+      createdAt: true,
+      updatedAt: true,
       client: { select: { id: true, name: true } },
       work: { select: { id: true, title: true } },
       assignedTo: { select: { id: true, name: true } },
@@ -129,8 +155,8 @@ export async function getPedMonth(year: number, month: number, viewAsUserId?: st
   )
 
   return {
-    pedClientSettings: settingsSorted,
-    pedItems: items,
+    pedClientSettings: settingsSorted.map((s) => ({ ...s, platforms: (s as { platforms?: string[] }).platforms ?? ['INSTAGRAM'] })),
+    pedItems: items.map((i) => ({ ...i, platforms: (i as { platforms?: string[] }).platforms ?? ['INSTAGRAM'] })),
     computedStats: {
       dailyStats,
       weeklyStats,

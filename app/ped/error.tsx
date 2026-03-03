@@ -1,9 +1,10 @@
 'use client'
 
 import { useEffect } from 'react'
+import { Button } from '@/components/ui/button'
 import Link from 'next/link'
 
-export default function PedPageError({
+export default function PedError({
   error,
   reset,
 }: {
@@ -11,33 +12,22 @@ export default function PedPageError({
   reset: () => void
 }) {
   useEffect(() => {
-    console.error('PED error:', error)
+    console.error('[PED error boundary]', error)
   }, [error])
 
   return (
-    <div className="min-h-screen bg-dark flex items-center justify-center p-6">
-      <div className="text-center max-w-lg">
-        <h1 className="text-xl font-bold text-white mb-2">Errore nel caricamento del PED</h1>
-        <p className="text-white/70 text-sm mb-2 font-mono break-all">
-          {error.message}
-        </p>
-        <p className="text-white/50 text-xs mb-6">
-          Controlla la console del server (terminale) per i dettagli.
-        </p>
-        <div className="flex gap-3 justify-center flex-wrap">
-          <button
-            onClick={reset}
-            className="px-4 py-2 rounded-md font-medium bg-accent text-dark hover:bg-accent/90"
-          >
-            Riprova
-          </button>
-          <Link
-            href="/dashboard"
-            className="px-4 py-2 rounded-md font-medium border border-accent text-accent hover:bg-accent/10"
-          >
-            Dashboard
-          </Link>
-        </div>
+    <div className="min-h-screen bg-dark p-6 flex flex-col items-center justify-center gap-4">
+      <h1 className="text-xl font-semibold text-white">Errore nel Piano Editoriale</h1>
+      <p className="text-white/70 text-sm max-w-md text-center">
+        Si è verificato un errore durante il caricamento della pagina PED. Puoi riprovare o tornare alla dashboard.
+      </p>
+      <div className="flex gap-3">
+        <Button variant="secondary" onClick={reset}>
+          Riprova
+        </Button>
+        <Link href="/dashboard">
+          <Button variant="primary">Vai alla dashboard</Button>
+        </Link>
       </div>
     </div>
   )
