@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { PED_ITEM_TYPE_LABELS } from '@/lib/ped-utils'
-import { PED_ITEM_KINDS, PED_ITEM_TYPES } from '@/lib/validations'
+import { PED_ITEM_KINDS, PED_ITEM_TYPES, PED_PLATFORMS } from '@/lib/validations'
 import { PED_LABELS, PED_LABEL_CONFIG, getEffectiveLabel, DEFAULT_LABEL, DONE_LABEL, type PedLabel } from '@/lib/pedLabels'
 import { createPedItem, updatePedItem, deletePedItem, togglePedItemDone, duplicatePedItem } from '@/app/actions/ped'
 import { createClient } from '@/app/actions/clients'
@@ -31,6 +31,7 @@ type PedItem = {
   isExtra?: boolean
   assignedToUserId?: string | null
   assignedTo?: { id: string; name: string } | null
+  platforms?: string[]
   client: { id: string; name: string }
   work?: { id: string; title: string } | null
 }
@@ -77,6 +78,7 @@ export function PedItemModal({
   const [workId, setWorkId] = useState('')
   const [isExtra, setIsExtra] = useState(false)
   const [assignedToUserId, setAssignedToUserId] = useState('')
+  const [platforms, setPlatforms] = useState<string[]>(['INSTAGRAM'])
   const [saving, setSaving] = useState(false)
   const [modalDateKey, setModalDateKey] = useState('')
   const [calendarOpen, setCalendarOpen] = useState(false)
@@ -104,6 +106,7 @@ export function PedItemModal({
       setWorkId(editItem.workId ?? '')
       setIsExtra(Boolean(editItem.isExtra))
       setAssignedToUserId(editItem.assignedToUserId ?? editItem.assignedTo?.id ?? currentUserId)
+      setPlatforms(editItem.platforms?.length ? editItem.platforms : ['INSTAGRAM'])
     } else {
       const dateKeyVal = dateKey ?? format(new Date(), 'yyyy-MM-dd')
       setModalDateKey(dateKeyVal)
@@ -120,6 +123,7 @@ export function PedItemModal({
       setWorkId('')
       setIsExtra(initialIsExtra)
       setAssignedToUserId(currentUserId)
+      setPlatforms(['INSTAGRAM'])
     }
   }, [editItem, initialIsExtra, initialClientId, clients, currentUserId, open, dateKey])
 
@@ -185,6 +189,7 @@ export function PedItemModal({
           workId: workId || null,
           isExtra,
           assignedToUserId: assignedToUserId || null,
+          platforms: platforms.length ? platforms : ['INSTAGRAM'],
         })
       } else {
         await createPedItem({
@@ -198,6 +203,7 @@ export function PedItemModal({
           workId: workId || null,
           isExtra,
           assignedToUserId: assignedToUserId || currentUserId,
+          platforms: platforms.length ? platforms : ['INSTAGRAM'],
         })
       }
       onClose()
@@ -378,6 +384,32 @@ export function PedItemModal({
                 <option key={t} value={t}>{PED_ITEM_TYPE_LABELS[t] ?? t}</option>
               ))}
             </select>
+          </div>
+          <div>
+            <label className="block text-sm text-white/70 mb-1">Piattaforme</label>
+            <div className="flex flex-wrap gap-3">
+              {PED_PLATFORMS.map((pf) => {
+                const checked = platforms.includes(pf)
+                return (
+                  <label key={pf} className="flex items-center gap-2 text-white/90 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => {
+                        if (checked) {
+                          const next = platforms.filter((x) => x !== pf)
+                          setPlatforms(next.length ? next : ['INSTAGRAM'])
+                        } else {
+                          setPlatforms([...platforms, pf])
+                        }
+                      }}
+                      className="rounded border-white/50"
+                    />
+                    <span>{pf === 'INSTAGRAM' ? 'Instagram' : pf === 'LINKEDIN' ? 'LinkedIn' : 'TikTok'}</span>
+                  </label>
+                )
+              })}
+            </div>
           </div>
           <div>
             <label className="block text-sm text-white/70 mb-1">Titolo *</label>

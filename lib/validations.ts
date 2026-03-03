@@ -75,10 +75,12 @@ export const PED_ITEM_TYPES = ['REEL', 'POST', 'STORY', 'CAROUSEL', 'ADV', 'SHOO
 export const PED_PRIORITIES = ['NOT_URGENT', 'MEDIUM', 'URGENT'] as const
 export const PED_LABELS = ['IN_APPROVAZIONE', 'DA_FARE', 'PRONTO_NON_PUBBLICATO', 'FATTO'] as const
 export const PED_STATUSES = ['TODO', 'DONE'] as const
+export const PED_PLATFORMS = ['INSTAGRAM', 'LINKEDIN', 'TIKTOK'] as const
 
 export const pedClientSettingSchema = z.object({
   clientId: z.string().min(1),
   contentsPerWeek: z.number().int().min(0),
+  platforms: z.array(z.enum(PED_PLATFORMS)).min(1).optional(),
 })
 
 export const pedItemCreateSchema = z.object({
@@ -93,6 +95,7 @@ export const pedItemCreateSchema = z.object({
   workId: z.string().optional().nullable(),
   isExtra: z.boolean().optional(),
   assignedToUserId: z.string().optional().nullable(),
+  platforms: z.array(z.enum(PED_PLATFORMS)).min(1).optional(),
 })
 
 export const pedItemUpdateSchema = pedItemCreateSchema.partial().extend({

@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { PedMonthNav } from './ped-month-nav'
 import { PedClientSettings } from './ped-client-settings'
 import { PedStats } from './ped-stats'
-import { togglePedItemDone, updatePedItem, duplicatePedItem, deletePedItem, reorderPedItemsInDay, setPedItemLabel, fillPedMonth, emptyPedMonth, createPedItem, bulkMovePedItems, bulkSetPedItemLabel, bulkTogglePedItemDone, bulkDeletePedItems } from '@/app/actions/ped'
+import { togglePedItemDone, updatePedItem, duplicatePedItem, deletePedItem, reorderPedItemsInDay, setPedItemLabel, fillPedMonth, emptyPedMonth, createPedItem, bulkMovePedItems, bulkSetPedItemLabel, bulkTogglePedItemDone, bulkDeletePedItems, getPedClientMetrics } from '@/app/actions/ped'
 import { Button } from '@/components/ui/button'
 import { PED_ITEM_TYPE_LABELS, getISOWeekStart, toDateString } from '@/lib/ped-utils'
 import { getEffectiveLabel } from '@/lib/pedLabels'
@@ -33,7 +33,7 @@ type UndoEntry =
 
 type Client = { id: string; name: string }
 type Work = { id: string; title: string }
-type PedClientSetting = { id: string; clientId: string; contentsPerWeek: number; client: { id: string; name: string } }
+type PedClientSetting = { id: string; clientId: string; contentsPerWeek: number; platforms?: string[]; client: { id: string; name: string } }
 type PedItem = {
   id: string
   date: string
@@ -116,6 +116,16 @@ export function PedView({
   const [modalIsExtra, setModalIsExtra] = useState(false)
   const [filterClientId, setFilterClientId] = useState('')
   const [filterType, setFilterType] = useState('')
+  const [clientSearchQuery, setClientSearchQuery] = useState('')
+  const [clientDropdownOpen, setClientDropdownOpen] = useState(false)
+  const clientDropdownRef = useRef<HTMLDivElement>(null)
+  const [clientMetrics, setClientMetrics] = useState<{
+    expectedMonthlyCount: number
+    doneCount: number
+    remainingCount: number
+    doneByContentType: Record<string, number>
+  } | null>(null)
+  const [clientMetricsLoading, setClientMetricsLoading] = useState(false)
   const [selectedDateKey, setSelectedDateKey] = useState<string | null>(null)
   const [undoEntry, setUndoEntry] = useState<UndoEntry | null>(null)
   const [userDropdownOpen, setUserDropdownOpen] = useState(false)
@@ -140,12 +150,36 @@ export function PedView({
       if (userDropdownRef.current && !userDropdownRef.current.contains(e.target as Node)) {
         setUserDropdownOpen(false)
       }
+      if (clientDropdownRef.current && !clientDropdownRef.current.contains(e.target as Node)) {
+        setClientDropdownOpen(false)
+      }
     }
-    if (userDropdownOpen) {
+    if (userDropdownOpen || clientDropdownOpen) {
       document.addEventListener('click', handleClickOutside)
       return () => document.removeEventListener('click', handleClickOutside)
     }
-  }, [userDropdownOpen])
+  }, [userDropdownOpen, clientDropdownOpen])
+
+  useEffect(() => {
+    if (!filterClientId) {
+      setClientMetrics(null)
+      return
+    }
+    let cancelled = false
+    setClientMetricsLoading(true)
+    getPedClientMetrics(filterClientId, year, month, viewAsUserId)
+      .then((data) => {
+        if (!cancelled && data) setClientMetrics(data)
+        else if (!cancelled) setClientMetrics(null)
+      })
+      .catch(() => {
+        if (!cancelled) setClientMetrics(null)
+      })
+      .finally(() => {
+        if (!cancelled) setClientMetricsLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [filterClientId, year, month, viewAsUserId])
 
   // Lista usata per il rendering: date is derived from column (single source of truth dal DB, qui con optimistic update)
   const itemsWithDateString = items
@@ -481,19 +515,64 @@ export function PedView({
 
       <div className="space-y-4 w-full">
         {/* Filtri e calendario a larghezza piena */}
-        <div className="flex flex-wrap gap-4 items-center">
-          <label className="text-white/70 text-sm">
-            Filtra cliente:
-            <select
-              value={filterClientId}
-              onChange={(e) => setFilterClientId(e.target.value)}
-              className="ml-2 px-2 py-1 bg-dark border border-accent/20 rounded text-white"
-            >
-              <option value="">Tutti</option>
-              {clients.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
+        <div className="flex flex-wrap gap-4 items-center" ref={clientDropdownRef}>
+          <label className="text-white/70 text-sm flex flex-col gap-1">
+            <span>Filtra cliente</span>
+            <div className="relative">
+              <input
+                type="text"
+                value={clientSearchQuery !== '' ? clientSearchQuery : (filterClientId ? (clients.find((c) => c.id === filterClientId)?.name ?? '') : '')}
+                onChange={(e) => {
+                  const v = e.target.value
+                  setClientSearchQuery(v)
+                  if (!v) setFilterClientId('')
+                  setClientDropdownOpen(true)
+                }}
+                onFocus={() => { setClientDropdownOpen(true); if (filterClientId && !clientSearchQuery) setClientSearchQuery(clients.find((c) => c.id === filterClientId)?.name ?? ''); }}
+                placeholder="Cerca o seleziona cliente..."
+                className="w-56 px-2 py-1.5 bg-dark border border-accent/20 rounded text-white placeholder:text-white/40"
+              />
+              {filterClientId && (
+                <button
+                  type="button"
+                  onClick={() => { setFilterClientId(''); setClientSearchQuery(''); setClientMetrics(null); }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-white/60 hover:text-white"
+                  aria-label="Rimuovi filtro"
+                >
+                  ×
+                </button>
+              )}
+              {clientDropdownOpen && (
+                <ul className="absolute left-0 top-full mt-1 w-56 max-h-60 overflow-auto bg-dark border border-accent/20 rounded shadow-lg z-20 py-1">
+                  <li>
+                    <button
+                      type="button"
+                      className="w-full text-left px-3 py-2 text-sm text-white/80 hover:bg-white/10"
+                      onClick={() => { setFilterClientId(''); setClientSearchQuery(''); setClientDropdownOpen(false); }}
+                    >
+                      Tutti
+                    </button>
+                  </li>
+                  {clients
+                    .filter((c) => !clientSearchQuery.trim() || c.name.toLowerCase().includes(clientSearchQuery.trim().toLowerCase()))
+                    .map((c) => (
+                      <li key={c.id}>
+                        <button
+                          type="button"
+                          className={`w-full text-left px-3 py-2 text-sm hover:bg-white/10 ${c.id === filterClientId ? 'text-accent font-medium' : 'text-white'}`}
+                          onClick={() => {
+                            setFilterClientId(c.id)
+                            setClientSearchQuery('')
+                            setClientDropdownOpen(false)
+                          }}
+                        >
+                          {c.name}
+                        </button>
+                      </li>
+                    ))}
+                </ul>
+              )}
+            </div>
           </label>
           <label className="text-white/70 text-sm">
             Filtra tipologia:
@@ -509,6 +588,62 @@ export function PedView({
             </select>
           </label>
         </div>
+
+        {filterClientId && (
+          <div className="flex flex-wrap gap-6 items-start p-4 rounded-xl bg-dark border border-accent/20">
+            {clientMetricsLoading ? (
+              <span className="text-white/60 text-sm">Caricamento metriche…</span>
+            ) : clientMetrics ? (
+              <>
+                <div className="flex flex-wrap gap-4 items-center">
+                  <div className="px-3 py-2 rounded-lg bg-white/5">
+                    <span className="text-white/60 text-xs block">Previsti (mese)</span>
+                    <span className="text-white font-semibold">{clientMetrics.expectedMonthlyCount}</span>
+                  </div>
+                  <div className="px-3 py-2 rounded-lg bg-white/5">
+                    <span className="text-white/60 text-xs block">Fatti</span>
+                    <span className="text-white font-semibold">{clientMetrics.doneCount}</span>
+                  </div>
+                  <div className="px-3 py-2 rounded-lg bg-white/5">
+                    <span className="text-white/60 text-xs block">Mancanti</span>
+                    <span className="text-white font-semibold">{clientMetrics.remainingCount}</span>
+                  </div>
+                </div>
+                {Object.keys(clientMetrics.doneByContentType).length > 0 && (() => {
+                  const entries = Object.entries(clientMetrics.doneByContentType)
+                  const total = entries.reduce((s, [, c]) => s + c, 0) || 1
+                  const colors = ['#a78bfa', '#34d399', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899']
+                  let acc = 0
+                  const gradientStops = entries.map(([, count], i) => {
+                    const pct = (100 * count) / total
+                    acc += pct
+                    return `${colors[i % colors.length]} ${acc - pct}% ${acc}%`
+                  }).join(', ')
+                  return (
+                    <div className="flex items-center gap-4">
+                      <span className="text-white/60 text-sm">Fatti per tipologia:</span>
+                      <div className="flex items-center gap-2">
+                        <div
+                          className="w-24 h-24 rounded-full border-4 border-white/20 flex-shrink-0"
+                          style={{ background: `conic-gradient(${gradientStops})` }}
+                        />
+                        <ul className="text-xs text-white/80 space-y-0.5">
+                          {entries.map(([type, count]) => (
+                            <li key={type}>
+                              {PED_ITEM_TYPE_LABELS[type] ?? type}: {count}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  )
+                })()}
+              </>
+            ) : (
+              <span className="text-white/60 text-sm">Nessuna configurazione PED per questo cliente nel mese.</span>
+            )}
+          </div>
+        )}
 
         <div className="bg-dark border border-accent/20 rounded-xl p-4 overflow-hidden">
           <p className="text-xs text-white/50 mb-2">

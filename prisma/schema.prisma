@@ -253,12 +253,13 @@ model PreventivoItem {
 }
 
 model PedClientSetting {
-  id             String   @id @default(cuid())
-  ownerId        String
-  clientId       String
-  contentsPerWeek Int     @default(0)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id              String   @id @default(cuid())
+  ownerId         String
+  clientId        String
+  contentsPerWeek Int      @default(0)
+  platforms       String[] @default(["INSTAGRAM"]) // INSTAGRAM | LINKEDIN | TIKTOK
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   owner  User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
@@ -286,6 +287,7 @@ model PedItem {
   workId           String?
   isExtra          Boolean  @default(false) // mostra in colonna Extra della settimana
   sortOrder        Int      @default(0)      // ordine dentro il giorno / stessa etichetta
+  platforms        String[] @default(["INSTAGRAM"]) // INSTAGRAM | LINKEDIN | TIKTOK
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 

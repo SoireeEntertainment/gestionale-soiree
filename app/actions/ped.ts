@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { Prisma } from '@prisma/client'
 import { getCurrentUser } from '@/lib/auth-dev'
 import { prisma } from '@/lib/prisma'
-import { toDateString, getISOWeekStart } from '@/lib/ped-utils'
+import { toDateString, getISOWeekStart, getCurrentWeekStartString, addDaysToDateString } from '@/lib/ped-utils'
 import { getEffectiveLabel, PED_LABEL_ORDER, DEFAULT_LABEL, DONE_LABEL, PED_LABELS, type PedLabel } from '@/lib/pedLabels'
 import { pedClientSettingSchema, pedItemCreateSchema, pedItemUpdateSchema, pedItemSetLabelSchema } from '@/lib/validations'
 
@@ -373,6 +373,57 @@ export async function getClientPedTaskCounts(
   return { monthCount, totalCount }
 }
 
+/** Metriche PED per un cliente nel periodo (anno/mese): previsti, fatti, mancanti, breakdown per tipologia. Per filtro cliente. */
+export async function getPedClientMetrics(
+  clientId: string,
+  year: number,
+  month: number,
+  viewAsUserId?: string | null
+): Promise<{
+  expectedMonthlyCount: number
+  doneCount: number
+  remainingCount: number
+  doneByContentType: Record<string, number>
+} | null> {
+  const ownerId = await getViewOwnerId(viewAsUserId ?? undefined)
+  if (!ownerId) return null
+
+  const monthStart = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0))
+  const monthEnd = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999))
+
+  const [setting, items] = await Promise.all([
+    prisma.pedClientSetting.findUnique({
+      where: { ownerId_clientId: { ownerId, clientId } },
+      select: { contentsPerWeek: true },
+    }),
+    prisma.pedItem.findMany({
+      where: {
+        OR: [{ ownerId }, { assignedToUserId: ownerId }],
+        clientId,
+        date: { gte: monthStart, lte: monthEnd },
+      },
+      select: { status: true, type: true },
+    }),
+  ])
+
+  const expectedMonthlyCount = setting ? Math.round(setting.contentsPerWeek * 4) : 0
+  const doneCount = items.filter((i) => i.status === 'DONE').length
+  const remainingCount = Math.max(0, expectedMonthlyCount - doneCount)
+  const doneByContentType: Record<string, number> = {}
+  for (const item of items) {
+    if (item.status !== 'DONE') continue
+    const t = item.type || 'OTHER'
+    doneByContentType[t] = (doneByContentType[t] ?? 0) + 1
+  }
+
+  return {
+    expectedMonthlyCount,
+    doneCount,
+    remainingCount,
+    doneByContentType,
+  }
+}
+
 /** Cliente "nel PED": esiste almeno un PedClientSetting O almeno un PedItem per questo clientId. */
 export async function isClientInPed(clientId: string): Promise<boolean> {
   const user = await getCurrentUser()
@@ -597,11 +648,20 @@ export async function emptyPedMonthForClient(clientId: string, year: number, mon
   revalidatePath(`/clients/${clientId}`)
 }
 
-export async function upsertPedClientSetting(clientId: string, contentsPerWeek: number) {
+export async function upsertPedClientSetting(
+  clientId: string,
+  contentsPerWeek: number,
+  platforms?: string[]
+) {
   const ownerId = await getOwnerId()
   if (!ownerId) throw new Error('Non autorizzato')
 
-  const validated = pedClientSettingSchema.parse({ clientId, contentsPerWeek })
+  const validated = pedClientSettingSchema.parse({
+    clientId,
+    contentsPerWeek,
+    platforms: platforms?.length ? platforms : undefined,
+  })
+  const platformsVal = (validated.platforms?.length ? validated.platforms : ['INSTAGRAM']) as string[]
 
   await prisma.pedClientSetting.upsert({
     where: {
@@ -611,8 +671,12 @@ export async function upsertPedClientSetting(clientId: string, contentsPerWeek: 
       ownerId,
       clientId: validated.clientId,
       contentsPerWeek: validated.contentsPerWeek,
+      platforms: platformsVal,
     },
-    update: { contentsPerWeek: validated.contentsPerWeek },
+    update: {
+      contentsPerWeek: validated.contentsPerWeek,
+      ...(validated.platforms && { platforms: platformsVal }),
+    },
   })
 
   revalidatePath('/ped')
@@ -628,6 +692,78 @@ export async function removePedClientSetting(clientId: string) {
   })
 
   revalidatePath('/ped')
+}
+
+/** Preset 10 contenuti/sett: crea fino a 10 task (2 lun, 2 mar, 2 mer, 2 gio, 2 ven) per la settimana corrente. Crea solo i mancanti. */
+export async function createPreset10ForWeek(clientId: string): Promise<{ created: number; error?: string }> {
+  const ownerId = await getOwnerId()
+  if (!ownerId) return { created: 0, error: 'Non autorizzato' }
+
+  const weekStartStr = getCurrentWeekStartString()
+  const weekStart = new Date(weekStartStr + 'T00:00:00.000Z')
+  const weekEnd = new Date(weekStart)
+  weekEnd.setUTCDate(weekEnd.getUTCDate() + 6)
+  weekEnd.setUTCHours(23, 59, 59, 999)
+
+  const [setting, existingItems] = await Promise.all([
+    prisma.pedClientSetting.findUnique({
+      where: { ownerId_clientId: { ownerId, clientId } },
+      select: { platforms: true },
+    }),
+    prisma.pedItem.findMany({
+      where: {
+        ownerId,
+        clientId,
+        isExtra: false,
+        date: { gte: weekStart, lte: weekEnd },
+      },
+      select: { date: true },
+    }),
+  ])
+  const platforms = (setting?.platforms?.length ? setting.platforms : ['INSTAGRAM']) as string[]
+
+  const countByDate: Record<string, number> = {}
+  for (let i = 0; i < 5; i++) {
+    const d = addDaysToDateString(weekStartStr, i)
+    countByDate[d] = 0
+  }
+  for (const item of existingItems) {
+    const d = toDateString(new Date(item.date))
+    if (countByDate[d] !== undefined) countByDate[d]++
+  }
+
+  let created = 0
+  const client = await prisma.client.findUnique({ where: { id: clientId }, select: { name: true } })
+  const clientName = client?.name ?? 'Cliente'
+  for (let dayOffset = 0; dayOffset < 5; dayOffset++) {
+    const dateStr = addDaysToDateString(weekStartStr, dayOffset)
+    const need = 2 - (countByDate[dateStr] ?? 0)
+    for (let i = 0; i < need; i++) {
+      try {
+        await createPedItem({
+          clientId,
+          date: dateStr,
+          kind: 'CONTENT',
+          type: 'POST',
+          title: `${clientName} – contenuto`,
+          description: null,
+          priority: 'MEDIUM',
+          label: 'DA_FARE',
+          workId: null,
+          isExtra: false,
+          assignedToUserId: null,
+          platforms,
+        })
+        created++
+      } catch (err) {
+        console.error('[createPreset10ForWeek]', err)
+        return { created, error: err instanceof Error ? err.message : 'Errore creazione task' }
+      }
+    }
+  }
+  revalidatePath('/ped')
+  revalidatePath(`/clients/${clientId}`)
+  return { created }
 }
 
 function parseDate(dateStr: string): Date {
@@ -679,6 +815,7 @@ export async function createPedItem(payload: unknown) {
 
   const label = validated.label ?? DEFAULT_LABEL
   const status = label === DONE_LABEL ? 'DONE' : 'TODO'
+  const platforms = (validated.platforms?.length ? validated.platforms : ['INSTAGRAM']) as string[]
   await prisma.pedItem.create({
     data: {
       id,
@@ -696,6 +833,7 @@ export async function createPedItem(payload: unknown) {
       workId,
       isExtra: !!isExtra,
       sortOrder,
+      platforms,
     },
   })
 
@@ -741,6 +879,7 @@ export async function updatePedItem(id: string, payload: unknown) {
     data.status = validated.label === DONE_LABEL ? 'DONE' : 'TODO'
   }
   if (validated.status !== undefined) data.status = validated.status
+  if (validated.platforms !== undefined && validated.platforms.length > 0) data.platforms = validated.platforms
   if (validated.workId !== undefined) {
     if (validated.workId) {
       const work = await prisma.work.findUnique({ where: { id: validated.workId } })
@@ -845,19 +984,20 @@ export async function bulkTogglePedItemDone(ids: string[], done: boolean): Promi
   }
 }
 
-/** Elimina più task. */
+/** Elimina più task in una sola transazione. */
 export async function bulkDeletePedItems(ids: string[]): Promise<{ applied: number; error?: string }> {
   try {
     const ownerId = await getOwnerId()
     if (!ownerId) return { applied: 0, error: 'Non autorizzato' }
-    let applied = 0
+    if (ids.length === 0) return { applied: 0 }
+    const deletableIds: string[] = []
     for (const id of ids) {
-      if (!(await canEditPedItem(id, ownerId))) continue
-      await prisma.pedItem.delete({ where: { id } })
-      applied++
+      if (await canEditPedItem(id, ownerId)) deletableIds.push(id)
     }
+    if (deletableIds.length === 0) return { applied: 0, error: 'Nessuna task eliminabile' }
+    await prisma.pedItem.deleteMany({ where: { id: { in: deletableIds } } })
     revalidatePath('/ped')
-    return { applied }
+    return { applied: deletableIds.length }
   } catch (err) {
     console.error('[bulkDeletePedItems]', err)
     return { applied: 0, error: err instanceof Error ? err.message : 'Errore' }

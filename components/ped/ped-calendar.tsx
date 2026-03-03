@@ -33,6 +33,7 @@ type PedItem = {
   isExtra?: boolean
   assignedToUserId?: string | null
   assignedTo?: { id: string; name: string } | null
+  ownerId?: string
   owner?: { id: string; name: string } | null
   client: { id: string; name: string }
   work?: { id: string; title: string } | null
@@ -167,7 +168,9 @@ function PedCalendarInner({
 }) {
   const effectiveViewerId = viewAsUserId ?? currentUserId
   const showAsDelegated = (item: PedItem) =>
-    !alwaysUsePriorityStyle && item.assignedToUserId != null && item.assignedToUserId !== effectiveViewerId
+    !alwaysUsePriorityStyle &&
+    item.assignedToUserId != null &&
+    (item.assignedToUserId !== effectiveViewerId || item.ownerId !== effectiveViewerId)
   const [columnWidths, setColumnWidths] = useState<number[]>(DEFAULT_COLUMN_WIDTHS)
   const [resizingCol, setResizingCol] = useState<number | null>(null)
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(null)
@@ -966,18 +969,20 @@ function PedCalendarInner({
               type="button"
               className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-red-500/20"
               onClick={() => {
-                if (isBulk && typeof onBulkDelete === 'function') {
-                  if (confirm(`Eliminare le ${bulkIds.length} voci selezionate?`)) {
-                    onBulkDelete(bulkIds)
-                    setSelectedItemIds(new Set())
-                  }
+                const idsToDelete = isBulk ? bulkIds : [contextMenu.item.id]
+                if (idsToDelete.length === 0) {
                   setContextMenu(null)
-                } else if (!isBulk) {
-                  if (confirm('Eliminare questa voce?')) {
+                  return
+                }
+                if (confirm(idsToDelete.length > 1 ? `Stai eliminando ${idsToDelete.length} task. Continuare?` : 'Eliminare questa voce?')) {
+                  if (typeof onBulkDelete === 'function') {
+                    onBulkDelete(idsToDelete)
+                  } else {
                     onDeleteItem(contextMenu.item.id)
                   }
-                  setContextMenu(null)
+                  setSelectedItemIds(new Set())
                 }
+                setContextMenu(null)
               }}
             >
               Elimina
