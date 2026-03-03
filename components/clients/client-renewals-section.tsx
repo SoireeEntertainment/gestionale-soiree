@@ -9,8 +9,22 @@ import {
   deleteClientRenewal,
   type ClientRenewalRow,
 } from '@/app/actions/client-renewals'
+import { RENEWAL_STATUSES } from '@/lib/validations'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+
+const RENEWAL_STATUS_LABELS: Record<string, string> = {
+  DA_FARE: 'Da fare',
+  IN_CORSO: 'In corso',
+  COMPLETATO: 'Completato',
+  ANNULLATO: 'Annullato',
+}
+const RENEWAL_STATUS_CLASS: Record<string, string> = {
+  DA_FARE: 'bg-white/20 text-white/90',
+  IN_CORSO: 'bg-amber-500/30 text-amber-200',
+  COMPLETATO: 'bg-green-500/30 text-green-200',
+  ANNULLATO: 'bg-white/10 text-white/50',
+}
 
 const DATE_FMT = new Intl.DateTimeFormat('it-IT', {
   day: '2-digit',
@@ -54,8 +68,10 @@ export function ClientRenewalsSection({
     serviceName: '',
     renewalDate: '',
     billingDate: '',
+    status: 'DA_FARE' as string,
     notes: '',
   })
+  const [filter30Days, setFilter30Days] = useState(false)
 
   const refresh = async () => {
     const list = await getClientRenewals(clientId)
@@ -69,6 +85,7 @@ export function ClientRenewalsSection({
       serviceName: '',
       renewalDate: toInputDate(new Date()),
       billingDate: '',
+      status: 'DA_FARE',
       notes: '',
     })
     setOpenModal(true)
@@ -80,6 +97,7 @@ export function ClientRenewalsSection({
       serviceName: r.serviceName,
       renewalDate: toInputDate(new Date(r.renewalDate)),
       billingDate: r.billingDate ? toInputDate(new Date(r.billingDate)) : '',
+      status: (r as { status?: string }).status ?? 'DA_FARE',
       notes: r.notes ?? '',
     })
     setOpenModal(true)
@@ -94,6 +112,7 @@ export function ClientRenewalsSection({
           serviceName: form.serviceName,
           renewalDate: form.renewalDate,
           billingDate: form.billingDate.trim() || null,
+          status: form.status,
           notes: form.notes.trim() || null,
         })
       } else {
@@ -101,6 +120,7 @@ export function ClientRenewalsSection({
           serviceName: form.serviceName,
           renewalDate: form.renewalDate,
           billingDate: form.billingDate.trim() || null,
+          status: form.status,
           notes: form.notes.trim() || null,
         })
       }
@@ -123,25 +143,51 @@ export function ClientRenewalsSection({
     }
   }
 
+  const in30Days = (d: Date) => {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const limit = new Date(today)
+    limit.setDate(limit.getDate() + 30)
+    const rd = new Date(d)
+    rd.setHours(0, 0, 0, 0)
+    return rd >= today && rd <= limit
+  }
+  const filteredRenewals = filter30Days
+    ? renewals.filter((r) => in30Days(new Date(r.renewalDate)))
+    : renewals
+
   return (
     <div className="border border-accent/20 rounded-lg p-6 mb-6">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-white">Scadenze rinnovi</h2>
-        {canWrite && (
-          <Button type="button" onClick={openCreate} variant="secondary" className="text-accent border-accent/30">
-            Aggiungi rinnovo
-          </Button>
-        )}
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <h2 className="text-lg font-semibold text-white">Scadenze e Rinnovi</h2>
+        <div className="flex items-center gap-2">
+          {renewals.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setFilter30Days((v) => !v)}
+              className={`text-xs px-2 py-1 rounded border ${filter30Days ? 'bg-accent/20 border-accent/40 text-accent' : 'border-white/20 text-white/70 hover:text-white'}`}
+            >
+              In scadenza 30 gg
+            </button>
+          )}
+          {canWrite && (
+            <Button type="button" onClick={openCreate} variant="secondary" className="text-accent border-accent/30">
+              Aggiungi rinnovo
+            </Button>
+          )}
+        </div>
       </div>
 
-      {renewals.length === 0 ? (
-        <p className="text-white/60 text-sm">Nessuna scadenza. Aggiungi un rinnovo per tenere traccia delle scadenze.</p>
+      {filteredRenewals.length === 0 ? (
+        <p className="text-white/60 text-sm">
+          {filter30Days ? 'Nessuna scadenza nei prossimi 30 giorni.' : 'Nessuna scadenza. Aggiungi un rinnovo per tenere traccia delle scadenze.'}
+        </p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-white/60 border-b border-white/10">
-                <th className="pb-2 pr-4">Servizio</th>
+                <th className="pb-2 pr-4">Nome servizio</th>
                 <th className="pb-2 pr-4">Data rinnovo</th>
                 <th className="pb-2 pr-4">Data fatturazione</th>
                 <th className="pb-2 pr-4">Stato</th>
@@ -149,8 +195,9 @@ export function ClientRenewalsSection({
               </tr>
             </thead>
             <tbody>
-              {renewals.map((r) => {
-                const status = renewalStatus(r.renewalDate)
+              {filteredRenewals.map((r) => {
+                const dateStatus = renewalStatus(r.renewalDate)
+                const rowStatus = (r as { status?: string }).status ?? 'DA_FARE'
                 return (
                   <tr key={r.id} className="border-b border-white/5">
                     <td className="py-2 pr-4 text-white">{r.serviceName}</td>
@@ -159,11 +206,14 @@ export function ClientRenewalsSection({
                       {r.billingDate ? DATE_FMT.format(new Date(r.billingDate)) : '—'}
                     </td>
                     <td className="py-2 pr-4">
-                      {status === 'scaduto' && (
-                        <span className="text-xs px-2 py-0.5 rounded bg-red-500/30 text-red-300">Scaduto</span>
+                      <span className={`text-xs px-2 py-0.5 rounded ${RENEWAL_STATUS_CLASS[rowStatus] ?? RENEWAL_STATUS_CLASS.DA_FARE}`}>
+                        {RENEWAL_STATUS_LABELS[rowStatus] ?? rowStatus}
+                      </span>
+                      {dateStatus === 'scaduto' && (
+                        <span className="ml-1 text-xs px-2 py-0.5 rounded bg-red-500/30 text-red-300">Scaduto</span>
                       )}
-                      {status === 'in_scadenza' && (
-                        <span className="text-xs px-2 py-0.5 rounded bg-amber-500/30 text-amber-200">In scadenza</span>
+                      {dateStatus === 'in_scadenza' && rowStatus !== 'COMPLETATO' && (
+                        <span className="ml-1 text-xs px-2 py-0.5 rounded bg-amber-500/30 text-amber-200">In scadenza</span>
                       )}
                     </td>
                     {canWrite && (
@@ -227,6 +277,18 @@ export function ClientRenewalsSection({
                 onChange={(e) => setForm({ ...form, billingDate: e.target.value })}
                 className="w-full px-3 py-2 bg-dark border border-accent/20 rounded-md text-white"
               />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-white mb-1">Stato</label>
+              <select
+                value={form.status}
+                onChange={(e) => setForm({ ...form, status: e.target.value })}
+                className="w-full px-3 py-2 bg-dark border border-accent/20 rounded-md text-white"
+              >
+                {RENEWAL_STATUSES.map((s) => (
+                  <option key={s} value={s}>{RENEWAL_STATUS_LABELS[s] ?? s}</option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-white mb-1">Note</label>

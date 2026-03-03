@@ -5,7 +5,6 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Client, Category, ClientCategory, Work } from '@prisma/client'
 import { ClientForm } from './client-form'
-import { ClientCategoryTab } from './client-category-tab'
 import { ClientPreventiviSection } from './client-preventivi-section'
 import { ClientCredentialsSection } from './client-credentials-section'
 import { ClientRenewalsSection } from './client-renewals-section'
@@ -31,6 +30,7 @@ export interface ClientDetailProps {
     works: (Work & { category: Category })[]
     preventivi?: { id: string; title: string; type: string; status: string; createdAt: Date; filePath?: string | null; items: { id: string; description: string; quantity: number; unitPrice: number }[] }[]
     assignedTo?: User | null
+    assignees?: { userId: string; role: string; user: User }[]
     credentials?: ClientCredential[]
   }
   allCategories: Category[]
@@ -46,23 +46,14 @@ export interface ClientDetailProps {
   renewals?: { id: string; clientId: string; serviceName: string; renewalDate: Date; billingDate: Date | null; notes: string | null; createdAt: Date; updatedAt: Date }[]
   pedTaskCounts?: { monthCount: number; totalCount: number }
   clientInPed?: boolean
+  categoryOverview?: { categoryId: string; categoryName: string; completed: number; total: number }[]
 }
 
-export function ClientDetail({ client, allCategories, users, canWrite = true, showPedSection = false, pedClients = [], pedWorks = [], pedContentsPerMonth = 0, currentUserId = '', metaBusinessSuiteUrl, gestioneInserzioniUrl, renewals = [], pedTaskCounts, clientInPed = false }: ClientDetailProps) {
+export function ClientDetail({ client, allCategories, users, canWrite = true, showPedSection = false, pedClients = [], pedWorks = [], pedContentsPerMonth = 0, currentUserId = '', metaBusinessSuiteUrl, gestioneInserzioniUrl, renewals = [], pedTaskCounts, clientInPed = false, categoryOverview = [] }: ClientDetailProps) {
   const router = useRouter()
-  const firstCategoryId = allCategories[0]?.id ?? ''
-  const [activeTab, setActiveTab] = useState<string>(firstCategoryId)
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [isDeleteOpen, setIsDeleteOpen] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
-
-  const activeCategory = allCategories.find((c) => c.id === activeTab)
-  const worksForActiveCategory = activeCategory
-    ? client.works.filter((w) => w.categoryId === activeCategory.id)
-    : []
-  const clientCategoryForActive = activeCategory
-    ? client.clientCategories.find((cc) => cc.categoryId === activeCategory.id) ?? null
-    : null
 
   return (
     <div className="min-h-screen bg-dark p-6">
@@ -137,7 +128,7 @@ export function ClientDetail({ client, allCategories, users, canWrite = true, sh
           <div className="flex flex-wrap gap-3 mb-4 items-center">
             {pedTaskCounts != null && (
               <span className="px-3 py-1.5 rounded-md text-sm font-medium bg-white/10 text-white/90 border border-accent/20">
-                Task nel PED: <strong>{pedTaskCounts.monthCount}</strong> questo mese
+                Task PED: <strong>{pedTaskCounts.monthCount}</strong> (mese corrente)
                 {pedTaskCounts.totalCount !== pedTaskCounts.monthCount && (
                   <> · Totale: <strong>{pedTaskCounts.totalCount}</strong></>
                 )}
@@ -205,6 +196,38 @@ export function ClientDetail({ client, allCategories, users, canWrite = true, sh
               <div className="text-sm text-white/50 mb-1">Telefono</div>
               <div className="text-white">{client.phone || '-'}</div>
             </div>
+            {(client as { websiteUrl?: string | null }).websiteUrl && (
+              <div>
+                <div className="text-sm text-white/50 mb-1">Sito web</div>
+                <a href={(client as { websiteUrl: string }).websiteUrl} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
+                  {(client as { websiteUrl: string }).websiteUrl}
+                </a>
+              </div>
+            )}
+            {(client as { industryCategory?: string | null }).industryCategory && (
+              <div>
+                <div className="text-sm text-white/50 mb-1">Categoria</div>
+                <div className="text-white">{(client as { industryCategory: string }).industryCategory}</div>
+              </div>
+            )}
+            {((client as { assignees?: { userId: string; role: string; user: User }[] }).assignees?.length ?? 0) > 0 && (
+              <div className="md:col-span-2">
+                <div className="text-sm text-white/50 mb-1">Assegnatari</div>
+                <div className="text-white flex flex-wrap gap-2">
+                  {(client as { assignees: { userId: string; role: string; user: User }[] }).assignees.map((a) => (
+                    <span key={a.userId} className={a.role === 'OWNER' ? 'px-2 py-0.5 rounded bg-accent/20 text-accent font-medium' : 'text-white/90'}>
+                      {a.user.name}{a.role === 'OWNER' ? ' (owner)' : ''}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {!((client as { assignees?: unknown[] }).assignees?.length) && client.assignedTo && (
+              <div>
+                <div className="text-sm text-white/50 mb-1">Assegnato a</div>
+                <div className="text-white">{client.assignedTo.name}</div>
+              </div>
+            )}
             {client.notes && (
               <div className="md:col-span-2">
                 <div className="text-sm text-white/50 mb-1">Note</div>
@@ -226,53 +249,52 @@ export function ClientDetail({ client, allCategories, users, canWrite = true, sh
           canWrite={canWrite ?? false}
         />
 
-        {showPedSection && (
-          <ClientPedSection
-            clientId={client.id}
-            clientName={client.name}
-            clients={pedClients.length > 0 ? pedClients : [{ id: client.id, name: client.name }]}
-            works={pedWorks}
-            canWrite={canWrite}
-            initialContentsPerMonth={pedContentsPerMonth}
-            users={users.map((u) => ({ id: u.id, name: u.name }))}
-            currentUserId={currentUserId}
-          />
+        {categoryOverview.length > 0 && (
+          <div className="bg-dark border border-accent/20 rounded-lg p-6 mb-6">
+            <h2 className="text-lg font-semibold text-white mb-4">Overview categorie (mese corrente)</h2>
+            <div className="space-y-3">
+              {categoryOverview.map(({ categoryId, categoryName, completed, total }) => {
+                const pct = total === 0 ? 0 : Math.round((completed / total) * 100)
+                return (
+                  <div key={categoryId}>
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="text-white/80">{categoryName}</span>
+                      <span className="text-white/60">{completed}/{total} · {pct}%</span>
+                    </div>
+                    <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-accent rounded-full transition-all"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
         )}
 
-        {/* Tab: una per ogni categoria (lavori aperti) */}
-        <div className="border-b border-accent/20 mb-6">
-          <div className="flex flex-wrap gap-1">
-            {allCategories.map((cat) => {
-              const count = client.works.filter((w) => w.categoryId === cat.id).length
-              return (
-                <button
-                  key={cat.id}
-                  onClick={() => setActiveTab(cat.id)}
-                  className={`px-4 py-2 font-medium transition-colors whitespace-nowrap ${
-                    activeTab === cat.id
-                      ? 'text-accent border-b-2 border-accent'
-                      : 'text-white/70 hover:text-white'
-                  }`}
-                >
-                  {cat.name} ({count})
-                </button>
-              )
-            })}
+        {showPedSection && (
+          <div className="mb-6">
+            {pedTaskCounts != null && (
+              <p className="text-sm text-white/60 mb-2">
+                Task PED associate a questo cliente: <strong className="text-white/90">{pedTaskCounts.monthCount}</strong> questo mese
+                {pedTaskCounts.totalCount !== pedTaskCounts.monthCount && (
+                  <> · Totale: <strong>{pedTaskCounts.totalCount}</strong></>
+                )}
+              </p>
+            )}
+            <ClientPedSection
+              clientId={client.id}
+              clientName={client.name}
+              clients={pedClients.length > 0 ? pedClients : [{ id: client.id, name: client.name }]}
+              works={pedWorks}
+              canWrite={canWrite}
+              initialContentsPerMonth={pedContentsPerMonth}
+              users={users.map((u) => ({ id: u.id, name: u.name }))}
+              currentUserId={currentUserId}
+            />
           </div>
-        </div>
-
-        {activeCategory && (
-          <ClientCategoryTab
-            clientId={client.id}
-            category={activeCategory}
-            works={worksForActiveCategory}
-            clientCategory={clientCategoryForActive}
-            clients={[client]}
-            categories={allCategories}
-            users={users}
-            canWrite={canWrite}
-            isSocialAutoFromPed={clientInPed && activeCategory.name === 'Social'}
-          />
         )}
 
         <ClientPreventiviSection

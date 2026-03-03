@@ -31,6 +31,7 @@ export function ClientsList({ clients, users, canWrite = true }: ClientsListProp
   const router = useRouter()
   const [search, setSearch] = useState('')
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [createOpen, setCreateOpen] = useState(false)
 
   const filteredClients = useMemo(
     () => clients.filter((c) => matchSearch(c, search)),
@@ -68,17 +69,23 @@ export function ClientsList({ clients, users, canWrite = true }: ClientsListProp
                 Importa domini
               </Button>
             </Link>
-            <Dialog>
+            <Dialog open={createOpen} onOpenChange={setCreateOpen}>
               <DialogTrigger asChild>
                 <Button>+ Nuovo Cliente</Button>
               </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Nuovo Cliente</DialogTitle>
-              </DialogHeader>
-              <ClientForm users={users} />
-            </DialogContent>
-          </Dialog>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Nuovo Cliente</DialogTitle>
+                </DialogHeader>
+                <ClientForm
+                  users={users}
+                  onSuccess={() => {
+                    setCreateOpen(false)
+                    router.refresh()
+                  }}
+                />
+              </DialogContent>
+            </Dialog>
           </>
         )}
       </div>

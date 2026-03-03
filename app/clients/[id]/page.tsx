@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { requireAuth } from '@/lib/auth-dev'
-import { getClient } from '@/app/actions/clients'
+import { getClient, getClientCategoryOverview } from '@/app/actions/clients'
 import { getClientCredentials } from '@/app/actions/client-credentials'
 import { getClientRenewals } from '@/app/actions/client-renewals'
 import { getPedClientSettingByClient, getClientPedTaskCounts, ensureClientSocialIfInPed, isClientInPed } from '@/app/actions/ped'
@@ -25,11 +25,12 @@ export default async function ClientDetailPage(props: {
   const currentYear = now.getFullYear()
   const currentMonth = now.getMonth() + 1
 
-  const [categories, users, credentials, renewals, pedData, pedCountsResult] = await Promise.all([
+  const [categories, users, credentials, renewals, categoryOverview, pedData, pedCountsResult] = await Promise.all([
     prisma.category.findMany(),
     getUsers(),
     getClientCredentials(id),
     getClientRenewals(id),
+    getClientCategoryOverview(id, currentYear, currentMonth),
     Promise.all([
       prisma.client.findMany({ orderBy: { name: 'asc' }, select: { id: true, name: true } }),
       prisma.work.findMany({ orderBy: { title: 'asc' }, select: { id: true, title: true } }),
@@ -66,6 +67,7 @@ export default async function ClientDetailPage(props: {
       renewals={renewals}
       pedTaskCounts={pedTaskCounts}
       clientInPed={clientInPed}
+      categoryOverview={categoryOverview}
     />
   )
 }

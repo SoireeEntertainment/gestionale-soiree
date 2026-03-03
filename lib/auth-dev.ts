@@ -143,13 +143,18 @@ export async function requireAuth(): Promise<CurrentUser> {
     if (!userId) toLogin()
     const user = await getCurrentUser()
     // Autenticato con Clerk ma utente non presente nel DB (o senza ruolo): evita redirect a /sign-in che causerebbe loop
-    if (!user) redirect('/non-autorizzato')
+    if (!user) {
+      console.warn('[requireAuth] Redirect /non-autorizzato: userId presente ma getCurrentUser() null (contesto:', typeof globalThis !== 'undefined' ? 'server' : 'unknown', ')')
+      redirect('/non-autorizzato')
+    }
     return user as CurrentUser
   } catch (err) {
     console.error('[requireAuth]', err)
-    // Se Clerk era OK ma è fallito il DB, non mandare a /sign-in (loop). Manda a /non-autorizzato.
     const userId = await getAuthUserId().catch(() => null)
-    if (userId) redirect('/non-autorizzato')
+    if (userId) {
+      console.warn('[requireAuth] Redirect /non-autorizzato dopo catch: userId=', userId)
+      redirect('/non-autorizzato')
+    }
     toLogin()
   }
   throw new Error('Auth failed') // unreachable dopo toLogin()

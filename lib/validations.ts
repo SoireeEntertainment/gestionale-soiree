@@ -13,15 +13,19 @@ export const clientSchema = z.object({
   email: z.string().email('Email non valida').optional().or(z.literal('')),
   phone: z.string().optional(),
   notes: z.string().optional(),
+  websiteUrl: optionalUrl,
+  industryCategory: z.string().optional().nullable(),
   assignedToUserId: z.string().optional().nullable(),
   metaBusinessSuiteUrl: optionalUrl,
   gestioneInserzioniUrl: optionalUrl,
 })
 
+export const RENEWAL_STATUSES = ['DA_FARE', 'IN_CORSO', 'COMPLETATO', 'ANNULLATO'] as const
 export const clientRenewalSchema = z.object({
   serviceName: z.string().min(1, 'Nome servizio obbligatorio'),
   renewalDate: z.string().min(1, 'Data rinnovo obbligatoria'),
   billingDate: z.string().optional().or(z.literal('')),
+  status: z.enum(RENEWAL_STATUSES).optional(),
   notes: z.string().optional().nullable(),
 })
 

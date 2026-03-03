@@ -31,6 +31,7 @@ export function ClientCredentialsSection({
   const [password, setPassword] = useState('')
   const [notes, setNotes] = useState('')
   const [showPassword, setShowPassword] = useState<Record<string, boolean>>({})
+  const [showPasswordAdd, setShowPasswordAdd] = useState(false)
 
   const startAdd = () => {
     setEditingId(null)
@@ -123,6 +124,7 @@ export function ClientCredentialsSection({
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="Username / email"
+                  autoComplete="off"
                   className="w-full px-3 py-2 bg-dark border border-accent/20 rounded text-white text-sm"
                 />
                 <div className="flex gap-2">
@@ -131,6 +133,7 @@ export function ClientCredentialsSection({
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="Password"
+                    autoComplete="new-password"
                     className="flex-1 px-3 py-2 bg-dark border border-accent/20 rounded text-white text-sm"
                   />
                   <Button type="button" variant="ghost" size="sm" onClick={() => toggleShowPassword(c.id)}>
@@ -191,6 +194,7 @@ export function ClientCredentialsSection({
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             placeholder="Etichetta (es. Instagram, Email, Sito)"
+            autoComplete="off"
             className="w-full px-3 py-2 bg-dark border border-accent/20 rounded text-white text-sm"
           />
           <input
@@ -198,15 +202,22 @@ export function ClientCredentialsSection({
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             placeholder="Username / email"
+            autoComplete="off"
             className="w-full px-3 py-2 bg-dark border border-accent/20 rounded text-white text-sm"
           />
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Password"
-            className="w-full px-3 py-2 bg-dark border border-accent/20 rounded text-white text-sm"
-          />
+          <div className="flex gap-2">
+            <input
+              type={showPasswordAdd ? 'text' : 'password'}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Password"
+              autoComplete="new-password"
+              className="flex-1 px-3 py-2 bg-dark border border-accent/20 rounded text-white text-sm"
+            />
+            <Button type="button" variant="ghost" size="sm" onClick={() => setShowPasswordAdd((v) => !v)}>
+              {showPasswordAdd ? 'Nascondi' : 'Mostra'}
+            </Button>
+          </div>
           <textarea
             value={notes}
             onChange={(e) => setNotes(e.target.value)}

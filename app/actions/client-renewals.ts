@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { getCurrentUser, canWrite } from '@/lib/auth-dev'
 import { prisma } from '@/lib/prisma'
-import { clientRenewalSchema } from '@/lib/validations'
+import { clientRenewalSchema, RENEWAL_STATUSES } from '@/lib/validations'
 
 export type ClientRenewalRow = {
   id: string
@@ -11,6 +11,7 @@ export type ClientRenewalRow = {
   serviceName: string
   renewalDate: Date
   billingDate: Date | null
+  status?: string
   notes: string | null
   createdAt: Date
   updatedAt: Date
@@ -37,7 +38,7 @@ export async function getClientRenewals(
 
 export async function createClientRenewal(
   clientId: string,
-  data: { serviceName: string; renewalDate: string; billingDate?: string | null; notes?: string | null }
+  data: { serviceName: string; renewalDate: string; billingDate?: string | null; status?: string; notes?: string | null }
 ) {
   const user = await getCurrentUser()
   if (!user || !canWrite(user)) throw new Error('Non autorizzato')
@@ -46,8 +47,10 @@ export async function createClientRenewal(
     serviceName: data.serviceName,
     renewalDate: data.renewalDate,
     billingDate: data.billingDate ?? '',
+    status: data.status ?? 'DA_FARE',
     notes: data.notes ?? null,
   })
+  const status = (RENEWAL_STATUSES as readonly string[]).includes(validated.status ?? '') ? validated.status! : 'DA_FARE'
 
   const client = await prisma.client.findUnique({ where: { id: clientId } })
   if (!client) throw new Error('Cliente non trovato')
@@ -61,6 +64,7 @@ export async function createClientRenewal(
         validated.billingDate && validated.billingDate.trim() !== ''
           ? toDate(validated.billingDate.trim())
           : null,
+      status,
       notes: validated.notes?.trim() || null,
     },
   })
@@ -71,7 +75,7 @@ export async function createClientRenewal(
 export async function updateClientRenewal(
   id: string,
   clientId: string,
-  data: { serviceName: string; renewalDate: string; billingDate?: string | null; notes?: string | null }
+  data: { serviceName: string; renewalDate: string; billingDate?: string | null; status?: string; notes?: string | null }
 ) {
   const user = await getCurrentUser()
   if (!user || !canWrite(user)) throw new Error('Non autorizzato')
@@ -85,20 +89,25 @@ export async function updateClientRenewal(
     serviceName: data.serviceName,
     renewalDate: data.renewalDate,
     billingDate: data.billingDate ?? '',
+    status: (data as { status?: string }).status ?? undefined,
     notes: data.notes ?? null,
   })
+  const updateData: Record<string, unknown> = {
+    serviceName: validated.serviceName,
+    renewalDate: toDate(validated.renewalDate),
+    billingDate:
+      validated.billingDate && validated.billingDate.trim() !== ''
+        ? toDate(validated.billingDate.trim())
+        : null,
+    notes: validated.notes?.trim() || null,
+  }
+  if (validated.status && (RENEWAL_STATUSES as readonly string[]).includes(validated.status)) {
+    updateData.status = validated.status
+  }
 
   await prisma.clientRenewal.update({
     where: { id },
-    data: {
-      serviceName: validated.serviceName,
-      renewalDate: toDate(validated.renewalDate),
-      billingDate:
-        validated.billingDate && validated.billingDate.trim() !== ''
-          ? toDate(validated.billingDate.trim())
-          : null,
-      notes: validated.notes?.trim() || null,
-    },
+    data: updateData as any,
   })
 
   revalidatePath(`/clients/${clientId}`)

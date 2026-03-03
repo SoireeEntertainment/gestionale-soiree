@@ -20,14 +20,15 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  assignedClients   Client[]
-  assignedWorks     Work[]
-  workComments      WorkComment[]
-  todos             UserTodo[]
-  preference        UserPreference?
-  pedClientSettings PedClientSetting[]
-  pedItems          PedItem[]
-  assignedPedItems  PedItem[]  @relation("AssignedTo")
+  assignedClients    Client[]
+  clientAssignments  ClientAssignee[]
+  assignedWorks      Work[]
+  workComments       WorkComment[]
+  todos              UserTodo[]
+  preference         UserPreference?
+  pedClientSettings  PedClientSetting[]
+  pedItems           PedItem[]
+  assignedPedItems   PedItem[]  @relation("AssignedTo")
 
   @@map("users")
 }
@@ -39,22 +40,41 @@ model Client {
   email                 String?
   phone                 String?
   notes                 String?
-  assignedToUserId      String?
-  metaBusinessSuiteUrl  String?  // link personalizzabile "Meta Business Suite"
-  gestioneInserzioniUrl String?  // link personalizzabile "Gestione inserzioni"
+  websiteUrl            String?
+  industryCategory      String?  // Food, Wellness, Altro, etc.
+  assignedToUserId      String?  // legacy/primary owner; synced from first OWNER in assignees
+  metaBusinessSuiteUrl  String?
+  gestioneInserzioniUrl String?
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 
-  assignedTo      User?    @relation(fields: [assignedToUserId], references: [id], onDelete: SetNull)
-  clientCategories   ClientCategory[]
-  works              Work[]
-  preventivi         Preventivo[]
-  pedClientSettings  PedClientSetting[]
-  pedItems           PedItem[]
-  credentials        ClientCredential[]
-  renewals           ClientRenewal[]
+  assignedTo        User?             @relation(fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  assignees         ClientAssignee[]
+  clientCategories  ClientCategory[]
+  works             Work[]
+  preventivi        Preventivo[]
+  pedClientSettings PedClientSetting[]
+  pedItems          PedItem[]
+  credentials       ClientCredential[]
+  renewals          ClientRenewal[]
 
   @@map("clients")
+}
+
+model ClientAssignee {
+  id        String   @id @default(cuid())
+  clientId  String
+  userId    String
+  role      String   @default("ASSIGNEE") // OWNER | ASSIGNEE
+  createdAt DateTime @default(now())
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, userId])
+  @@index([clientId])
+  @@index([userId])
+  @@map("client_assignees")
 }
 
 model ClientRenewal {
@@ -63,6 +83,7 @@ model ClientRenewal {
   serviceName  String
   renewalDate  DateTime
   billingDate  DateTime?
+  status       String    @default("DA_FARE") // DA_FARE, IN_CORSO, COMPLETATO, ANNULLATO
   notes        String?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
