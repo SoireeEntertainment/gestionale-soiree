@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useEffect, useRef, useCallback, memo } from 'react'
+import { useMemo, useState, useEffect, useRef, useCallback, memo, startTransition } from 'react'
 import { PED_ITEM_TYPE_LABELS, PED_DELEGATED_STYLE, toDateString, getCurrentWeekStartString } from '@/lib/ped-utils'
 import { getItemLabelStyle, PED_LABELS, PED_LABEL_CONFIG } from '@/lib/pedLabels'
 
@@ -539,19 +539,23 @@ function PedCalendarInner({
     return map
   }, [items, filterClientId, filterType])
 
-  const cells: DayCell[][] = grid.map((week) =>
-    week.map((cell) => {
-      const dayItems = itemsByDay[cell.dateKey] ?? []
-      const stats = dailyStats[cell.dateKey] ?? { total: 0, done: 0, remainingPct: 0, remainingCount: 0 }
-      return {
-        ...cell,
-        items: dayItems,
-        remainingPct: stats.remainingPct,
-        remainingCount: stats.remainingCount ?? (stats.total - stats.done),
-        total: stats.total,
-        done: stats.done,
-      }
-    })
+  const cells: DayCell[][] = useMemo(
+    () =>
+      grid.map((week) =>
+        week.map((cell) => {
+          const dayItems = itemsByDay[cell.dateKey] ?? []
+          const stats = dailyStats[cell.dateKey] ?? { total: 0, done: 0, remainingPct: 0, remainingCount: 0 }
+          return {
+            ...cell,
+            items: dayItems,
+            remainingPct: stats.remainingPct,
+            remainingCount: stats.remainingCount ?? (stats.total - stats.done),
+            total: stats.total,
+            done: stats.done,
+          }
+        })
+      ),
+    [grid, itemsByDay, dailyStats]
   )
 
   return (
@@ -708,7 +712,7 @@ function PedCalendarInner({
                             }}
                             onContextMenu={readOnly ? undefined : (e) => {
                               e.preventDefault()
-                              setContextMenu({ x: e.clientX, y: e.clientY, item })
+                              startTransition(() => setContextMenu({ x: e.clientX, y: e.clientY, item }))
                             }}
                             className={`text-xs flex items-center gap-2 rounded px-2 py-1.5 ${readOnly ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'} ${selectedItemIds.has(item.id) ? 'ring-2 ring-accent ring-offset-1 ring-offset-dark' : ''}`}
                             style={itemStyle}
@@ -820,7 +824,7 @@ function PedCalendarInner({
                           }}
                           onContextMenu={readOnly ? undefined : (e) => {
                             e.preventDefault()
-                            setContextMenu({ x: e.clientX, y: e.clientY, item })
+                            startTransition(() => setContextMenu({ x: e.clientX, y: e.clientY, item }))
                           }}
                           className={`text-xs flex items-center gap-2 rounded px-2 py-1.5 ${readOnly ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'} ${selectedItemIds.has(item.id) ? 'ring-2 ring-accent ring-offset-1 ring-offset-dark' : ''}`}
                           style={itemStyle}
