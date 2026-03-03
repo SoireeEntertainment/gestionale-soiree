@@ -674,6 +674,15 @@ export async function emptyPedMonthForClient(clientId: string, year: number, mon
   revalidatePath(`/clients/${clientId}`)
 }
 
+function isPlatformsColumnError(e: unknown): boolean {
+  const msg = (e instanceof Error ? e.message : String(e)).toLowerCase()
+  return (
+    (msg.includes('does not exist') && msg.includes('platform')) ||
+    (msg.includes('unknown column') && msg.includes('platform')) ||
+    msg.includes('column "platforms"')
+  )
+}
+
 export async function upsertPedClientSetting(
   clientId: string,
   contentsPerWeek: number,
@@ -689,21 +698,33 @@ export async function upsertPedClientSetting(
   })
   const platformsVal = (validated.platforms?.length ? validated.platforms : ['INSTAGRAM']) as string[]
 
-  await prisma.pedClientSetting.upsert({
-    where: {
-      ownerId_clientId: { ownerId, clientId: validated.clientId },
-    },
-    create: {
-      ownerId,
-      clientId: validated.clientId,
-      contentsPerWeek: validated.contentsPerWeek,
-      platforms: platformsVal,
-    },
-    update: {
-      contentsPerWeek: validated.contentsPerWeek,
-      ...(validated.platforms && { platforms: platformsVal }),
-    },
-  })
+  try {
+    await prisma.pedClientSetting.upsert({
+      where: {
+        ownerId_clientId: { ownerId, clientId: validated.clientId },
+      },
+      create: {
+        ownerId,
+        clientId: validated.clientId,
+        contentsPerWeek: validated.contentsPerWeek,
+        platforms: platformsVal,
+      },
+      update: {
+        contentsPerWeek: validated.contentsPerWeek,
+        ...(validated.platforms && { platforms: platformsVal }),
+      },
+    })
+  } catch (err) {
+    if (isPlatformsColumnError(err)) {
+      await prisma.$executeRaw`
+        INSERT INTO ped_client_settings (id, "ownerId", "clientId", "contentsPerWeek", "createdAt", "updatedAt")
+        VALUES (${randomUUID()}, ${ownerId}, ${validated.clientId}, ${validated.contentsPerWeek}, NOW(), NOW())
+        ON CONFLICT ("ownerId", "clientId")
+        DO UPDATE SET "contentsPerWeek" = ${validated.contentsPerWeek}, "updatedAt" = NOW()`
+    } else {
+      throw err
+    }
+  }
 
   revalidatePath('/ped')
   revalidatePath(`/clients/${clientId}`)
