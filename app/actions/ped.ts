@@ -44,7 +44,6 @@ export async function getPedMonth(year: number, month: number, viewAsUserId?: st
   const startDate = new Date(startMs)
   const endDate = new Date(endMs)
 
-  // Select esplicito senza `platforms` per compatibilità con DB dove la migration non è ancora applicata
   const settings = await prisma.pedClientSetting.findMany({
     where: { ownerId },
     select: {
@@ -52,6 +51,7 @@ export async function getPedMonth(year: number, month: number, viewAsUserId?: st
       ownerId: true,
       clientId: true,
       contentsPerWeek: true,
+      platforms: true,
       createdAt: true,
       updatedAt: true,
       client: { select: { id: true, name: true } },
@@ -77,6 +77,7 @@ export async function getPedMonth(year: number, month: number, viewAsUserId?: st
       workId: true,
       isExtra: true,
       sortOrder: true,
+      platforms: true,
       createdAt: true,
       updatedAt: true,
       client: { select: { id: true, name: true } },
