@@ -117,3 +117,55 @@ export function addDaysToDateString(dateStr: string, days: number): string {
   d.setUTCDate(d.getUTCDate() + days)
   return toDateString(d)
 }
+
+/**
+ * Preset 10 contenuti/mese: restituisce le 10 date target per il mese (solo settimane 1-4).
+ * - Settimane 1 e 3: Lunedì, Mercoledì, Venerdì (3+3 = 6)
+ * - Settimane 2 e 4: Martedì, Giovedì (2+2 = 4)
+ * Settimane = come nel PED (inizio settimana = lunedì ISO).
+ * Se un giorno target cade fuori dal mese, usa il primo giorno lavorativo (lun-ven) della stessa settimana nel mese non ancora usato.
+ */
+export function getTenContentsPerMonthTargetDates(year: number, month: number): string[] {
+  const monthStart = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0))
+  const week1Monday = getISOWeekStart(monthStart)
+  const targets: string[] = []
+  const used = new Set<string>()
+  const weekdaysByWeek: (1 | 2 | 3 | 4 | 5)[][] = [
+    [1, 3, 5],
+    [2, 4],
+    [1, 3, 5],
+    [2, 4],
+  ]
+  for (let wi = 0; wi < 4; wi++) {
+    const weekStart = new Date(week1Monday)
+    weekStart.setUTCDate(weekStart.getUTCDate() + wi * 7)
+    const wanted = weekdaysByWeek[wi]
+    for (const utcDayOfWeek of wanted) {
+      const dayOffset = utcDayOfWeek - 1
+      const candidate = new Date(weekStart)
+      candidate.setUTCDate(weekStart.getUTCDate() + dayOffset)
+      const candidateStr = toDateString(candidate)
+      const inMonth = candidate.getUTCFullYear() === year && candidate.getUTCMonth() === month - 1
+      if (inMonth && !used.has(candidateStr)) {
+        targets.push(candidateStr)
+        used.add(candidateStr)
+      } else {
+        const inMonthDays: string[] = []
+        for (let d = 0; d < 7; d++) {
+          const day = new Date(weekStart)
+          day.setUTCDate(weekStart.getUTCDate() + d)
+          const dow = day.getUTCDay()
+          if (dow >= 1 && dow <= 5 && day.getUTCFullYear() === year && day.getUTCMonth() === month - 1) {
+            inMonthDays.push(toDateString(day))
+          }
+        }
+        const firstFree = inMonthDays.find((s) => !used.has(s))
+        if (firstFree) {
+          targets.push(firstFree)
+          used.add(firstFree)
+        }
+      }
+    }
+  }
+  return targets.slice(0, 10)
+}
