@@ -167,45 +167,60 @@ export async function createPreventivoWithUpload(
   clientId: string,
   title: string,
   formData: FormData
-) {
-  const user = await getCurrentUser()
-  if (!user || !canWrite(user)) throw new Error('Non autorizzato')
+): Promise<{ success: true; preventivo: { id: string; title: string; filePath: string } } | { success: false; error: string }> {
+  try {
+    const user = await getCurrentUser()
+    if (!user || !canWrite(user)) return { success: false, error: 'Non autorizzato' }
 
-  const file = formData.get('pdf') as File | null
-  if (!file || file.size === 0) throw new Error('Seleziona un file PDF')
-  if (file.size > MAX_PDF_SIZE_BYTES) {
-    throw new Error(`File troppo grande (max ${MAX_PDF_SIZE_BYTES / 1024 / 1024} MB)`)
+    const file = formData.get('pdf') as File | null
+    if (!file || file.size === 0) return { success: false, error: 'Seleziona un file PDF' }
+    if (file.size > MAX_PDF_SIZE_BYTES) {
+      return { success: false, error: `File troppo grande (max ${MAX_PDF_SIZE_BYTES / 1024 / 1024} MB)` }
+    }
+
+    const bytes = await file.arrayBuffer()
+    if (!isPdfBuffer(bytes)) {
+      return { success: false, error: 'Il file non è un PDF valido. Usa un file con estensione .pdf generato come PDF.' }
+    }
+
+    const preventivo = await prisma.preventivo.create({
+      data: {
+        clientId,
+        title: title || file.name.replace(/\.pdf$/i, '') || 'Preventivo caricato',
+        type: 'UPLOADED',
+        status: 'BOZZA',
+        filePath: null,
+      },
+    })
+
+    const dir = path.join(process.cwd(), UPLOAD_DIR, clientId)
+    await fs.mkdir(dir, { recursive: true })
+    const ext = path.extname(file.name) || '.pdf'
+    const safeName = `${preventivo.id}${ext}`
+    const filePath = path.join(dir, safeName)
+    await fs.writeFile(filePath, Buffer.from(bytes))
+
+    const relativePath = path.join(UPLOAD_DIR, clientId, safeName)
+    await prisma.preventivo.update({
+      where: { id: preventivo.id },
+      data: { filePath: relativePath },
+    })
+
+    revalidatePath('/preventivi')
+    revalidatePath(`/clients/${clientId}`)
+    return {
+      success: true,
+      preventivo: {
+        id: preventivo.id,
+        title: preventivo.title,
+        filePath: relativePath,
+      },
+    }
+  } catch (err) {
+    console.error('[createPreventivoWithUpload]', err)
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Errore nel caricamento del PDF',
+    }
   }
-
-  const bytes = await file.arrayBuffer()
-  if (!isPdfBuffer(bytes)) {
-    throw new Error('Il file non è un PDF valido')
-  }
-
-  const preventivo = await prisma.preventivo.create({
-    data: {
-      clientId,
-      title: title || file.name.replace(/\.pdf$/i, '') || 'Preventivo caricato',
-      type: 'UPLOADED',
-      status: 'BOZZA',
-      filePath: null,
-    },
-  })
-
-  const dir = path.join(process.cwd(), UPLOAD_DIR, clientId)
-  await fs.mkdir(dir, { recursive: true })
-  const ext = path.extname(file.name) || '.pdf'
-  const safeName = `${preventivo.id}${ext}`
-  const filePath = path.join(dir, safeName)
-  await fs.writeFile(filePath, Buffer.from(bytes))
-
-  const relativePath = path.join(UPLOAD_DIR, clientId, safeName)
-  await prisma.preventivo.update({
-    where: { id: preventivo.id },
-    data: { filePath: relativePath },
-  })
-
-  revalidatePath('/preventivi')
-  revalidatePath(`/clients/${clientId}`)
-  return { success: true, preventivo: { ...preventivo, filePath: relativePath } }
 }

@@ -49,13 +49,23 @@ export function ClientPreventiviSection({
     e.preventDefault()
     const form = e.currentTarget
     const formData = new FormData(form)
-    if (!formData.get('pdf') || (formData.get('pdf') as File).size === 0) {
+    const file = formData.get('pdf') as File | null
+    if (!file || file.size === 0) {
       alert('Seleziona un file PDF')
+      return
+    }
+    const name = (file.name || '').toLowerCase()
+    if (!name.endsWith('.pdf') && file.type !== 'application/pdf') {
+      alert('Sono ammessi solo file PDF. Il file selezionato non è un PDF.')
       return
     }
     setUploading(true)
     try {
-      await createPreventivoWithUpload(clientId, uploadTitle || (formData.get('pdf') as File).name, formData)
+      const result = await createPreventivoWithUpload(clientId, uploadTitle || file.name.replace(/\.pdf$/i, '') || 'Preventivo', formData)
+      if (!result.success) {
+        alert(result.error ?? 'Errore nel caricamento')
+        return
+      }
       setUploadTitle('')
       setUploadKey((k) => k + 1)
       window.location.reload()
