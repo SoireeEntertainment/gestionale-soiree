@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Work, Client, Category, User } from '@prisma/client'
 import { createWork, updateWork } from '@/app/actions/works'
@@ -22,9 +22,10 @@ export function WorkForm({ work, clients, categories, users, clientId: initialCl
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [clientOptions, setClientOptions] = useState<Client[]>(clients)
-  const [showNewClient, setShowNewClient] = useState(false)
-  const [newClientName, setNewClientName] = useState('')
   const [creatingClient, setCreatingClient] = useState(false)
+  const [clientSearch, setClientSearch] = useState('')
+  const [clientDropdownOpen, setClientDropdownOpen] = useState(false)
+  const clientComboboxRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     setClientOptions(clients)
@@ -43,8 +44,31 @@ export function WorkForm({ work, clients, categories, users, clientId: initialCl
     assignedToUserId: work?.assignedToUserId || null,
   })
 
+  /** Solo creazione lavoro senza cliente già fissato (es. /works), non dalla scheda cliente */
+  const canQuickCreateClient = !work && !initialClientId
+
+  const filteredClients = clientSearch.trim()
+    ? clientOptions.filter((c) => c.name.toLowerCase().includes(clientSearch.toLowerCase()))
+    : clientOptions
+  const exactMatch = clientOptions.find((c) => c.name.toLowerCase() === clientSearch.trim().toLowerCase())
+  const showCreateClientOption = Boolean(clientSearch.trim()) && !exactMatch
+
+  useEffect(() => {
+    if (!canQuickCreateClient || !clientDropdownOpen) return
+    function onDocMouseDown(e: MouseEvent) {
+      if (clientComboboxRef.current?.contains(e.target as Node)) return
+      setClientDropdownOpen(false)
+    }
+    document.addEventListener('mousedown', onDocMouseDown)
+    return () => document.removeEventListener('mousedown', onDocMouseDown)
+  }, [canQuickCreateClient, clientDropdownOpen])
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (canQuickCreateClient && !formData.clientId) {
+      alert('Seleziona un cliente dall’elenco o creane uno nuovo con il nome che hai digitato.')
+      return
+    }
     setLoading(true)
 
     try {
@@ -69,10 +93,10 @@ export function WorkForm({ work, clients, categories, users, clientId: initialCl
     }
   }
 
-  const handleCreateClientInline = async () => {
-    const name = newClientName.trim()
+  const handleCreateClientFromSearch = async () => {
+    const name = clientSearch.trim()
     if (!name) {
-      alert('Inserisci il nome del cliente')
+      alert('Inserisci il nome del nuovo cliente')
       return
     }
     setCreatingClient(true)
@@ -81,8 +105,8 @@ export function WorkForm({ work, clients, categories, users, clientId: initialCl
       if (res.client) {
         setClientOptions((prev) => [...prev, res.client])
         setFormData((fd) => ({ ...fd, clientId: res.client.id }))
-        setNewClientName('')
-        setShowNewClient(false)
+        setClientSearch(res.client.name)
+        setClientDropdownOpen(false)
         router.refresh()
       }
     } catch (e) {
@@ -92,8 +116,11 @@ export function WorkForm({ work, clients, categories, users, clientId: initialCl
     }
   }
 
-  /** Solo creazione lavoro senza cliente già fissato (es. /works), non dalla scheda cliente */
-  const canQuickCreateClient = !work && !initialClientId
+  const handleSelectClient = (c: Client) => {
+    setFormData((fd) => ({ ...fd, clientId: c.id }))
+    setClientSearch(c.name)
+    setClientDropdownOpen(false)
+  }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -115,72 +142,79 @@ export function WorkForm({ work, clients, categories, users, clientId: initialCl
           <label className="block text-sm font-medium text-white mb-1">
             Cliente *
           </label>
-          <select
-            required
-            value={formData.clientId}
-            onChange={(e) => {
-              const v = e.target.value
-              if (v === '__new__') {
-                setShowNewClient(true)
-                return
-              }
-              setFormData({ ...formData, clientId: v })
-            }}
-            className="w-full px-3 py-2 bg-dark border border-accent/20 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-accent"
-          >
-            <option value="">Seleziona cliente</option>
-            {clientOptions.map((client) => (
-              <option key={client.id} value={client.id}>
-                {client.name}
-              </option>
-            ))}
-            {canQuickCreateClient && (
-              <option value="__new__">+ Nuovo cliente…</option>
-            )}
-          </select>
-          {canQuickCreateClient && (
-            <div className="mt-2 space-y-2">
-              {showNewClient && (
-                <div className="flex flex-col gap-2 rounded-md border border-accent/20 bg-dark/80 p-3">
-                  <label className="text-xs text-white/70">Nome nuovo cliente</label>
-                  <div className="flex flex-wrap gap-2">
-                    <input
-                      type="text"
-                      value={newClientName}
-                      onChange={(e) => setNewClientName(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault()
-                          void handleCreateClientInline()
-                        }
-                      }}
-                      placeholder="Es. Studio Rossi"
-                      className="min-w-[12rem] flex-1 px-3 py-2 bg-dark border border-accent/20 rounded-md text-white text-sm focus:outline-none focus:ring-2 focus:ring-accent"
-                    />
-                    <Button
+          {canQuickCreateClient ? (
+            <div className="relative" ref={clientComboboxRef}>
+              <input
+                type="text"
+                value={clientSearch}
+                onChange={(e) => {
+                  const v = e.target.value
+                  setClientSearch(v)
+                  setClientDropdownOpen(true)
+                  setFormData((fd) => {
+                    if (!v.trim()) return { ...fd, clientId: '' }
+                    const sel = fd.clientId ? clientOptions.find((c) => c.id === fd.clientId) : null
+                    if (sel && v.trim().toLowerCase() !== sel.name.toLowerCase()) {
+                      return { ...fd, clientId: '' }
+                    }
+                    return fd
+                  })
+                }}
+                onFocus={() => setClientDropdownOpen(true)}
+                placeholder="Cerca cliente o scrivi un nome per crearne uno nuovo"
+                autoComplete="off"
+                className="w-full px-3 py-2 bg-dark border border-accent/20 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-accent"
+              />
+              {clientDropdownOpen && (
+                <div className="absolute z-30 top-full left-0 right-0 mt-1 max-h-52 overflow-y-auto rounded-md border border-accent/20 bg-dark shadow-lg">
+                  {filteredClients.map((c) => (
+                    <button
+                      key={c.id}
                       type="button"
-                      size="sm"
-                      disabled={creatingClient}
-                      onClick={() => void handleCreateClientInline()}
-                    >
-                      {creatingClient ? 'Creazione…' : 'Crea e seleziona'}
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      disabled={creatingClient}
-                      onClick={() => {
-                        setShowNewClient(false)
-                        setNewClientName('')
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        handleSelectClient(c)
                       }}
+                      className={`block w-full text-left px-3 py-2 text-sm hover:bg-accent/10 ${
+                        formData.clientId === c.id ? 'text-accent' : 'text-white'
+                      }`}
                     >
-                      Annulla
-                    </Button>
-                  </div>
+                      {c.name}
+                    </button>
+                  ))}
+                  {showCreateClientOption && (
+                    <button
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        void handleCreateClientFromSearch()
+                      }}
+                      disabled={creatingClient}
+                      className="block w-full text-left px-3 py-2 text-sm text-accent hover:bg-accent/10 border-t border-white/10 disabled:opacity-50"
+                    >
+                      {creatingClient ? 'Creazione…' : `➕ Crea cliente “${clientSearch.trim()}”`}
+                    </button>
+                  )}
+                  {filteredClients.length === 0 && !showCreateClientOption && clientSearch.trim() && (
+                    <div className="px-3 py-2 text-sm text-white/50">Nessun cliente trovato</div>
+                  )}
                 </div>
               )}
             </div>
+          ) : (
+            <select
+              required
+              value={formData.clientId}
+              onChange={(e) => setFormData({ ...formData, clientId: e.target.value })}
+              className="w-full px-3 py-2 bg-dark border border-accent/20 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-accent"
+            >
+              <option value="">Seleziona cliente</option>
+              {clientOptions.map((client) => (
+                <option key={client.id} value={client.id}>
+                  {client.name}
+                </option>
+              ))}
+            </select>
           )}
         </div>
 
