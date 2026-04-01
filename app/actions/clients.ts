@@ -41,6 +41,7 @@ export async function createClient(data: unknown) {
 
   revalidatePath('/clients')
   revalidatePath('/ped')
+  revalidatePath('/works')
   return { success: true, client }
 }
 

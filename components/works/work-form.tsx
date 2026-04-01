@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Work, Client, Category, User } from '@prisma/client'
 import { createWork, updateWork } from '@/app/actions/works'
+import { createClient } from '@/app/actions/clients'
 import { Button } from '@/components/ui/button'
 import { UserSelect } from '@/components/ui/user-select'
 
@@ -20,6 +21,14 @@ interface WorkFormProps {
 export function WorkForm({ work, clients, categories, users, clientId: initialClientId, categoryId: initialCategoryId, onSuccess }: WorkFormProps) {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
+  const [clientOptions, setClientOptions] = useState<Client[]>(clients)
+  const [showNewClient, setShowNewClient] = useState(false)
+  const [newClientName, setNewClientName] = useState('')
+  const [creatingClient, setCreatingClient] = useState(false)
+
+  useEffect(() => {
+    setClientOptions(clients)
+  }, [clients])
 
   const [formData, setFormData] = useState({
     title: work?.title || '',
@@ -60,6 +69,32 @@ export function WorkForm({ work, clients, categories, users, clientId: initialCl
     }
   }
 
+  const handleCreateClientInline = async () => {
+    const name = newClientName.trim()
+    if (!name) {
+      alert('Inserisci il nome del cliente')
+      return
+    }
+    setCreatingClient(true)
+    try {
+      const res = await createClient({ name })
+      if (res.client) {
+        setClientOptions((prev) => [...prev, res.client])
+        setFormData((fd) => ({ ...fd, clientId: res.client.id }))
+        setNewClientName('')
+        setShowNewClient(false)
+        router.refresh()
+      }
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Errore nella creazione del cliente')
+    } finally {
+      setCreatingClient(false)
+    }
+  }
+
+  /** Solo creazione lavoro senza cliente già fissato (es. /works), non dalla scheda cliente */
+  const canQuickCreateClient = !work && !initialClientId
+
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div>
@@ -83,16 +118,70 @@ export function WorkForm({ work, clients, categories, users, clientId: initialCl
           <select
             required
             value={formData.clientId}
-            onChange={(e) => setFormData({ ...formData, clientId: e.target.value })}
+            onChange={(e) => {
+              const v = e.target.value
+              if (v === '__new__') {
+                setShowNewClient(true)
+                return
+              }
+              setFormData({ ...formData, clientId: v })
+            }}
             className="w-full px-3 py-2 bg-dark border border-accent/20 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-accent"
           >
             <option value="">Seleziona cliente</option>
-            {clients.map((client) => (
+            {clientOptions.map((client) => (
               <option key={client.id} value={client.id}>
                 {client.name}
               </option>
             ))}
+            {canQuickCreateClient && (
+              <option value="__new__">+ Nuovo cliente…</option>
+            )}
           </select>
+          {canQuickCreateClient && (
+            <div className="mt-2 space-y-2">
+              {showNewClient && (
+                <div className="flex flex-col gap-2 rounded-md border border-accent/20 bg-dark/80 p-3">
+                  <label className="text-xs text-white/70">Nome nuovo cliente</label>
+                  <div className="flex flex-wrap gap-2">
+                    <input
+                      type="text"
+                      value={newClientName}
+                      onChange={(e) => setNewClientName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          void handleCreateClientInline()
+                        }
+                      }}
+                      placeholder="Es. Studio Rossi"
+                      className="min-w-[12rem] flex-1 px-3 py-2 bg-dark border border-accent/20 rounded-md text-white text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={creatingClient}
+                      onClick={() => void handleCreateClientInline()}
+                    >
+                      {creatingClient ? 'Creazione…' : 'Crea e seleziona'}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      disabled={creatingClient}
+                      onClick={() => {
+                        setShowNewClient(false)
+                        setNewClientName('')
+                      }}
+                    >
+                      Annulla
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div>
