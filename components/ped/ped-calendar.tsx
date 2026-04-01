@@ -896,8 +896,7 @@ function PedCalendarInner({
                 <button
                   key={labelKey}
                   type="button"
-                  className="w-full text-left px-4 py-2 text-sm flex items-center gap-2 hover:bg-white/10"
-                  style={{ color: config.color }}
+                  className="w-full text-left px-4 py-2 text-sm flex items-center gap-2 text-white hover:bg-white/10"
                   onClick={() => {
                     if (isBulk && typeof onBulkSetLabel === 'function') {
                       queueMicrotask(() => { onBulkSetLabel(bulkIds, labelKey) })
