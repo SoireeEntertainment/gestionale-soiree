@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { Prisma } from '@prisma/client'
 import { getCurrentUser } from '@/lib/auth-dev'
 import { prisma } from '@/lib/prisma'
-import { toDateString, getISOWeekStart, getTenContentsPerMonthTargetDates } from '@/lib/ped-utils'
+import { toDateString, getISOWeekStart } from '@/lib/ped-utils'
 import { getEffectiveLabel, PED_LABEL_ORDER, DEFAULT_LABEL, DONE_LABEL, PED_LABELS, type PedLabel } from '@/lib/pedLabels'
 import { pedClientSettingSchema, pedItemCreateSchema, pedItemUpdateSchema, pedItemSetLabelSchema } from '@/lib/validations'
 
@@ -740,80 +740,6 @@ export async function removePedClientSetting(clientId: string) {
   })
 
   revalidatePath('/ped')
-}
-
-/** Riempimento automatico 10 contenuti/mese: crea le task mancanti per arrivare a 10 nel mese (settimane 1-4: lun/mer/ven e mar/gio). */
-export async function autofillMonthlyTenPosts(
-  clientId: string,
-  year: number,
-  month: number
-): Promise<{ created: number; total: number; monthLabel: string; error?: string }> {
-  const ownerId = await getOwnerId()
-  if (!ownerId) return { created: 0, total: 0, monthLabel: '', error: 'Non autorizzato' }
-
-  const monthStart = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0))
-  const monthEnd = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999))
-  const monthLabel = `${year}-${String(month).padStart(2, '0')}`
-
-  const [setting, existingItems] = await Promise.all([
-    prisma.pedClientSetting.findUnique({
-      where: { ownerId_clientId: { ownerId, clientId } },
-      select: { platforms: true, contentsPerWeek: true },
-    }),
-    prisma.pedItem.findMany({
-      where: {
-        ownerId,
-        clientId,
-        isExtra: false,
-        date: { gte: monthStart, lte: monthEnd },
-      },
-      select: { date: true },
-    }),
-  ])
-
-  const existingCount = existingItems.length
-  if (existingCount >= 10) {
-    return { created: 0, total: existingCount, monthLabel }
-  }
-
-  const platforms = (setting?.platforms?.length ? setting.platforms : ['INSTAGRAM']) as string[]
-  const targetDates = getTenContentsPerMonthTargetDates(year, month)
-  const existingDates = new Set(existingItems.map((i) => toDateString(new Date(i.date))))
-  const datesToCreate = targetDates.filter((d) => !existingDates.has(d)).slice(0, 10 - existingCount)
-
-  const client = await prisma.client.findUnique({ where: { id: clientId }, select: { name: true } })
-  const clientName = client?.name ?? 'Cliente'
-  let created = 0
-  for (const dateStr of datesToCreate) {
-    try {
-      await createPedItem({
-        clientId,
-        date: dateStr,
-        kind: 'CONTENT',
-        type: 'POST',
-        title: `${clientName} – contenuto`,
-        description: null,
-        priority: 'MEDIUM',
-        label: 'DA_FARE',
-        workId: null,
-        isExtra: false,
-        assignedToUserId: null,
-        platforms,
-      })
-      created++
-    } catch (err) {
-      console.error('[autofillMonthlyTenPosts]', err)
-      return {
-        created,
-        total: existingCount + created,
-        monthLabel,
-        error: err instanceof Error ? err.message : 'Errore creazione task',
-      }
-    }
-  }
-  revalidatePath('/ped')
-  revalidatePath(`/clients/${clientId}`)
-  return { created, total: existingCount + created, monthLabel }
 }
 
 function parseDate(dateStr: string): Date {

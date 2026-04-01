@@ -704,8 +704,6 @@ export function PedView({
           clients={clients}
           userName={viewAsUserName}
           readOnly={isViewingOtherUser}
-          year={year}
-          month={month}
         />
       </div>
 

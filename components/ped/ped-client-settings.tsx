@@ -3,10 +3,8 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
-import { upsertPedClientSetting, removePedClientSetting, autofillMonthlyTenPosts } from '@/app/actions/ped'
+import { upsertPedClientSetting, removePedClientSetting } from '@/app/actions/ped'
 import { PED_PLATFORMS } from '@/lib/validations'
-import { showToast } from '@/lib/toast'
-import { contentsPerWeekToContentsPerMonth } from '@/lib/ped-utils'
 
 const SAVE_DEBOUNCE_MS = 600
 const PLATFORM_LABELS: Record<string, string> = { INSTAGRAM: 'Instagram', LINKEDIN: 'LinkedIn', TIKTOK: 'TikTok' }
@@ -19,15 +17,11 @@ export function PedClientSettings({
   clients,
   userName,
   readOnly = false,
-  year,
-  month,
 }: {
   settings: Setting[]
   clients: Client[]
   userName?: string
   readOnly?: boolean
-  year?: number
-  month?: number
 }) {
   const router = useRouter()
   const [adding, setAdding] = useState(false)
@@ -182,31 +176,6 @@ export function PedClientSettings({
                       )
                     })}
                   </div>
-                  {typeof year === 'number' && typeof month === 'number' && (
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      className="text-accent border-accent/40"
-                      onClick={async () => {
-                        const contentsPerMonth = contentsPerWeekToContentsPerMonth(s.contentsPerWeek)
-                        if (contentsPerMonth !== 10 && !confirm('Questo preset è pensato per 10 contenuti/mese. Procedere comunque?')) return
-                        const result = await autofillMonthlyTenPosts(s.clientId, year, month)
-                        if (result.error) {
-                          alert(result.error)
-                        } else if (result.created > 0) {
-                          showToast(`Create ${result.created} task su 10 (mese ${result.monthLabel})`, 'success')
-                          router.refresh()
-                        } else if (result.total >= 10) {
-                          showToast('Hai già 10 o più contenuti nel mese.')
-                        } else {
-                          showToast(`Nessuna nuova task creata (mese ${result.monthLabel}).`)
-                          router.refresh()
-                        }
-                      }}
-                    >
-                      Riempimento automatico 10 contenuti/mese
-                    </Button>
-                  )}
                   <Button variant="ghost" size="sm" onClick={() => handleRemove(s.clientId)} className="text-red-400">
                     Rimuovi
                   </Button>
