@@ -7,8 +7,12 @@ import { it } from 'date-fns/locale'
 import { Button } from '@/components/ui/button'
 
 type PreventivoWithRelations = Preventivo & {
-  client: Client
+  client: Client | null
   items: PreventivoItem[]
+}
+
+function clienteLabel(p: PreventivoWithRelations) {
+  return p.client?.name ?? p.prospectName ?? '—'
 }
 
 const statusLabels: Record<string, string> = {
@@ -54,9 +58,13 @@ export function PreventiviList({ preventivi, canWrite = true }: { preventivi: Pr
             <tr key={p.id} className="hover:bg-white/5">
               <td className="px-6 py-4 text-white">{p.title}</td>
               <td className="px-6 py-4 text-white/70">
-                <Link href={`/clients/${p.clientId}`} className="text-accent hover:underline">
-                  {p.client.name}
-                </Link>
+                {p.clientId ? (
+                  <Link href={`/clients/${p.clientId}`} className="text-accent hover:underline">
+                    {clienteLabel(p)}
+                  </Link>
+                ) : (
+                  <span>{clienteLabel(p)}</span>
+                )}
               </td>
               <td className="px-6 py-4 text-white/70">{typeLabels[p.type] || p.type}</td>
               <td className="px-6 py-4">

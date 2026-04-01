@@ -11,7 +11,7 @@ import { deletePreventivo } from '@/app/actions/preventivi'
 import { useRouter } from 'next/navigation'
 
 type PreventivoWithRelations = Preventivo & {
-  client: Client
+  client: Client | null
   items: PreventivoItem[]
 }
 
@@ -88,12 +88,19 @@ export function PreventivoDetail({ preventivo, canWrite = true }: { preventivo: 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <div className="text-sm text-white/50 mb-1">Cliente</div>
-            <Link
-              href={`/clients/${preventivo.clientId}`}
-              className="text-accent hover:underline"
-            >
-              {preventivo.client.name}
-            </Link>
+            {preventivo.clientId && preventivo.client ? (
+              <Link
+                href={`/clients/${preventivo.clientId}`}
+                className="text-accent hover:underline"
+              >
+                {preventivo.client.name}
+              </Link>
+            ) : (
+              <div className="text-white">
+                {preventivo.prospectName ?? '—'}
+                <span className="block text-xs text-white/50 mt-1">Non collegato ad anagrafica clienti</span>
+              </div>
+            )}
           </div>
           <div>
             <div className="text-sm text-white/50 mb-1">Tipo</div>

@@ -59,15 +59,34 @@ export const preventivoItemSchema = z.object({
   order: z.number().int().min(0).optional(),
 })
 
-export const preventivoSchema = z.object({
-  clientId: z.string().min(1, 'Cliente obbligatorio'),
+const preventivoBaseFields = {
+  clientId: z.string().min(1).optional().nullable(),
+  prospectName: z.string().optional().nullable(),
+  addAsClient: z.boolean().optional(),
   title: z.string().min(1, 'Titolo obbligatorio'),
   type: z.enum(['GENERATED', 'UPLOADED']),
   status: z.enum(['BOZZA', 'INVIATO', 'ACCETTATO', 'RIFIUTATO']).optional(),
   totalAmount: z.number().optional().nullable(),
   notes: z.string().optional(),
   items: z.array(preventivoItemSchema).optional(),
-})
+}
+
+export const preventivoSchema = z
+  .object(preventivoBaseFields)
+  .superRefine((data, ctx) => {
+    const hasClient = Boolean(data.clientId && data.clientId.length > 0)
+    const prospect = data.prospectName?.trim()
+    if (!hasClient && !prospect) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Seleziona un cliente o indica un nome (anche non in anagrafica)',
+        path: ['clientId'],
+      })
+    }
+  })
+
+/** Aggiornamenti parziali senza vincolo cliente/prospect (evita fallimenti del superRefine su .partial()) */
+export const preventivoUpdateSchema = z.object(preventivoBaseFields).partial()
 
 // PED (Piano Editoriale)
 export const PED_ITEM_KINDS = ['CONTENT', 'WORK_TASK'] as const

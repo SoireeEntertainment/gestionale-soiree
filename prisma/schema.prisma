@@ -222,19 +222,20 @@ model UserPreference {
 }
 
 model Preventivo {
-  id          String    @id @default(cuid())
-  clientId    String
-  title       String
-  type        String    // GENERATED = creato in app, UPLOADED = PDF caricato
-  status      String    @default("BOZZA") // BOZZA, INVIATO, ACCETTATO, RIFIUTATO
-  totalAmount Float?
-  notes       String?
-  filePath    String?   // percorso file PDF caricato (solo per type UPLOADED)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id             String    @id @default(cuid())
+  clientId       String?   // null = solo nome esterno (prospect)
+  prospectName   String?   // nome commerciale se non è (ancora) in anagrafica clienti
+  title          String
+  type           String    // GENERATED = creato in app, UPLOADED = PDF caricato
+  status         String    @default("BOZZA") // BOZZA, INVIATO, ACCETTATO, RIFIUTATO
+  totalAmount    Float?
+  notes          String?
+  filePath       String?   // percorso file PDF caricato (solo per type UPLOADED)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-  client Client          @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  items PreventivoItem[]
+  client Client?         @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  items  PreventivoItem[]
 
   @@map("preventivi")
 }

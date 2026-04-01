@@ -44,7 +44,9 @@ export async function GET(
     doc.text('Preventivo', 20, y)
     y += 10
     doc.setFontSize(12)
-    doc.text(`Cliente: ${preventivo.client.name}`, 20, y)
+    const clientePdf =
+      preventivo.client?.name ?? preventivo.prospectName ?? '—'
+    doc.text(`Cliente: ${clientePdf}`, 20, y)
     y += 6
     doc.text(`Titolo: ${preventivo.title}`, 20, y)
     y += 6

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createPreventivo } from '@/app/actions/preventivi'
 import { Button } from '@/components/ui/button'
@@ -24,11 +24,9 @@ export function PreventivoForm({
   onSuccess,
 }: PreventivoFormProps) {
   const router = useRouter()
+  const lockedClient = Boolean(initialClientId)
   const [loading, setLoading] = useState(false)
   const [title, setTitle] = useState(preventivo?.title ?? '')
-  const [selectedClientId, setSelectedClientId] = useState(
-    preventivo?.clientId ?? initialClientId ?? (clients[0]?.id ?? '')
-  )
   const [notes, setNotes] = useState(preventivo?.notes ?? '')
   const [items, setItems] = useState<
     { description: string; quantity: number; unitPrice: number }[]
@@ -41,6 +39,43 @@ export function PreventivoForm({
         }))
       : [{ description: '', quantity: 1, unitPrice: 0 }]
   )
+
+  const [clientSearch, setClientSearch] = useState('')
+  const [selectedClientId, setSelectedClientId] = useState('')
+  const [clientDropdownOpen, setClientDropdownOpen] = useState(false)
+  const [addAsClient, setAddAsClient] = useState(false)
+  const clientComboboxRef = useRef<HTMLDivElement>(null)
+
+  const lockedClientName = initialClientId
+    ? clients.find((c) => c.id === initialClientId)?.name ?? 'Cliente'
+    : ''
+
+  const filteredClients = clientSearch.trim()
+    ? clients.filter((c) => c.name.toLowerCase().includes(clientSearch.toLowerCase()))
+    : clients
+  const exactMatch = clients.find((c) => c.name.toLowerCase() === clientSearch.trim().toLowerCase())
+  const isProspectName =
+    !lockedClient &&
+    Boolean(clientSearch.trim()) &&
+    !selectedClientId &&
+    !exactMatch
+
+  useEffect(() => {
+    if (lockedClient || !clientDropdownOpen) return
+    function onDocMouseDown(e: MouseEvent) {
+      if (clientComboboxRef.current?.contains(e.target as Node)) return
+      setClientDropdownOpen(false)
+    }
+    document.addEventListener('mousedown', onDocMouseDown)
+    return () => document.removeEventListener('mousedown', onDocMouseDown)
+  }, [lockedClient, clientDropdownOpen])
+
+  const handleSelectClient = (c: { id: string; name: string }) => {
+    setSelectedClientId(c.id)
+    setClientSearch(c.name)
+    setClientDropdownOpen(false)
+    setAddAsClient(false)
+  }
 
   const addRow = () => {
     setItems([...items, { description: '', quantity: 1, unitPrice: 0 }])
@@ -57,32 +92,87 @@ export function PreventivoForm({
     setItems(next)
   }
 
+  const buildItemsPayload = () => {
+    const validItems = items.filter((i) => i.description.trim())
+    return validItems.length
+      ? validItems.map((i) => ({
+          description: i.description.trim(),
+          quantity: Number(i.quantity) || 0,
+          unitPrice: Number(i.unitPrice) || 0,
+        }))
+      : []
+  }
+
+  const syncSelectionFromSearch = (v: string) => {
+    if (!v.trim()) {
+      setSelectedClientId('')
+      return
+    }
+    setSelectedClientId((prev) => {
+      if (!prev) return prev
+      const sel = clients.find((c) => c.id === prev)
+      if (sel && v.trim().toLowerCase() !== sel.name.toLowerCase()) return ''
+      return prev
+    })
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!selectedClientId || !title.trim()) return
-    setLoading(true)
-    try {
-      const validItems = items.filter((i) => i.description.trim())
-      await createPreventivo({
-        clientId: selectedClientId,
+    if (!title.trim()) return
+
+    let payload: Parameters<typeof createPreventivo>[0]
+
+    if (lockedClient && initialClientId) {
+      payload = {
+        clientId: initialClientId,
         title: title.trim(),
         type: 'GENERATED',
         status: 'BOZZA',
         notes: notes.trim() || undefined,
-        items: validItems.length
-          ? validItems.map((i) => ({
-              description: i.description.trim(),
-              quantity: Number(i.quantity) || 0,
-              unitPrice: Number(i.unitPrice) || 0,
-            }))
-          : [],
-      })
+        items: buildItemsPayload(),
+      }
+    } else {
+      const t = clientSearch.trim()
+      let finalClientId = selectedClientId
+      if (!finalClientId && t) {
+        const ex = clients.find((c) => c.name.toLowerCase() === t.toLowerCase())
+        if (ex) finalClientId = ex.id
+      }
+
+      if (finalClientId) {
+        payload = {
+          clientId: finalClientId,
+          title: title.trim(),
+          type: 'GENERATED',
+          status: 'BOZZA',
+          notes: notes.trim() || undefined,
+          items: buildItemsPayload(),
+        }
+      } else if (t) {
+        payload = {
+          prospectName: t,
+          addAsClient,
+          title: title.trim(),
+          type: 'GENERATED',
+          status: 'BOZZA',
+          notes: notes.trim() || undefined,
+          items: buildItemsPayload(),
+        }
+      } else {
+        alert('Seleziona un cliente dall’elenco o indica un nome (anche non in anagrafica).')
+        return
+      }
+    }
+
+    setLoading(true)
+    try {
+      await createPreventivo(payload)
       router.refresh()
       onSuccess?.()
       if (!onSuccess) router.push('/preventivi')
     } catch (err) {
       console.error(err)
-      alert('Errore nel salvataggio')
+      alert(err instanceof Error ? err.message : 'Errore nel salvataggio')
     } finally {
       setLoading(false)
     }
@@ -97,19 +187,66 @@ export function PreventivoForm({
     <form onSubmit={handleSubmit} className="space-y-4">
       <div>
         <label className="block text-sm font-medium text-white mb-1">Cliente *</label>
-        <select
-          value={selectedClientId}
-          onChange={(e) => setSelectedClientId(e.target.value)}
-          required
-          className="w-full px-3 py-2 bg-dark border border-accent/20 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-accent"
-        >
-          <option value="">Seleziona cliente</option>
-          {clients.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
+        {lockedClient ? (
+          <div className="w-full px-3 py-2 bg-dark/60 border border-accent/20 rounded-md text-white/90">
+            {lockedClientName}
+          </div>
+        ) : (
+          <>
+            <div className="relative" ref={clientComboboxRef}>
+              <input
+                type="text"
+                value={clientSearch}
+                onChange={(e) => {
+                  const v = e.target.value
+                  setClientSearch(v)
+                  setClientDropdownOpen(true)
+                  syncSelectionFromSearch(v)
+                }}
+                onFocus={() => setClientDropdownOpen(true)}
+                placeholder="Cerca in anagrafica o scrivi il nome del destinatario"
+                autoComplete="off"
+                className="w-full px-3 py-2 bg-dark border border-accent/20 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-accent"
+              />
+              {clientDropdownOpen && (
+                <div className="absolute z-30 top-full left-0 right-0 mt-1 max-h-52 overflow-y-auto rounded-md border border-accent/20 bg-dark shadow-lg">
+                  {filteredClients.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        handleSelectClient(c)
+                      }}
+                      className={`block w-full text-left px-3 py-2 text-sm hover:bg-accent/10 ${
+                        selectedClientId === c.id ? 'text-accent' : 'text-white'
+                      }`}
+                    >
+                      {c.name}
+                    </button>
+                  ))}
+                  {filteredClients.length === 0 && clientSearch.trim() && (
+                    <div className="px-3 py-2 text-sm text-white/50">Nessun risultato in anagrafica</div>
+                  )}
+                </div>
+              )}
+            </div>
+            {isProspectName && (
+              <label className="mt-3 flex items-start gap-3 cursor-pointer text-sm text-white/90">
+                <input
+                  type="checkbox"
+                  checked={addAsClient}
+                  onChange={(e) => setAddAsClient(e.target.checked)}
+                  className="mt-1 rounded border-accent/40"
+                />
+                <span>
+                  Aggiungi come nuovo cliente in anagrafica (se deselezioni, il preventivo resta solo col nome
+                  indicato, senza scheda cliente)
+                </span>
+              </label>
+            )}
+          </>
+        )}
       </div>
       <div>
         <label className="block text-sm font-medium text-white mb-1">Titolo *</label>
@@ -188,9 +325,7 @@ export function PreventivoForm({
             </tbody>
           </table>
         </div>
-        <div className="mt-2 text-right text-accent font-medium">
-          Totale: € {total.toFixed(2)}
-        </div>
+        <div className="mt-2 text-right text-accent font-medium">Totale: € {total.toFixed(2)}</div>
       </div>
 
       <div>

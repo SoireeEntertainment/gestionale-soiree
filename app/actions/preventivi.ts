@@ -3,7 +3,8 @@
 import { revalidatePath, unstable_cache } from 'next/cache'
 import { getCurrentUser, canWrite } from '@/lib/auth-dev'
 import { prisma } from '@/lib/prisma'
-import { preventivoSchema } from '@/lib/validations'
+import { preventivoSchema, preventivoUpdateSchema } from '@/lib/validations'
+import { createClient } from '@/app/actions/clients'
 import path from 'path'
 import fs from 'fs/promises'
 
@@ -12,7 +13,9 @@ export async function createPreventivo(data: unknown) {
   if (!user || !canWrite(user)) throw new Error('Non autorizzato')
 
   const parsed = preventivoSchema.parse(data) as {
-    clientId: string
+    clientId?: string | null
+    prospectName?: string | null
+    addAsClient?: boolean
     title: string
     type: 'GENERATED' | 'UPLOADED'
     status?: string
@@ -20,11 +23,29 @@ export async function createPreventivo(data: unknown) {
     notes?: string
     items?: { description: string; quantity: number; unitPrice: number; order?: number }[]
   }
-  const { items = [], clientId, title, type, status, totalAmount, notes } = parsed
+  const { items = [], title, type, status, totalAmount, notes } = parsed
+
+  let clientId: string | null = parsed.clientId?.trim() || null
+  let prospectName: string | null = null
+
+  if (clientId) {
+    const exists = await prisma.client.findUnique({ where: { id: clientId }, select: { id: true } })
+    if (!exists) throw new Error('Cliente non trovato')
+  } else {
+    const raw = parsed.prospectName?.trim()
+    if (!raw) throw new Error('Cliente o nome destinatario obbligatorio')
+    if (parsed.addAsClient) {
+      const res = await createClient({ name: raw })
+      clientId = res.client.id
+    } else {
+      prospectName = raw
+    }
+  }
 
   const preventivo = await prisma.preventivo.create({
     data: {
       clientId,
+      prospectName,
       title,
       type,
       status: status || 'BOZZA',
@@ -46,7 +67,7 @@ export async function createPreventivo(data: unknown) {
   }
 
   revalidatePath('/preventivi')
-  revalidatePath(`/clients/${preventivo.clientId}`)
+  if (clientId) revalidatePath(`/clients/${clientId}`)
   return { success: true, preventivo }
 }
 
@@ -54,7 +75,10 @@ export async function updatePreventivo(id: string, data: unknown) {
   const user = await getCurrentUser()
   if (!user || !canWrite(user)) throw new Error('Non autorizzato')
 
-  const parsed = preventivoSchema.partial().parse(data) as {
+  const parsed = preventivoUpdateSchema.parse(data) as {
+    clientId?: string | null
+    prospectName?: string | null
+    addAsClient?: boolean
     title?: string
     status?: string
     totalAmount?: number | null
@@ -62,7 +86,7 @@ export async function updatePreventivo(id: string, data: unknown) {
     items?: { description: string; quantity: number; unitPrice: number; order?: number }[]
   }
 
-  const { items, ...rest } = parsed
+  const { items, addAsClient: _omit, ...rest } = parsed
 
   const preventivo = await prisma.preventivo.update({
     where: { id },
@@ -86,7 +110,7 @@ export async function updatePreventivo(id: string, data: unknown) {
 
   revalidatePath('/preventivi')
   revalidatePath(`/preventivi/${id}`)
-  revalidatePath(`/clients/${preventivo.clientId}`)
+  if (preventivo.clientId) revalidatePath(`/clients/${preventivo.clientId}`)
   return { success: true, preventivo }
 }
 
@@ -108,7 +132,7 @@ export async function deletePreventivo(id: string) {
 
   await prisma.preventivo.delete({ where: { id } })
   revalidatePath('/preventivi')
-  revalidatePath(`/clients/${prev.clientId}`)
+  if (prev.clientId) revalidatePath(`/clients/${prev.clientId}`)
   return { success: true }
 }
 
