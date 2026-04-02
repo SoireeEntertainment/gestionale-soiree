@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Category, ClientCategory } from '@prisma/client'
 import { upsertClientCategory } from '@/app/actions/client-categories'
 import { Button } from '@/components/ui/button'
@@ -25,6 +26,7 @@ export function ClientCategoriesTab({
   clientCategories,
   allCategories,
 }: ClientCategoriesTabProps) {
+  const router = useRouter()
   const [isAddOpen, setIsAddOpen] = useState(false)
   const [selectedCategoryId, setSelectedCategoryId] = useState('')
   const [status, setStatus] = useState('ACTIVE')
@@ -39,7 +41,7 @@ export function ClientCategoriesTab({
         status: status as any,
       })
       setIsAddOpen(false)
-      window.location.reload()
+      router.refresh()
     } catch (error) {
       console.error('Error:', error)
       alert('Errore nell\'aggiunta della categoria')
@@ -53,7 +55,7 @@ export function ClientCategoriesTab({
         categoryId,
         status: newStatus as any,
       })
-      window.location.reload()
+      router.refresh()
     } catch (error) {
       console.error('Error:', error)
       alert('Errore nell\'aggiornamento dello stato')

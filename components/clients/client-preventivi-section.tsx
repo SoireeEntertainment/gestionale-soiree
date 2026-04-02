@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { format } from 'date-fns'
 import { it } from 'date-fns/locale'
 import { Button } from '@/components/ui/button'
@@ -41,6 +42,7 @@ export function ClientPreventiviSection({
   allClients,
   canWrite = true,
 }: ClientPreventiviSectionProps) {
+  const router = useRouter()
   const [uploadTitle, setUploadTitle] = useState('')
   const [uploading, setUploading] = useState(false)
   const [uploadKey, setUploadKey] = useState(0)
@@ -68,7 +70,7 @@ export function ClientPreventiviSection({
       }
       setUploadTitle('')
       setUploadKey((k) => k + 1)
-      window.location.reload()
+      router.refresh()
     } catch (err) {
       console.error(err)
       alert(err instanceof Error ? err.message : 'Errore nel caricamento')
@@ -94,7 +96,7 @@ export function ClientPreventiviSection({
                 <PreventivoForm
                   clients={allClients}
                   clientId={clientId}
-                  onSuccess={() => window.location.reload()}
+                  onSuccess={() => router.refresh()}
                 />
               </DialogContent>
             </Dialog>

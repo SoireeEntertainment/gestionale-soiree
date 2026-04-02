@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { Work, Category, Client, ClientCategory, User } from '@prisma/client'
 import { format } from 'date-fns'
 import { it } from 'date-fns/locale'
@@ -51,11 +52,12 @@ export function ClientCategoryTab({
   canWrite = true,
   isSocialAutoFromPed = false,
 }: ClientCategoryTabProps) {
+  const router = useRouter()
   const handleStatusChange = async (newStatus: string) => {
     if (!newStatus) return
     try {
       await upsertClientCategory({ clientId, categoryId: category.id, status: newStatus as any })
-      window.location.reload()
+      router.refresh()
     } catch (error) {
       console.error('Error:', error)
       alert('Errore nell\'aggiornamento dello stato')
