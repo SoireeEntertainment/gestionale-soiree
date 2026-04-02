@@ -99,7 +99,22 @@ async function getClientFull(id: string) {
         include: { category: true, assignedTo: true },
         orderBy: { createdAt: 'desc' },
       },
-      preventivi: { orderBy: { createdAt: 'desc' }, include: { items: true } },
+      // Evitiamo selezione "completa" di Preventivo (che include `prospectName`)
+      // per restare compatibili anche quando la migrazione non è presente sul DB.
+      preventivi: {
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          title: true,
+          type: true,
+          status: true,
+          createdAt: true,
+          filePath: true,
+          items: {
+            select: { id: true, description: true, quantity: true, unitPrice: true },
+          },
+        },
+      },
     },
   })
 }
@@ -126,7 +141,21 @@ async function getClientLegacy(id: string) {
         include: { category: true, assignedTo: true },
         orderBy: { createdAt: 'desc' },
       },
-      preventivi: { orderBy: { createdAt: 'desc' }, include: { items: true } },
+      // Legacy: selezione esplicita per escludere `prospectName` (compatibile DB non migrato).
+      preventivi: {
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          title: true,
+          type: true,
+          status: true,
+          createdAt: true,
+          filePath: true,
+          items: {
+            select: { id: true, description: true, quantity: true, unitPrice: true },
+          },
+        },
+      },
     },
   }).then((row) => row ? { ...row, assignees: [] as { userId: string; role: string; user: { id: string; name: string; email: string } }[], websiteUrl: null as string | null, industryCategory: null as string | null } : null)
 }
