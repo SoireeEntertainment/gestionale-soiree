@@ -13,16 +13,20 @@ export function isBlobFilePath(filePath: string | null | undefined): boolean {
   return Boolean(filePath && filePath.startsWith('https://'))
 }
 
+export type SavePreventivoPdfResult =
+  | { kind: 'path'; filePath: string }
+  /** Su Vercel senza Blob il filesystem non è scrivibile: si salva il buffer in Postgres. */
+  | { kind: 'database'; buffer: Buffer }
+
 /**
- * Salva il PDF e restituisce il valore da mettere in `Preventivo.filePath`
- * (percorso relativo locale oppure URL Blob).
+ * Salva il PDF: Blob (se c’è token), altrimenti su Vercel buffer DB, altrimenti disco locale.
  */
 export async function savePreventivoPdfUpload(
   clientId: string,
   preventivoId: string,
   originalFileName: string,
   pdfBytes: ArrayBuffer
-): Promise<string> {
+): Promise<SavePreventivoPdfResult> {
   const ext = path.extname(originalFileName) || '.pdf'
   const buf = Buffer.from(pdfBytes)
 
@@ -32,7 +36,11 @@ export async function savePreventivoPdfUpload(
       contentType: 'application/pdf',
       addRandomSuffix: false,
     })
-    return url
+    return { kind: 'path', filePath: url }
+  }
+
+  if (process.env.VERCEL === '1') {
+    return { kind: 'database', buffer: buf }
   }
 
   const dir = path.join(process.cwd(), UPLOAD_DIR, clientId)
@@ -40,7 +48,7 @@ export async function savePreventivoPdfUpload(
   const safeName = `${preventivoId}${ext}`
   const absPath = path.join(dir, safeName)
   await fs.writeFile(absPath, buf)
-  return path.join(UPLOAD_DIR, clientId, safeName)
+  return { kind: 'path', filePath: path.join(UPLOAD_DIR, clientId, safeName) }
 }
 
 export async function readPreventivoPdfBuffer(filePath: string): Promise<Buffer | null> {

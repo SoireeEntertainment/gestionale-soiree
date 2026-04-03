@@ -1,12 +1,23 @@
 'use client'
 
 import Link from 'next/link'
-import { Preventivo, PreventivoItem, Client } from '@prisma/client'
+import type { PreventivoItem, Client } from '@prisma/client'
 import { format } from 'date-fns'
 import { it } from 'date-fns/locale'
 import { Button } from '@/components/ui/button'
 
-type PreventivoWithRelations = Preventivo & {
+type PreventivoWithRelations = {
+  id: string
+  clientId: string | null
+  prospectName: string | null
+  title: string
+  type: string
+  status: string
+  totalAmount: number | null
+  notes: string | null
+  filePath: string | null
+  createdAt: Date
+  updatedAt: Date
   client: Client | null
   items: PreventivoItem[]
 }

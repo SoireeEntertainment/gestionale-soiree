@@ -230,8 +230,9 @@ model Preventivo {
   status         String    @default("BOZZA") // BOZZA, INVIATO, ACCETTATO, RIFIUTATO
   totalAmount    Float?
   notes          String?
-  filePath       String?   // locale: uploads/preventivi/... | produzione Vercel: URL Vercel Blob (private)
-  createdAt      DateTime  @default(now())
+  filePath         String? // locale: uploads/... | Vercel+Blob: URL | Vercel senza Blob: null
+  uploadedPdfData  Bytes?  @map("uploaded_pdf_data") // fallback su Vercel se manca BLOB_READ_WRITE_TOKEN
+  createdAt        DateTime @default(now())
   updatedAt      DateTime  @updatedAt
 
   client Client?         @relation(fields: [clientId], references: [id], onDelete: Cascade)

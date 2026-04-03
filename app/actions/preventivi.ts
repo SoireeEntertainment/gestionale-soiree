@@ -5,7 +5,7 @@ import { getCurrentUser, canWrite } from '@/lib/auth-dev'
 import { prisma } from '@/lib/prisma'
 import { preventivoSchema, preventivoUpdateSchema } from '@/lib/validations'
 import { createClient } from '@/app/actions/clients'
-import { savePreventivoPdfUpload, removePreventivoStoredFile, useBlobStorage } from '@/lib/preventivo-pdf-storage'
+import { savePreventivoPdfUpload, removePreventivoStoredFile } from '@/lib/preventivo-pdf-storage'
 
 export async function createPreventivo(data: unknown) {
   const user = await getCurrentUser()
@@ -117,7 +117,10 @@ export async function deletePreventivo(id: string) {
   const user = await getCurrentUser()
   if (!user || !canWrite(user)) throw new Error('Non autorizzato')
 
-  const prev = await prisma.preventivo.findUnique({ where: { id } })
+  const prev = await prisma.preventivo.findUnique({
+    where: { id },
+    select: { id: true, clientId: true, filePath: true },
+  })
   if (!prev) throw new Error('Preventivo non trovato')
 
   await removePreventivoStoredFile(prev.filePath)
@@ -136,7 +139,21 @@ export async function getPreventivo(id: string) {
     async () =>
       prisma.preventivo.findUnique({
         where: { id },
-        include: { client: true, items: { orderBy: { order: 'asc' } } },
+        select: {
+          id: true,
+          clientId: true,
+          prospectName: true,
+          title: true,
+          type: true,
+          status: true,
+          totalAmount: true,
+          notes: true,
+          filePath: true,
+          createdAt: true,
+          updatedAt: true,
+          client: true,
+          items: { orderBy: { order: 'asc' } },
+        },
       }),
     ['preventivo', id],
     { revalidate: 60 }
@@ -149,7 +166,18 @@ export async function getPreventivi() {
 
   return prisma.preventivo.findMany({
     orderBy: { createdAt: 'desc' },
-    include: {
+    select: {
+      id: true,
+      clientId: true,
+      prospectName: true,
+      title: true,
+      type: true,
+      status: true,
+      totalAmount: true,
+      notes: true,
+      filePath: true,
+      createdAt: true,
+      updatedAt: true,
       client: true,
       items: { orderBy: { order: 'asc' } },
     },
@@ -163,7 +191,18 @@ export async function getPreventiviByClient(clientId: string) {
   return prisma.preventivo.findMany({
     where: { clientId },
     orderBy: { createdAt: 'desc' },
-    include: {
+    select: {
+      id: true,
+      clientId: true,
+      prospectName: true,
+      title: true,
+      type: true,
+      status: true,
+      totalAmount: true,
+      notes: true,
+      filePath: true,
+      createdAt: true,
+      updatedAt: true,
       items: { orderBy: { order: 'asc' } },
     },
   })
@@ -182,7 +221,10 @@ export async function createPreventivoWithUpload(
   clientId: string,
   title: string,
   formData: FormData
-): Promise<{ success: true; preventivo: { id: string; title: string; filePath: string } } | { success: false; error: string }> {
+): Promise<
+  | { success: true; preventivo: { id: string; title: string; filePath: string | null } }
+  | { success: false; error: string }
+> {
   try {
     const user = await getCurrentUser()
     if (!user || !canWrite(user)) return { success: false, error: 'Non autorizzato' }
@@ -198,14 +240,6 @@ export async function createPreventivoWithUpload(
       return { success: false, error: 'Il file non è un PDF valido. Usa un file con estensione .pdf generato come PDF.' }
     }
 
-    if (process.env.VERCEL === '1' && !useBlobStorage()) {
-      return {
-        success: false,
-        error:
-          'Storage file non disponibile su questo ambiente. Nel progetto Vercel crea uno store Blob (Storage) e assicurati che sia collegato al progetto così da avere BLOB_READ_WRITE_TOKEN.',
-      }
-    }
-
     const preventivo = await prisma.preventivo.create({
       data: {
         clientId,
@@ -213,13 +247,17 @@ export async function createPreventivoWithUpload(
         type: 'UPLOADED',
         status: 'BOZZA',
         filePath: null,
+        uploadedPdfData: null,
       },
     })
 
-    const storedPath = await savePreventivoPdfUpload(clientId, preventivo.id, file.name, bytes)
+    const saved = await savePreventivoPdfUpload(clientId, preventivo.id, file.name, bytes)
     await prisma.preventivo.update({
       where: { id: preventivo.id },
-      data: { filePath: storedPath },
+      data:
+        saved.kind === 'path'
+          ? { filePath: saved.filePath, uploadedPdfData: null }
+          : { filePath: null, uploadedPdfData: saved.buffer },
     })
 
     revalidatePath('/preventivi')
@@ -229,7 +267,7 @@ export async function createPreventivoWithUpload(
       preventivo: {
         id: preventivo.id,
         title: preventivo.title,
-        filePath: storedPath,
+        filePath: saved.kind === 'path' ? saved.filePath : null,
       },
     }
   } catch (err) {

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getPreventivo } from '@/app/actions/preventivi'
 import { getAuthUserId } from '@/lib/auth-dev'
+import { prisma } from '@/lib/prisma'
 import { readPreventivoPdfBuffer } from '@/lib/preventivo-pdf-storage'
 
 export async function GET(
@@ -14,9 +15,18 @@ export async function GET(
   const preventivo = await getPreventivo(params.id)
   if (!preventivo) return NextResponse.json({ error: 'Preventivo non trovato' }, { status: 404 })
 
-  if (preventivo.type === 'UPLOADED' && preventivo.filePath) {
-    const buf = await readPreventivoPdfBuffer(preventivo.filePath)
-    if (!buf) {
+  if (preventivo.type === 'UPLOADED') {
+    const pdfRow = await prisma.preventivo.findUnique({
+      where: { id: params.id },
+      select: { uploadedPdfData: true, filePath: true },
+    })
+    let buf: Buffer | null = null
+    if (pdfRow?.uploadedPdfData && pdfRow.uploadedPdfData.length > 0) {
+      buf = Buffer.from(pdfRow.uploadedPdfData)
+    } else if (pdfRow?.filePath) {
+      buf = await readPreventivoPdfBuffer(pdfRow.filePath)
+    }
+    if (!buf?.length) {
       return NextResponse.json({ error: 'File non trovato' }, { status: 404 })
     }
     return new NextResponse(new Uint8Array(buf), {
