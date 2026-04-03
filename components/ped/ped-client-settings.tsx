@@ -3,8 +3,9 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
-import { upsertPedClientSetting, removePedClientSetting } from '@/app/actions/ped'
+import { upsertPedClientSetting, removePedClientSetting, fillPedMonthForClient } from '@/app/actions/ped'
 import { PED_PLATFORMS } from '@/lib/validations'
+import { showToast } from '@/lib/toast'
 
 const SAVE_DEBOUNCE_MS = 600
 const PLATFORM_LABELS: Record<string, string> = { INSTAGRAM: 'Instagram', LINKEDIN: 'LinkedIn', TIKTOK: 'TikTok' }
@@ -17,13 +18,19 @@ export function PedClientSettings({
   clients,
   userName,
   readOnly = false,
+  year,
+  month,
 }: {
   settings: Setting[]
   clients: Client[]
   userName?: string
   readOnly?: boolean
+  /** Mese visualizzato nel PED (per “Riempi il mese attuale”). */
+  year?: number
+  month?: number
 }) {
   const router = useRouter()
+  const [fillingClientId, setFillingClientId] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
   const [selectedClientId, setSelectedClientId] = useState('')
   const [contentsPerWeek, setContentsPerWeek] = useState(0)
@@ -115,6 +122,9 @@ export function PedClientSettings({
         {settings.map((s) => {
           const isEditing = editingClientId === s.clientId
           const displayValue = isEditing && draftByClientId[s.clientId] !== undefined ? draftByClientId[s.clientId] : s.contentsPerWeek
+          const effectiveContentsForFill =
+            isEditing && draftByClientId[s.clientId] !== undefined ? draftByClientId[s.clientId]! : s.contentsPerWeek
+          const canFillMonth = [4, 6, 8, 10, 12].includes(effectiveContentsForFill)
           return (
             <li key={s.id} className="flex items-center gap-3 flex-wrap">
               <span className="text-white min-w-[220px] shrink-0">{s.client.name}</span>
@@ -176,6 +186,38 @@ export function PedClientSettings({
                       )
                     })}
                   </div>
+                  {typeof year === 'number' && typeof month === 'number' && (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      className="border border-accent/40 text-accent hover:bg-accent/10 shrink-0 text-xs whitespace-nowrap"
+                      disabled={!canFillMonth || fillingClientId === s.clientId}
+                      title={
+                        !canFillMonth
+                          ? 'Imposta 4, 6, 8, 10 o 12 contenuti/mese per usare il riempimento'
+                          : undefined
+                      }
+                      onClick={async () => {
+                        setFillingClientId(s.clientId)
+                        try {
+                          const { created } = await fillPedMonthForClient(s.clientId, year, month)
+                          if (created > 0) {
+                            showToast(`Aggiunte ${created} task nel mese`, 'success')
+                          } else {
+                            showToast('Nessuna nuova task: le date previste sono già piene.', 'success')
+                          }
+                          router.refresh()
+                        } catch (e) {
+                          showToast(e instanceof Error ? e.message : 'Errore', 'error')
+                        } finally {
+                          setFillingClientId(null)
+                        }
+                      }}
+                    >
+                      {fillingClientId === s.clientId ? 'Attendi…' : 'Riempi il mese attuale'}
+                    </Button>
+                  )}
                   <Button variant="ghost" size="sm" onClick={() => handleRemove(s.clientId)} className="text-red-400">
                     Rimuovi
                   </Button>

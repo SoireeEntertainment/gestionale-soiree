@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { Prisma } from '@prisma/client'
 import { getCurrentUser } from '@/lib/auth-dev'
 import { prisma } from '@/lib/prisma'
-import { toDateString, getISOWeekStart } from '@/lib/ped-utils'
+import { toDateString, getISOWeekStart, getTenContentsPerMonthTargetDates } from '@/lib/ped-utils'
 import { getEffectiveLabel, PED_LABEL_ORDER, DEFAULT_LABEL, DONE_LABEL, PED_LABELS, type PedLabel } from '@/lib/pedLabels'
 import { pedClientSettingSchema, pedItemCreateSchema, pedItemUpdateSchema, pedItemSetLabelSchema } from '@/lib/validations'
 
@@ -263,7 +263,24 @@ export async function getPedMonthlyTaskCountForUser(userId: string): Promise<num
   })
 }
 
-/** Restituisce le date (YYYY-MM-DD) in cui inserire task in base ai contenuti/mese (4, 6, 8, 12). */
+function firstWeekdayInMonthRange(
+  year: number,
+  month: number,
+  fromDay: number,
+  toDay: number,
+  weekdayUtc: number
+): string | null {
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate()
+  const end = Math.min(toDay, lastDay)
+  for (let d = Math.max(1, fromDay); d <= end; d++) {
+    if (new Date(Date.UTC(year, month - 1, d)).getUTCDay() === weekdayUtc) {
+      return toDateString(new Date(Date.UTC(year, month - 1, d)))
+    }
+  }
+  return null
+}
+
+/** Restituisce le date (YYYY-MM-DD) in cui inserire task in base ai contenuti/mese (4, 6, 8, 10, 12). */
 function getTargetDateKeysForContents(year: number, month: number, count: number): string[] {
   const result: string[] = []
   const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate()
@@ -280,27 +297,15 @@ function getTargetDateKeysForContents(year: number, month: number, count: number
       if (getDay(d) === 3) result.push(format(d))
     }
   } else if (count === 6) {
-    const wednesdayKeys: string[] = []
-    for (let d = 1; d <= lastDay; d++) {
-      if (getDay(d) === 3) wednesdayKeys.push(format(d))
-    }
-    if (wednesdayKeys[0]) result.push(wednesdayKeys[0])
-    if (wednesdayKeys[2]) result.push(wednesdayKeys[2])
-    for (let d = 8; d <= 14; d++) {
-      if (d > lastDay) break
-      if (getDay(d) === 2) { result.push(format(d)); break }
-    }
-    for (let d = 8; d <= 14; d++) {
-      if (d > lastDay) break
-      if (getDay(d) === 4) { result.push(format(d)); break }
-    }
-    for (let d = 22; d <= 28; d++) {
-      if (d > lastDay) break
-      if (getDay(d) === 2) { result.push(format(d)); break }
-    }
-    for (let d = 22; d <= 28; d++) {
-      if (d > lastDay) break
-      if (getDay(d) === 4) { result.push(format(d)); break }
+    // 1° settimana: 1 giorno (mercoledì); 2°: 2 (mar + gio); 3°: 1 (mer); 4°: 2 (mar + gio)
+    const w1 = firstWeekdayInMonthRange(year, month, 1, 7, 3)
+    const w2a = firstWeekdayInMonthRange(year, month, 8, 14, 2)
+    const w2b = firstWeekdayInMonthRange(year, month, 8, 14, 4)
+    const w3 = firstWeekdayInMonthRange(year, month, 15, 21, 3)
+    const w4a = firstWeekdayInMonthRange(year, month, 22, lastDay, 2)
+    const w4b = firstWeekdayInMonthRange(year, month, 22, lastDay, 4)
+    for (const k of [w1, w2a, w2b, w3, w4a, w4b]) {
+      if (k) result.push(k)
     }
     result.sort()
   } else if (count === 8) {
@@ -308,6 +313,8 @@ function getTargetDateKeysForContents(year: number, month: number, count: number
       const day = getDay(d)
       if (day === 2 || day === 4) result.push(format(d))
     }
+  } else if (count === 10) {
+    return getTenContentsPerMonthTargetDates(year, month)
   } else if (count === 12) {
     for (let d = 1; d <= lastDay; d++) {
       const day = getDay(d)
@@ -326,7 +333,7 @@ export async function fillPedMonth(year: number, month: number) {
     include: { client: { select: { id: true, name: true } } },
   })
   const settingsSorted = settings
-    .filter((s) => [4, 6, 8, 12].includes(s.contentsPerWeek))
+    .filter((s) => [4, 6, 8, 10, 12].includes(s.contentsPerWeek))
     .sort((a, b) => a.client.name.localeCompare(b.client.name, 'it'))
 
   const startStr = `${year}-${String(month).padStart(2, '0')}-01 00:00:00`
@@ -347,6 +354,7 @@ export async function fillPedMonth(year: number, month: number) {
   const existingByClientAndDate = new Set(existingRows.map((r) => `${r.clientId}:${r.dateKey}`))
 
   for (const setting of settingsSorted) {
+    const platforms = setting.platforms.length > 0 ? setting.platforms : ['INSTAGRAM']
     const dateKeys = getTargetDateKeysForContents(year, month, setting.contentsPerWeek)
     for (const dateKey of dateKeys) {
       if (existingByClientAndDate.has(`${setting.clientId}:${dateKey}`)) continue
@@ -359,6 +367,7 @@ export async function fillPedMonth(year: number, month: number) {
         description: null,
         priority: 'MEDIUM',
         isExtra: false,
+        platforms,
       })
       existingByClientAndDate.add(`${setting.clientId}:${dateKey}`)
     }
@@ -577,7 +586,11 @@ export async function getPedMonthForClient(clientId: string, year: number, month
 }
 
 /** Riempe il mese solo per un cliente (stessa logica giorni di fillPedMonth). Le task compaiono anche nel PED generale. */
-export async function fillPedMonthForClient(clientId: string, year: number, month: number) {
+export async function fillPedMonthForClient(
+  clientId: string,
+  year: number,
+  month: number
+): Promise<{ created: number }> {
   const ownerId = await getOwnerId()
   if (!ownerId) throw new Error('Non autorizzato')
 
@@ -585,8 +598,9 @@ export async function fillPedMonthForClient(clientId: string, year: number, mont
     where: { ownerId_clientId: { ownerId, clientId } },
     include: { client: { select: { id: true, name: true } } },
   })
-  if (!setting || ![4, 6, 8, 12].includes(setting.contentsPerWeek)) {
-    throw new Error('Imposta prima i contenuti/mese a 4, 6, 8 o 12 nella sezione PED di questo cliente.')
+  const allowed = [4, 6, 8, 10, 12]
+  if (!setting || !allowed.includes(setting.contentsPerWeek)) {
+    throw new Error('Imposta prima i contenuti/mese a 4, 6, 8, 10 o 12 nella sezione PED di questo cliente.')
   }
 
   const startStr = `${year}-${String(month).padStart(2, '0')}-01 00:00:00`
@@ -601,32 +615,12 @@ export async function fillPedMonthForClient(clientId: string, year: number, mont
     },
     select: { date: true },
   })
-  const rows = items.map((i) => ({ dateKey: i.date.toISOString().slice(0, 10) }))
-  const existingDates = new Set(rows.map((r) => r.dateKey))
+  const existingDates = new Set(items.map((i) => i.date.toISOString().slice(0, 10)))
 
   const dateKeys = getTargetDateKeysForContents(year, month, setting.contentsPerWeek)
-  const targetPerWeek = new Map<string, number>()
-  for (const dk of dateKeys) {
-    const weekStart = toDateString(getISOWeekStart(new Date(dk + 'T00:00:00.000Z')))
-    targetPerWeek.set(weekStart, (targetPerWeek.get(weekStart) ?? 0) + 1)
-  }
-  const existingPerWeek = new Map<string, number>()
-  for (const r of rows) {
-    const weekStart = toDateString(getISOWeekStart(new Date(r.dateKey + 'T00:00:00.000Z')))
-    existingPerWeek.set(weekStart, (existingPerWeek.get(weekStart) ?? 0) + 1)
-  }
-  let allFilled = true
-  for (const [weekStart, required] of targetPerWeek) {
-    if ((existingPerWeek.get(weekStart) ?? 0) < required) {
-      allFilled = false
-      break
-    }
-  }
-  if (allFilled) {
-    revalidatePath('/ped')
-    throw new Error('Mese già riempito')
-  }
+  const platforms = setting.platforms.length > 0 ? setting.platforms : ['INSTAGRAM']
 
+  let created = 0
   for (const dateKey of dateKeys) {
     if (existingDates.has(dateKey)) continue
     await createPedItem({
@@ -638,10 +632,14 @@ export async function fillPedMonthForClient(clientId: string, year: number, mont
       description: null,
       priority: 'MEDIUM',
       isExtra: false,
+      platforms,
     })
     existingDates.add(dateKey)
+    created++
   }
   revalidatePath('/ped')
+  revalidatePath(`/clients/${clientId}`)
+  return { created }
 }
 
 /** Svuota il mese nel PED generale: elimina tutte le task del mese (dell'utente). */

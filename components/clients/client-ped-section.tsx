@@ -135,10 +135,15 @@ export function ClientPedSection({
   const handleFillMonth = async () => {
     setFilling(true)
     try {
-      await fillPedMonthForClient(clientId, year, month)
+      const { created } = await fillPedMonthForClient(clientId, year, month)
+      if (created > 0) {
+        showToast(`Aggiunte ${created} task nel mese`, 'success')
+      } else {
+        showToast('Nessuna nuova task: le date previste sono già piene.', 'success')
+      }
       await refetch()
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Errore')
+      showToast(e instanceof Error ? e.message : 'Errore', 'error')
     } finally {
       setFilling(false)
     }
