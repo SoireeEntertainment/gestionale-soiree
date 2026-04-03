@@ -230,7 +230,7 @@ model Preventivo {
   status         String    @default("BOZZA") // BOZZA, INVIATO, ACCETTATO, RIFIUTATO
   totalAmount    Float?
   notes          String?
-  filePath       String?   // percorso file PDF caricato (solo per type UPLOADED)
+  filePath       String?   // locale: uploads/preventivi/... | produzione Vercel: URL Vercel Blob (private)
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 

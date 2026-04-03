@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getPreventivo } from '@/app/actions/preventivi'
 import { getAuthUserId } from '@/lib/auth-dev'
-import path from 'path'
-import fs from 'fs/promises'
+import { readPreventivoPdfBuffer } from '@/lib/preventivo-pdf-storage'
 
 export async function GET(
   _request: Request,
@@ -16,22 +15,16 @@ export async function GET(
   if (!preventivo) return NextResponse.json({ error: 'Preventivo non trovato' }, { status: 404 })
 
   if (preventivo.type === 'UPLOADED' && preventivo.filePath) {
-    const uploadsRoot = path.resolve(process.cwd(), 'uploads')
-    const fullPath = path.resolve(process.cwd(), preventivo.filePath)
-    if (!fullPath.startsWith(uploadsRoot + path.sep)) {
-      return NextResponse.json({ error: 'Percorso file non valido' }, { status: 400 })
-    }
-    try {
-      const buf = await fs.readFile(fullPath)
-      return new NextResponse(buf, {
-        headers: {
-          'Content-Type': 'application/pdf',
-          'Content-Disposition': `inline; filename="${preventivo.title.replace(/"/g, '')}.pdf"`,
-        },
-      })
-    } catch {
+    const buf = await readPreventivoPdfBuffer(preventivo.filePath)
+    if (!buf) {
       return NextResponse.json({ error: 'File non trovato' }, { status: 404 })
     }
+    return new NextResponse(new Uint8Array(buf), {
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `inline; filename="${preventivo.title.replace(/"/g, '')}.pdf"`,
+      },
+    })
   }
 
   if (preventivo.type === 'GENERATED') {
@@ -97,7 +90,7 @@ export async function GET(
     }
 
     const pdfBuf = Buffer.from(doc.output('arraybuffer'))
-    return new NextResponse(pdfBuf, {
+    return new NextResponse(new Uint8Array(pdfBuf), {
       headers: {
         'Content-Type': 'application/pdf',
         'Content-Disposition': `inline; filename="${preventivo.title.replace(/"/g, '')}.pdf"`,

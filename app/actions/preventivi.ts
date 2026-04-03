@@ -5,8 +5,7 @@ import { getCurrentUser, canWrite } from '@/lib/auth-dev'
 import { prisma } from '@/lib/prisma'
 import { preventivoSchema, preventivoUpdateSchema } from '@/lib/validations'
 import { createClient } from '@/app/actions/clients'
-import path from 'path'
-import fs from 'fs/promises'
+import { savePreventivoPdfUpload, removePreventivoStoredFile, useBlobStorage } from '@/lib/preventivo-pdf-storage'
 
 export async function createPreventivo(data: unknown) {
   const user = await getCurrentUser()
@@ -121,14 +120,7 @@ export async function deletePreventivo(id: string) {
   const prev = await prisma.preventivo.findUnique({ where: { id } })
   if (!prev) throw new Error('Preventivo non trovato')
 
-  if (prev.filePath) {
-    try {
-      const fullPath = path.join(process.cwd(), prev.filePath)
-      await fs.unlink(fullPath)
-    } catch {
-      // ignore if file missing
-    }
-  }
+  await removePreventivoStoredFile(prev.filePath)
 
   await prisma.preventivo.delete({ where: { id } })
   revalidatePath('/preventivi')
@@ -177,7 +169,6 @@ export async function getPreventiviByClient(clientId: string) {
   })
 }
 
-const UPLOAD_DIR = 'uploads/preventivi'
 const MAX_PDF_SIZE_BYTES = 20 * 1024 * 1024 // 20 MB
 const PDF_MAGIC = new Uint8Array([0x25, 0x50, 0x44, 0x46]) // %PDF
 
@@ -207,6 +198,14 @@ export async function createPreventivoWithUpload(
       return { success: false, error: 'Il file non è un PDF valido. Usa un file con estensione .pdf generato come PDF.' }
     }
 
+    if (process.env.VERCEL === '1' && !useBlobStorage()) {
+      return {
+        success: false,
+        error:
+          'Storage file non disponibile su questo ambiente. Nel progetto Vercel crea uno store Blob (Storage) e assicurati che sia collegato al progetto così da avere BLOB_READ_WRITE_TOKEN.',
+      }
+    }
+
     const preventivo = await prisma.preventivo.create({
       data: {
         clientId,
@@ -217,17 +216,10 @@ export async function createPreventivoWithUpload(
       },
     })
 
-    const dir = path.join(process.cwd(), UPLOAD_DIR, clientId)
-    await fs.mkdir(dir, { recursive: true })
-    const ext = path.extname(file.name) || '.pdf'
-    const safeName = `${preventivo.id}${ext}`
-    const filePath = path.join(dir, safeName)
-    await fs.writeFile(filePath, Buffer.from(bytes))
-
-    const relativePath = path.join(UPLOAD_DIR, clientId, safeName)
+    const storedPath = await savePreventivoPdfUpload(clientId, preventivo.id, file.name, bytes)
     await prisma.preventivo.update({
       where: { id: preventivo.id },
-      data: { filePath: relativePath },
+      data: { filePath: storedPath },
     })
 
     revalidatePath('/preventivi')
@@ -237,7 +229,7 @@ export async function createPreventivoWithUpload(
       preventivo: {
         id: preventivo.id,
         title: preventivo.title,
-        filePath: relativePath,
+        filePath: storedPath,
       },
     }
   } catch (err) {
