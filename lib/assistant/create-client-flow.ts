@@ -105,11 +105,11 @@ export function extractCreateClientFields(message: string, prev: CreateClientDra
   return next
 }
 
-function draftHasExtras(d: CreateClientDraft): boolean {
+export function draftHasExtras(d: CreateClientDraft): boolean {
   return !!(d.contactName?.trim() || d.email?.trim() || d.phone?.trim() || d.notes?.trim())
 }
 
-function draftsEqual(a: CreateClientDraft, b: CreateClientDraft): boolean {
+export function createClientDraftsEqual(a: CreateClientDraft, b: CreateClientDraft): boolean {
   return (
     (a.name ?? '') === (b.name ?? '') &&
     (a.contactName ?? '') === (b.contactName ?? '') &&
@@ -124,13 +124,8 @@ export type ContinueCreateClientResult =
       kind: 'needs_confirmation'
       draft: CreateClientDraft
       suggestedThreadTitle?: string | null
-    }
-  | {
-      kind: 'clarify_optional'
-      draft: CreateClientDraft
-      promptedForOptional: boolean
-      reply: string
-      suggestedThreadTitle?: string | null
+      /** Nome ok senza extra: mostra subito pulsanti + invito a campi opzionali */
+      promptOptionalFields?: boolean
     }
   | {
       kind: 'clarify_name'
@@ -198,20 +193,19 @@ export function continueCreateClientFlow(params: {
 
   if (!prompted) {
     return {
-      kind: 'clarify_optional',
+      kind: 'needs_confirmation',
       draft: merged,
-      promptedForOptional: true,
-      reply: `Cliente **${merged.name}**. Vuoi aggiungere referente, email o telefono? Oppure rispondi **conferma** per crearlo così com’è.`,
       suggestedThreadTitle: `Nuovo cliente ${merged.name}`,
+      promptOptionalFields: true,
     }
   }
 
-  const optionalFieldsNew = extrasAfter && (!hadExtrasBefore || !draftsEqual(merged, flow.draft))
+  const optionalFieldsNew = extrasAfter && (!hadExtrasBefore || !createClientDraftsEqual(merged, flow.draft))
   if (optionalFieldsNew) {
     return { kind: 'needs_confirmation', draft: merged, suggestedThreadTitle: null }
   }
 
-  if (!draftsEqual(merged, flow.draft) && merged.name?.trim()) {
+  if (!createClientDraftsEqual(merged, flow.draft) && merged.name?.trim()) {
     return { kind: 'needs_confirmation', draft: merged, suggestedThreadTitle: null }
   }
 
@@ -220,7 +214,7 @@ export function continueCreateClientFlow(params: {
     draft: merged,
     promptedForOptional: true,
     reply:
-      'Non ho estratto nuovi dettagli. Rispondi **conferma** per creare il cliente oppure indica referente, email o telefono.',
+      'Non ho estratto nuovi dettagli da questo messaggio. Indica referente, email o telefono oppure usa i pulsanti **Conferma** / **Annulla** sul riepilogo sopra.',
     suggestedThreadTitle: null,
   }
 }

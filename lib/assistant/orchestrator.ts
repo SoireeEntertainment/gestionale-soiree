@@ -61,13 +61,15 @@ import {
 import type { WorkPeriod } from '@/lib/assistant/work-query-layer'
 import {
   continueCreateClientFlow,
+  createClientDraftsEqual,
+  draftHasExtras,
+  extractCreateClientFields,
   findExistingClientByNormalizedName,
   formatDuplicateReply,
   isConfirmLikeMessage,
   isRejectLikeMessage,
   parseCreateClientRule,
   startCreateClientFlowFromRule,
-  extractCreateClientFields,
 } from '@/lib/assistant/create-client-flow'
 
 async function checkCreateClientDuplicate(name: string): Promise<{ reply: string } | null> {
@@ -900,6 +902,31 @@ function draftToCreateClientPayload(d: CreateClientDraft): Record<string, unknow
   }
 }
 
+function createClientPayloadToDraft(payload: Record<string, unknown>): CreateClientDraft {
+  return {
+    name: typeof payload.name === 'string' ? payload.name : undefined,
+    contactName: typeof payload.contactName === 'string' ? payload.contactName : undefined,
+    email: typeof payload.email === 'string' ? payload.email : undefined,
+    phone: typeof payload.phone === 'string' ? payload.phone : undefined,
+    notes: typeof payload.notes === 'string' ? payload.notes : undefined,
+  }
+}
+
+function buildCreateClientConfirmationIntro(
+  draft: CreateClientDraft,
+  nameTrimmed: string,
+  promptOptionalFields?: boolean
+): string {
+  let intro = `Sto per creare il cliente **${nameTrimmed}**${
+    draft.contactName?.trim() ? ` con referente **${draft.contactName.trim()}**` : ''
+  }.`
+  if (promptOptionalFields && !draftHasExtras(draft)) {
+    intro +=
+      '\n\nVuoi aggiungere referente, email o telefono? Puoi scriverli in chat e aggiorno il riepilogo, oppure confermare così com’è con i pulsanti qui sotto.'
+  }
+  return intro
+}
+
 function previewPayload(actionType: string, payload: Record<string, unknown>): string {
   if (actionType === 'create_client') {
     const name = typeof payload.name === 'string' ? payload.name : '?'
@@ -995,9 +1022,11 @@ async function handleCreateClientFlowTurn(params: {
 
   if (cont.kind === 'needs_confirmation' && nameTrimmed) {
     const payload = draftToCreateClientPayload(cont.draft)
-    const intro = `Sto per creare il cliente **${nameTrimmed}**${
-      cont.draft.contactName?.trim() ? ` con referente **${cont.draft.contactName.trim()}**` : ''
-    }.`
+    const intro = buildCreateClientConfirmationIntro(
+      cont.draft,
+      nameTrimmed,
+      cont.promptOptionalFields === true
+    )
     const res = await buildNeedsConfirmationResponse({
       user,
       threadId,
@@ -1023,21 +1052,6 @@ async function handleCreateClientFlowTurn(params: {
           status: 'awaiting_details',
           draft: cont.draft,
           promptedForOptional: flow.promptedForOptional,
-        },
-      }),
-      suggestedThreadTitle: cont.suggestedThreadTitle ?? suggestedThreadTitle,
-    }
-  }
-
-  if (cont.kind === 'clarify_optional') {
-    return {
-      reply: cont.reply,
-      mode: 'clarification',
-      threadContextUpdate: mergeWorkPending({
-        createClientFlow: {
-          status: 'awaiting_details',
-          draft: cont.draft,
-          promptedForOptional: cont.promptedForOptional,
         },
       }),
       suggestedThreadTitle: cont.suggestedThreadTitle ?? suggestedThreadTitle,
@@ -1266,7 +1280,7 @@ async function buildNeedsConfirmationResponse(params: {
 
   const intro = baseReply ? `${baseReply}\n\n` : ''
   return {
-    reply: `${intro}Ho capito questa azione:\n${preview}\n\nConfermi? Rispondi **sì**, scrivi **Confermo**, oppure usa i pulsanti sotto.`,
+    reply: `${intro}**Riepilogo**\n${preview}\n\nUsa i pulsanti **Conferma** o **Annulla** qui sotto (non è obbligatorio scrivere “conferma”).`,
     mode: 'needs_confirmation',
     pendingConfirmationId,
     proposedAction: { type: normalized.actionType, payload: normalized.payload },
@@ -1274,6 +1288,105 @@ async function buildNeedsConfirmationResponse(params: {
     threadContextUpdate: buildThreadContextForProposedAction(normalized.actionType, normalized.payload),
     suggestedThreadTitle: suggestedThreadTitle ?? null,
   }
+}
+
+async function stripCreateClientPendingAssistantMessages(threadId: string): Promise<void> {
+  const rows = await prisma.chatMessage.findMany({
+    where: { threadId, role: 'assistant' },
+    select: { id: true, metadata: true },
+  })
+  for (const r of rows) {
+    const m = r.metadata as Record<string, unknown> | null
+    if (m?.actionType === 'create_client' && typeof m.pendingConfirmationId === 'string') {
+      await prisma.chatMessage.update({
+        where: { id: r.id },
+        data: {
+          metadata: {
+            mode: 'answer',
+            assistantBadge: 'info',
+          },
+        },
+      })
+    }
+  }
+}
+
+async function tryRefreshPendingCreateClientFromUserMessage(params: {
+  user: CurrentUser
+  threadId: string
+  userMessage: string
+  threadCtx: AssistantThreadContext
+}): Promise<AssistantChatResponse | null> {
+  const { user, threadId, userMessage, threadCtx } = params
+  if (threadCtx.createClientFlow?.status === 'awaiting_details') return null
+
+  const rows = await prisma.chatMessage.findMany({
+    where: { threadId, role: 'assistant' },
+    orderBy: { createdAt: 'desc' },
+    take: 30,
+    select: { id: true, metadata: true },
+  })
+  const hit = rows.find((r) => {
+    const m = r.metadata as Record<string, unknown> | null
+    return (
+      m &&
+      typeof m.pendingConfirmationId === 'string' &&
+      m.actionType === 'create_client' &&
+      m.mode === 'needs_confirmation'
+    )
+  })
+  if (!hit?.metadata || typeof hit.metadata !== 'object') return null
+
+  const meta = hit.metadata as Record<string, unknown>
+  const payload = meta.payload as Record<string, unknown> | undefined
+  if (!payload || typeof payload.name !== 'string' || !payload.name.trim()) return null
+
+  if (isRejectLikeMessage(userMessage)) return null
+  if (isConfirmLikeMessage(userMessage)) return null
+
+  const prevDraft = createClientPayloadToDraft(payload)
+  const merged = extractCreateClientFields(userMessage, prevDraft)
+
+  const looksLikeDetail =
+    /referente|contatto|email|e-mail|tel\b|telefono|cell\b|@\S+\.\S+|note\s*[:\s]/i.test(userMessage.trim())
+
+  if (createClientDraftsEqual(merged, prevDraft) && !looksLikeDetail) return null
+
+  if (createClientDraftsEqual(merged, prevDraft) && looksLikeDetail) {
+    return {
+      reply:
+        'Non sono riuscito a estrarre referente, email o telefono da quel messaggio. Ripeti in forma chiara (es. referente Mario, email mario@esempio.it) oppure usa **Conferma** sul riepilogo così com’è.',
+      mode: 'clarification',
+      suggestedThreadTitle: null,
+    }
+  }
+
+  const nameTrimmed = merged.name?.trim()
+  if (!nameTrimmed) return null
+
+  const dup = await findExistingClientByNormalizedName(nameTrimmed)
+  if (dup) {
+    await stripCreateClientPendingAssistantMessages(threadId)
+    return {
+      reply: formatDuplicateReply(dup),
+      mode: 'clarification',
+      suggestedThreadTitle: null,
+      threadContextUpdate: { createClientFlow: null, lastProposed: null },
+    }
+  }
+
+  await stripCreateClientPendingAssistantMessages(threadId)
+
+  const newPayload = draftToCreateClientPayload(merged)
+  const intro = buildCreateClientConfirmationIntro(merged, nameTrimmed, !draftHasExtras(merged))
+
+  return buildNeedsConfirmationResponse({
+    user,
+    threadId,
+    baseReply: intro,
+    normalized: { actionType: 'create_client', payload: newPayload },
+    suggestedThreadTitle: null,
+  })
 }
 
 async function findLatestPendingPreview(threadId: string): Promise<string | null> {
@@ -1396,6 +1509,16 @@ export async function processAssistantMessage(params: {
       threadCtx,
       suggestedThreadTitle,
     })
+  }
+
+  if (canWrite(user)) {
+    const refreshedClient = await tryRefreshPendingCreateClientFromUserMessage({
+      user,
+      threadId,
+      userMessage,
+      threadCtx,
+    })
+    if (refreshedClient) return refreshedClient
   }
 
   if (canWrite(user)) {

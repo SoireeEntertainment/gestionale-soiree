@@ -541,7 +541,7 @@ export function AssistantPanel({ embedded = false, variant }: AssistantPanelProp
                           {m.role === 'assistant' && m.pendingConfirmationId && (
                             <div className="mt-3 space-y-2.5 border-t border-amber-500/15 pt-3">
                               <p className="text-[11px] font-medium leading-snug text-amber-200/75 sm:text-xs">
-                                Azione in attesa di conferma
+                                Conferma
                               </p>
                               <div className="flex flex-wrap gap-2">
                                 <Button
