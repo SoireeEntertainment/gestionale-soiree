@@ -241,14 +241,23 @@ export async function POST(req: Request) {
   )
   const meta =
     response.mode === 'needs_confirmation' && response.confirmationMeta
-      ? ({ ...(response.confirmationMeta as object), assistantBadge: badge } as object)
+      ? ({
+          ...(response.confirmationMeta as object),
+          assistantBadge: badge,
+          ...(response.readQuickLinks?.length ? { quickLinks: response.readQuickLinks } : {}),
+        } as object)
       : response.result != null
         ? ({
             mode: response.mode,
             result: response.result,
             assistantBadge: badge,
+            ...(response.readQuickLinks?.length ? { quickLinks: response.readQuickLinks } : {}),
           } as object)
-        : ({ mode: response.mode, assistantBadge: badge } as object)
+        : ({
+            mode: response.mode,
+            assistantBadge: badge,
+            ...(response.readQuickLinks?.length ? { quickLinks: response.readQuickLinks } : {}),
+          } as object)
 
   await prisma.chatMessage.create({
     data: {
@@ -266,5 +275,6 @@ export async function POST(req: Request) {
     proposedAction: response.proposedAction,
     result: response.result,
     pendingConfirmationId: response.pendingConfirmationId,
+    readQuickLinks: response.readQuickLinks,
   })
 }

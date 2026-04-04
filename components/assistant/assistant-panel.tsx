@@ -18,6 +18,7 @@ export type MsgRow = {
   mode?: string
   assistantBadge?: string
   result?: { href?: string; success?: boolean; summary?: string }
+  quickLinks?: { label: string; href: string }[]
 }
 
 function MessageBadge({ kind }: { kind: string }) {
@@ -301,6 +302,19 @@ export function AssistantPanel({ embedded = false, variant }: AssistantPanelProp
                                   Annulla
                                 </Button>
                               </div>
+                            </div>
+                          )}
+                          {m.role === 'assistant' && m.quickLinks && m.quickLinks.length > 0 && (
+                            <div className="mt-3 flex flex-wrap gap-2 border-t border-white/[0.06] pt-3">
+                              {m.quickLinks.map((ql) => (
+                                <Link
+                                  key={`${ql.href}-${ql.label}`}
+                                  href={ql.href}
+                                  className="rounded-lg border border-white/[0.1] bg-white/[0.04] px-2.5 py-1.5 text-[11px] font-medium text-accent/90 transition-colors hover:border-accent/25 hover:bg-accent/[0.08] sm:text-xs"
+                                >
+                                  {ql.label}
+                                </Link>
+                              ))}
                             </div>
                           )}
                           {m.role === 'assistant' && m.result?.href && m.result.success && (

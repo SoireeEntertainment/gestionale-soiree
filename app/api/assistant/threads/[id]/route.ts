@@ -38,6 +38,9 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       mode: typeof meta?.mode === 'string' ? meta.mode : undefined,
       assistantBadge: typeof meta?.assistantBadge === 'string' ? meta.assistantBadge : undefined,
       result: meta?.result as { href?: string; success?: boolean; summary?: string } | undefined,
+      quickLinks: Array.isArray(meta?.quickLinks)
+        ? (meta.quickLinks as { label: string; href: string }[])
+        : undefined,
     }
   })
 

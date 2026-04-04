@@ -51,6 +51,8 @@ export type AssistantChatResponse = {
   threadContextUpdate?: Partial<AssistantThreadContext> | null
   /** Titolo sidebar suggerito (solo prima conversazione utile). */
   suggestedThreadTitle?: string | null
+  /** Link rapidi (letture lavori / clienti) salvati in metadata messaggio. */
+  readQuickLinks?: { label: string; href: string }[]
 }
 
 /** Metadata salvato sul messaggio assistant per conferma successiva. */

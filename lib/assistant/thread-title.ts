@@ -41,6 +41,29 @@ export function suggestThreadTitleFromRule(rule: RuleBasedIntent | null, fallbac
         return 'Le mie task oggi'
       case 'query_clients_active_category_work':
         return titleCase(`Clienti · ${rule.categoryHint}`.slice(0, 42))
+      case 'query_overdue_works':
+        return 'Lavori in ritardo'
+      case 'query_workload':
+        return rule.scope === 'month' ? 'Carico lavori · mese' : 'Carico lavori · settimana'
+      case 'query_works_entity':
+        return titleCase(`Lavori · ${rule.name}`.slice(0, 42))
+      case 'query_client_works_explicit':
+        return titleCase(`Lavori cliente · ${rule.clientName}`.slice(0, 42))
+      case 'query_user_works_assigned':
+        return titleCase(`Assegnati · ${rule.userName}`.slice(0, 42))
+      case 'query_work_steps':
+        return titleCase(`Step · ${rule.workHint}`.slice(0, 42))
+      case 'query_work_progress':
+      case 'query_work_show':
+        return titleCase(`Avanzamento · ${rule.workHint}`.slice(0, 42))
+      case 'query_work_summary':
+        return titleCase(
+          `Riepilogo ${rule.clientName ?? rule.categoryHint ?? 'lavori'}`.slice(0, 42)
+        )
+      case 'query_user_overdue_followup':
+        return 'In ritardo · follow-up'
+      case 'query_work_progress_followup':
+        return 'Avanzamento lavoro'
       default:
         break
     }

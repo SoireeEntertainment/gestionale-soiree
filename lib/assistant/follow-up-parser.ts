@@ -101,12 +101,44 @@ export function tryFollowUpAddWorkStep(message: string, ctx: AssistantThreadCont
   return { kind: 'create_work_step_followup', workId: w.id, stepTitle }
 }
 
+/** Dopo «lavori di Davide»: «e quali sono in ritardo?» */
+export function tryFollowUpOverdueAfterUserQuery(
+  message: string,
+  ctx: AssistantThreadContext
+): RuleBasedIntent | null {
+  if (ctx.lastReadIntentType !== 'query_user_works' || !ctx.lastResolvedUserId || !ctx.lastResolvedUserName) {
+    return null
+  }
+  const t = message.trim()
+  if (!/(in\s+ritardo|scadut|ritardat)/i.test(t)) return null
+  return {
+    kind: 'query_user_overdue_followup',
+    userId: ctx.lastResolvedUserId,
+    userName: ctx.lastResolvedUserName,
+  }
+}
+
+/** «A che punto è?» sul lavoro appena letto */
+export function tryFollowUpWorkProgressElliptic(
+  message: string,
+  ctx: AssistantThreadContext
+): RuleBasedIntent | null {
+  const wid = ctx.lastResolvedWorkId ?? ctx.lastWork?.id
+  if (!wid) return null
+  const t = message.trim()
+  if (t.length > 140) return null
+  if (!/a\s+che\s+punto|che\s+punto|progresso|avanzamento|completamento/i.test(t)) return null
+  return { kind: 'query_work_progress_followup', workId: wid }
+}
+
 export function tryParseFollowUpRule(
   message: string,
   ctx: AssistantThreadContext
 ): RuleBasedIntent | null {
   return (
     tryFollowUpAddCredential(message, ctx) ||
+    tryFollowUpOverdueAfterUserQuery(message, ctx) ||
+    tryFollowUpWorkProgressElliptic(message, ctx) ||
     tryFollowUpAssignWorkUsers(message, ctx) ||
     tryFollowUpAddWorkStep(message, ctx) ||
     tryFollowUpDeadlineOnly(message, ctx) ||

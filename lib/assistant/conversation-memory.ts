@@ -18,6 +18,22 @@ export function buildConversationMemoryBlock(
       `- Ultimo lavoro citato: **${ctx.lastWork.title}** (workId: ${ctx.lastWork.id}, clientId: ${ctx.lastWork.clientId}${ctx.lastWork.clientName ? `, cliente: ${ctx.lastWork.clientName}` : ''})`
     )
   }
+  if (ctx.lastResolvedUserName && ctx.lastResolvedUserId) {
+    lines.push(
+      `- Ultima lettura utente: **${ctx.lastResolvedUserName}** (userId: ${ctx.lastResolvedUserId})`
+    )
+  }
+  if (ctx.lastResolvedClientName && ctx.lastResolvedClientId) {
+    lines.push(
+      `- Ultima lettura cliente: **${ctx.lastResolvedClientName}** (clientId: ${ctx.lastResolvedClientId})`
+    )
+  }
+  if (ctx.lastResolvedWorkId) {
+    lines.push(`- Ultimo lavoro risolto in lettura: workId **${ctx.lastResolvedWorkId}**`)
+  }
+  if (ctx.lastReadIntentType) {
+    lines.push(`- Ultima query assistente: **${ctx.lastReadIntentType}**`)
+  }
   if (ctx.lastCategoryHint) {
     lines.push(`- Ultima categoria lavoro citata: **${ctx.lastCategoryHint}**`)
   }

@@ -18,7 +18,6 @@ import {
 import {
   readPedTasksThisWeekForUser,
   readRenewalsDueWithinDays,
-  readActiveWorksForUser,
   readClientCredentialsForQuery,
   readPedTasksRemainingThisMonthForClient,
   readTopClientsByActiveWorks,
@@ -44,6 +43,19 @@ import type {
 } from '@/lib/assistant/thread-context'
 import { tryNormalizeGranularWorkIntent } from '@/lib/assistant/work-granular-normalize'
 import { resolveWorkFromAssistantParams, resolveUserIdsFromLabelList } from '@/lib/assistant/work-resolve'
+import type { ReadWorkResult } from '@/lib/assistant/work-read-handlers'
+import {
+  readQueryClientWorks,
+  readQueryOverdueWorks,
+  readQueryUserWorks,
+  readQueryWorkload,
+  readQueryWorkProgressByWorkId,
+  readQueryWorkProgressPoint,
+  readQueryWorksForNamedEntity,
+  readQueryWorkSteps,
+  readQueryWorkSummary,
+} from '@/lib/assistant/work-read-handlers'
+import type { WorkPeriod } from '@/lib/assistant/work-query-layer'
 import {
   continueCreateClientFlow,
   findExistingClientByNormalizedName,
@@ -67,7 +79,7 @@ Schema di output obbligatorio:
   "tool_requests": null | [
     { "name": "search_clients" | "search_works" | "search_credentials" | "search_renewals" | "search_ped_tasks", "args": { "query": "string opzionale", "limit": number opzionale } }
   ],
-  "read_intent": null | { "type": "ped_week_tasks", "userName": "string" } | { "type": "renewals_due", "days": number } | { "type": "active_works_for_user", "userName": "string" } | { "type": "client_credentials", "clientName": "string", "labelHint": "string", "revealSecrets": boolean } | { "type": "ped_month_remaining", "clientName": "string" } | { "type": "top_clients_active_works" } | { "type": "my_ped_today" } | { "type": "clients_active_category_work", "categoryHint": "string" },
+  "read_intent": null | { "type": "ped_week_tasks", "userName": "string" } | { "type": "renewals_due", "days": number } | { "type": "active_works_for_user", "userName": "string" } | { "type": "client_credentials", "clientName": "string", "labelHint": "string", "revealSecrets": boolean } | { "type": "ped_month_remaining", "clientName": "string" } | { "type": "top_clients_active_works" } | { "type": "my_ped_today" } | { "type": "clients_active_category_work", "categoryHint": "string" } | { "type": "query_user_works", "userName": "string opzionale (io = utente corrente)", "period": "all"|"today"|"week"|"month"|"next7days", "overdueOnly": boolean } | { "type": "query_client_works", "clientName": "string", "period": "...", "overdueOnly": boolean } | { "type": "query_overdue_works", "userName": "string opzionale" } | { "type": "query_work_steps", "clientName": "string", "workTitleHint": "string", "missingOnly": boolean } | { "type": "query_work_progress", "clientName": "string", "workTitleHint": "string" } | { "type": "query_workload", "period": "week"|"month" } | { "type": "query_work_summary", "clientName": "string opzionale", "categoryHint": "string opzionale", "period": "week"|"today"|"month"|"next7days" opzionale },
   "write_intent": null | {
     "type": "create_client" | "create_client_credential" | "create_work" | "create_work_step" | "update_work" | "update_work_step" |
       "update_work_title" | "update_work_description" | "update_work_category" | "update_work_status" | "update_work_priority" | "update_work_deadline" |
@@ -82,7 +94,8 @@ Regole:
 - Se mancano informazioni essenziali, usa intent "clarify" e read_intent/write_intent null.
 - tool_requests: usa SOLO se ti servono dati dal DB prima di rispondere (max 2 strumenti). Se il contesto conversazione già basta, lascia null.
 - Per letture (read): imposta read_intent appropriato; reply può essere breve (es. "Ecco i dati richiesti.").
-- Per "lavori attivi di [nome]": read_intent { "type": "active_works_for_user", "userName": "..." }.
+- Per "lavori attivi di [nome]": read_intent { "type": "active_works_for_user", "userName": "..." } oppure query_user_works (include assignazioni multiple e % step).
+- Letture lavori: query_user_works, query_client_works, query_overdue_works, query_work_steps (missingOnly true/false), query_work_progress, query_workload, query_work_summary — usa nomi come stringhe; period: today|week|month|next7days|all.
 - Per credenziali: read_intent con revealSecrets true SOLO se l'utente chiede esplicitamente password in chiaro / valori completi; altrimenti revealSecrets false.
 - Per modifiche (write): imposta write_intent con type e params; NON dire di aver già eseguito l'azione.
 - Per conversazione generica senza azione sul DB: intent "chat", read_intent e write_intent null.
@@ -109,6 +122,10 @@ type LlmOut = {
     labelHint?: string
     revealSecrets?: boolean
     categoryHint?: string
+    period?: string
+    overdueOnly?: boolean
+    missingOnly?: boolean
+    workTitleHint?: string
   } | null
   write_intent?: { type?: string; params?: Record<string, unknown> } | null
 }
@@ -129,6 +146,30 @@ function normalizeDeadlineInput(raw: string | undefined | null): string | null {
   return parseDeadlineFlexible(t)
 }
 
+function readText(s: string): ReadWorkResult {
+  return { text: s }
+}
+
+function mergeReadResponse(
+  baseReply: string,
+  factual: ReadWorkResult,
+  suggestedThreadTitle: string | null
+): AssistantChatResponse {
+  return {
+    reply: [baseReply, factual.text].filter(Boolean).join('\n\n'),
+    mode: 'answer',
+    threadContextUpdate: factual.threadContextUpdate,
+    readQuickLinks: factual.readQuickLinks,
+    suggestedThreadTitle,
+  }
+}
+
+function normWorkPeriod(p: string | undefined): WorkPeriod | undefined {
+  if (!p || p === 'all') return undefined
+  if (p === 'today' || p === 'week' || p === 'month' || p === 'next7days') return p
+  return undefined
+}
+
 async function runReadIntent(
   read: {
     type?: string
@@ -138,63 +179,203 @@ async function runReadIntent(
     labelHint?: string
     revealSecrets?: boolean
     categoryHint?: string
+    period?: string
+    overdueOnly?: boolean
+    missingOnly?: boolean
+    workTitleHint?: string
   },
   opts?: { currentUserId?: string; currentUserName?: string }
-): Promise<string> {
+): Promise<ReadWorkResult> {
+  const uid = opts?.currentUserId ?? ''
+  const uname = opts?.currentUserName ?? ''
+
   if (read.type === 'ped_week_tasks' && read.userName) {
-    return readPedTasksThisWeekForUser(read.userName)
+    return readText(await readPedTasksThisWeekForUser(read.userName))
   }
   if (read.type === 'renewals_due') {
     const days = typeof read.days === 'number' && read.days > 0 ? read.days : 30
-    return readRenewalsDueWithinDays(days)
+    return readText(await readRenewalsDueWithinDays(days))
   }
   if (read.type === 'active_works_for_user' && read.userName) {
-    return readActiveWorksForUser(read.userName)
-  }
-  if (read.type === 'client_credentials' && read.clientName && read.labelHint) {
-    return readClientCredentialsForQuery(read.clientName, read.labelHint, {
-      revealSecrets: read.revealSecrets === true,
+    return readQueryUserWorks({
+      userNameHint: read.userName,
+      period: 'all',
+      overdueOnly: false,
+      currentUserId: uid,
+      currentUserName: uname,
     })
   }
+  if (read.type === 'client_credentials' && read.clientName && read.labelHint) {
+    return readText(
+      await readClientCredentialsForQuery(read.clientName, read.labelHint, {
+        revealSecrets: read.revealSecrets === true,
+      })
+    )
+  }
   if (read.type === 'ped_month_remaining' && read.clientName) {
-    return readPedTasksRemainingThisMonthForClient(read.clientName)
+    return readText(await readPedTasksRemainingThisMonthForClient(read.clientName))
   }
   if (read.type === 'top_clients_active_works') {
-    return readTopClientsByActiveWorks(12)
+    return readText(await readTopClientsByActiveWorks(12))
   }
   if (read.type === 'my_ped_today' && opts?.currentUserId && opts?.currentUserName) {
-    return readMyPedTasksToday(opts.currentUserId, opts.currentUserName)
+    return readText(await readMyPedTasksToday(opts.currentUserId, opts.currentUserName))
   }
   if (read.type === 'clients_active_category_work' && read.categoryHint) {
-    return readClientsWithActiveCategoryWork(read.categoryHint)
+    return readText(await readClientsWithActiveCategoryWork(read.categoryHint))
   }
-  return 'Richiesta di lettura non riconosciuta.'
+
+  if (read.type === 'query_user_works') {
+    return readQueryUserWorks({
+      userNameHint: read.userName,
+      period: normWorkPeriod(read.period) ?? 'all',
+      overdueOnly: read.overdueOnly === true,
+      currentUserId: uid,
+      currentUserName: uname,
+    })
+  }
+  if (read.type === 'query_client_works' && read.clientName) {
+    return readQueryClientWorks({
+      clientNameHint: read.clientName,
+      period: normWorkPeriod(read.period) ?? 'all',
+      overdueOnly: read.overdueOnly === true,
+    })
+  }
+  if (read.type === 'query_overdue_works') {
+    if (read.userName?.trim()) {
+      const r = await readQueryUserWorks({
+        userNameHint: read.userName,
+        period: 'all',
+        overdueOnly: true,
+        currentUserId: uid,
+        currentUserName: uname,
+      })
+      return r
+    }
+    return readQueryOverdueWorks({})
+  }
+  if (read.type === 'query_work_steps' && read.clientName && read.workTitleHint) {
+    return readQueryWorkSteps({
+      clientName: read.clientName,
+      workTitleHint: read.workTitleHint,
+      mode: read.missingOnly === false ? 'full' : 'missing',
+    })
+  }
+  if (read.type === 'query_work_progress' && read.clientName && read.workTitleHint) {
+    return readQueryWorkProgressPoint({
+      clientName: read.clientName,
+      workTitleHint: read.workTitleHint,
+    })
+  }
+  if (read.type === 'query_workload') {
+    const scope = read.period === 'month' ? 'month' : 'week'
+    const label = scope === 'month' ? 'questo mese' : 'questa settimana'
+    return readQueryWorkload({ periodLabel: label, scope })
+  }
+  if (read.type === 'query_work_summary') {
+    return readQueryWorkSummary({
+      clientName: read.clientName,
+      categoryHint: read.categoryHint,
+      period: normWorkPeriod(read.period),
+    })
+  }
+
+  return readText('Richiesta di lettura non riconosciuta.')
 }
 
 async function runRuleBasedRead(
   rule: RuleBasedIntent,
   opts?: { currentUserId?: string; currentUserName?: string }
-): Promise<string | null> {
+): Promise<ReadWorkResult | null> {
+  const uid = opts?.currentUserId ?? ''
+  const uname = opts?.currentUserName ?? ''
+
   switch (rule.kind) {
     case 'query_active_works':
-      return readActiveWorksForUser(rule.userName)
-    case 'query_renewals':
-      return readRenewalsDueWithinDays(rule.days)
-    case 'query_client_credentials':
-      return readClientCredentialsForQuery(rule.clientName, rule.labelHint, {
-        revealSecrets: rule.revealSecrets,
+      return readQueryUserWorks({
+        userNameHint: rule.userName,
+        period: 'all',
+        overdueOnly: false,
+        currentUserId: uid,
+        currentUserName: uname,
       })
+    case 'query_renewals':
+      return readText(await readRenewalsDueWithinDays(rule.days))
+    case 'query_client_credentials':
+      return readText(
+        await readClientCredentialsForQuery(rule.clientName, rule.labelHint, {
+          revealSecrets: rule.revealSecrets,
+        })
+      )
     case 'query_ped_month_remaining':
-      return readPedTasksRemainingThisMonthForClient(rule.clientName)
+      return readText(await readPedTasksRemainingThisMonthForClient(rule.clientName))
     case 'query_top_clients_active_works':
-      return readTopClientsByActiveWorks(12)
+      return readText(await readTopClientsByActiveWorks(12))
     case 'query_my_ped_today':
       if (!opts?.currentUserId || !opts?.currentUserName) {
-        return 'Accedi come utente per vedere le tue task di oggi.'
+        return readText('Accedi come utente per vedere le tue task di oggi.')
       }
-      return readMyPedTasksToday(opts.currentUserId, opts.currentUserName)
+      return readText(await readMyPedTasksToday(opts.currentUserId, opts.currentUserName))
     case 'query_clients_active_category_work':
-      return readClientsWithActiveCategoryWork(rule.categoryHint)
+      return readText(await readClientsWithActiveCategoryWork(rule.categoryHint))
+
+    case 'query_overdue_works':
+      return readQueryOverdueWorks({})
+    case 'query_workload': {
+      const scope = rule.scope === 'month' ? 'month' : 'week'
+      const label = scope === 'month' ? 'questo mese' : 'questa settimana'
+      return readQueryWorkload({ periodLabel: label, scope })
+    }
+    case 'query_works_entity':
+      return readQueryWorksForNamedEntity({
+        name: rule.name,
+        period: rule.period,
+        overdueOnly: rule.overdueOnly,
+        currentUserId: uid,
+        currentUserName: uname,
+      })
+    case 'query_client_works_explicit':
+      return readQueryClientWorks({
+        clientNameHint: rule.clientName,
+        period: rule.period,
+        overdueOnly: rule.overdueOnly,
+      })
+    case 'query_user_works_assigned':
+      return readQueryUserWorks({
+        userNameHint: rule.userName,
+        period: rule.period,
+        overdueOnly: rule.overdueOnly,
+        currentUserId: uid,
+        currentUserName: uname,
+      })
+    case 'query_work_steps':
+      return readQueryWorkSteps({
+        clientName: rule.clientName,
+        workTitleHint: rule.workHint,
+        mode: rule.mode,
+      })
+    case 'query_work_progress':
+      return readQueryWorkProgressPoint({
+        clientName: rule.clientName,
+        workTitleHint: rule.workHint,
+      })
+    case 'query_work_show':
+      return readQueryWorkSteps({
+        clientName: rule.clientName,
+        workTitleHint: rule.workHint,
+        mode: 'full',
+      })
+    case 'query_work_summary':
+      return readQueryWorkSummary({
+        clientName: rule.clientName,
+        categoryHint: rule.categoryHint,
+        period: rule.period,
+      })
+    case 'query_user_overdue_followup':
+      return readQueryOverdueWorks({ userId: rule.userId, userNameForLabel: rule.userName })
+    case 'query_work_progress_followup':
+      return readQueryWorkProgressByWorkId(rule.workId)
+
     default:
       return null
   }
@@ -940,7 +1121,7 @@ export async function processAssistantMessage(params: {
     if (rule) {
       const readOnly = await runRuleBasedRead(rule, userOpts)
       if (readOnly !== null) {
-        return { reply: readOnly, mode: 'answer', suggestedThreadTitle }
+        return mergeReadResponse('', readOnly, suggestedThreadTitle)
       }
     }
     const llmCtx = await buildAssistantLlmContext()
@@ -961,12 +1142,8 @@ export async function processAssistantMessage(params: {
         userContent
       )
       if (parsed.intent === 'read' && parsed.read_intent) {
-        const text = await runReadIntent(parsed.read_intent as Parameters<typeof runReadIntent>[0], userOpts)
-        return {
-          reply: `${parsed.reply ?? ''}\n\n${text}`.trim(),
-          mode: 'answer',
-          suggestedThreadTitle,
-        }
+        const factual = await runReadIntent(parsed.read_intent as Parameters<typeof runReadIntent>[0], userOpts)
+        return mergeReadResponse(parsed.reply ?? '', factual, suggestedThreadTitle)
       }
       return {
         reply:
@@ -988,7 +1165,7 @@ export async function processAssistantMessage(params: {
   if (rule) {
     const readText = await runRuleBasedRead(rule, userOpts)
     if (readText !== null) {
-      return { reply: readText, mode: 'answer', suggestedThreadTitle }
+      return mergeReadResponse('', readText, suggestedThreadTitle)
     }
     const writeSpec = ruleIntentToWriteParams(rule)
     if (writeSpec) {
@@ -1043,11 +1220,7 @@ export async function processAssistantMessage(params: {
 
   if (parsed.intent === 'read' && parsed.read_intent) {
     const factual = await runReadIntent(parsed.read_intent as Parameters<typeof runReadIntent>[0], userOpts)
-    return {
-      reply: [baseReply, factual].filter(Boolean).join('\n\n'),
-      mode: 'answer',
-      suggestedThreadTitle,
-    }
+    return mergeReadResponse(baseReply, factual, suggestedThreadTitle)
   }
 
   if (parsed.intent === 'write' && parsed.write_intent?.type && parsed.write_intent.params) {

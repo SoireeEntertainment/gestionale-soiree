@@ -47,6 +47,14 @@ export type AssistantThreadContext = {
   lastUndo?: AssistantUndoSnapshot | null
   /** Flusso attivo "crea cliente" (priorità su ricerche / LLM). */
   createClientFlow?: CreateClientFlowState | null
+  /** Ultima lettura lavori: risoluzione entità per follow-up (es. «e in ritardo?»). */
+  lastResolvedUserId?: string
+  lastResolvedUserName?: string
+  lastResolvedClientId?: string
+  lastResolvedClientName?: string
+  lastResolvedWorkId?: string
+  /** Es. query_user_works, query_client_works, query_work_steps */
+  lastReadIntentType?: string
 }
 
 export function parseAssistantThreadContext(raw: unknown): AssistantThreadContext | null {

@@ -45,4 +45,32 @@ if (!r || r.kind !== 'create_work_step_followup' || r.stepTitle !== 'QA') fail('
 r = tryParseFollowUpRule('metti la deadline al 15 aprile', baseCtx)
 if (!r || r.kind !== 'update_work' || !r.deadlineRaw?.includes('15')) fail('follow-up deadline')
 
+r = parseRuleBasedIntent('Quali lavori ha Davide?')
+if (!r || r.kind !== 'query_works_entity' || r.name !== 'Davide') fail('query_works_entity user phrase')
+
+r = parseRuleBasedIntent('Quali lavori sono in ritardo?')
+if (!r || r.kind !== 'query_overdue_works') fail('query_overdue_works')
+
+r = parseRuleBasedIntent('Quali step mancano nel lavoro Website di Rinlux?')
+if (!r || r.kind !== 'query_work_steps' || r.workHint !== 'Website' || r.clientName !== 'Rinlux')
+  fail('query_work_steps missing')
+
+r = parseRuleBasedIntent('A che punto è il lavoro Website di Rinlux?')
+if (!r || r.kind !== 'query_work_progress' || r.workHint !== 'Website') fail('query_work_progress')
+
+r = parseRuleBasedIntent('Chi è più carico questa settimana?')
+if (!r || r.kind !== 'query_workload' || r.scope !== 'week') fail('query_workload')
+
+const userCtx: AssistantThreadContext = {
+  ...baseCtx,
+  lastReadIntentType: 'query_user_works',
+  lastResolvedUserId: 'u-davide',
+  lastResolvedUserName: 'Davide',
+}
+r = tryParseFollowUpRule('E quali sono in ritardo?', userCtx)
+if (!r || r.kind !== 'query_user_overdue_followup' || r.userId !== 'u-davide') fail('follow-up overdue user')
+
+r = tryParseFollowUpRule('a che punto è?', baseCtx)
+if (!r || r.kind !== 'query_work_progress_followup' || r.workId !== 'w-test') fail('follow-up progress')
+
 console.log('assistant-parse-smoke: ok')
