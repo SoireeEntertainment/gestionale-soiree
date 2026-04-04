@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma'
 import type { AssistantResult } from '@/lib/assistant/types'
 import type { AssistantUndoSnapshot } from '@/lib/assistant/thread-context'
 import {
+  createClientPayloadSchema,
   createClientCredentialPayloadSchema,
   updateClientCredentialPayloadSchema,
   createWorkPayloadSchema,
@@ -18,6 +19,7 @@ import { createWork, updateWork, deleteWork } from '@/app/actions/works'
 import { createWorkStep, updateWorkStep, deleteWorkStep } from '@/app/actions/work-steps'
 import { createClientRenewal, updateClientRenewal } from '@/app/actions/client-renewals'
 import { createPedItem, updatePedItem } from '@/app/actions/ped'
+import { createClient } from '@/app/actions/clients'
 
 export async function logAssistantAction(params: {
   userId: string
@@ -65,6 +67,57 @@ export async function executeAssistantAction(
 ): Promise<AssistantResult> {
   try {
     switch (actionType) {
+      case 'create_client': {
+        const p = createClientPayloadSchema.parse(payload)
+        const email = (p.email ?? '').trim()
+        const data = {
+          name: p.name.trim(),
+          contactName: (p.contactName ?? '').trim(),
+          email,
+          phone: (p.phone ?? '').trim(),
+          notes: (p.notes ?? '').trim(),
+          websiteUrl: '',
+          industryCategory: null,
+          assignedToUserId: null,
+          metaBusinessSuiteUrl: '',
+          gestioneInserzioniUrl: '',
+        }
+        try {
+          const { client } = await createClient(data)
+          if (process.env.NODE_ENV !== 'production') {
+            console.log('[assistant] action executed', { actionType: 'create_client', clientId: client.id, name: client.name })
+          }
+          await logAssistantAction({
+            userId,
+            threadId,
+            actionType,
+            entityType: 'Client',
+            entityId: client.id,
+            input: data,
+            result: { id: client.id, name: client.name },
+            status: 'success',
+          })
+          return ok(
+            `Cliente **${client.name}** creato con successo.`,
+            'Client',
+            client.id,
+            `/clients/${client.id}`
+          )
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : 'Errore creazione cliente'
+          await logAssistantAction({
+            userId,
+            threadId,
+            actionType,
+            entityType: 'Client',
+            input: data,
+            result: { error: msg },
+            status: 'failed',
+          })
+          return fail(msg)
+        }
+      }
+
       case 'create_client_credential': {
         const p = createClientCredentialPayloadSchema.parse(payload)
         await upsertClientCredential(p.clientId, {

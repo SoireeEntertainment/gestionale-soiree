@@ -72,6 +72,7 @@ export function isPendingMetadata(v: unknown): v is PendingConfirmationMetadata 
 
 /** Tipi azione supportati dall'executor (allineati al layer interno). */
 export const ASSISTANT_ACTION_TYPES = [
+  'create_client',
   'create_client_credential',
   'update_client_credential',
   'create_work',

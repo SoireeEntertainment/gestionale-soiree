@@ -2,6 +2,22 @@ import { prisma } from '@/lib/prisma'
 
 export const ASSISTANT_CONTEXT_VERSION = 1 as const
 
+/** Bozza creazione cliente (flusso conversazionale). */
+export type CreateClientDraft = {
+  name?: string
+  contactName?: string
+  email?: string
+  phone?: string
+  notes?: string
+}
+
+export type CreateClientFlowState = {
+  status: 'awaiting_details'
+  draft: CreateClientDraft
+  /** Dopo il primo prompt sui campi opzionali */
+  promptedForOptional?: boolean
+}
+
 /** Snapshot per annullare l’ultima creazione semplice (stesso thread). */
 export type AssistantUndoSnapshot = {
   kind: 'create_client_credential' | 'create_work' | 'create_work_step'
@@ -29,6 +45,8 @@ export type AssistantThreadContext = {
   /** Ultima proposta in attesa (dopo conferma viene azzerata dal messaggio). */
   lastProposed?: { actionType: string; previewSummary: string } | null
   lastUndo?: AssistantUndoSnapshot | null
+  /** Flusso attivo "crea cliente" (priorità su ricerche / LLM). */
+  createClientFlow?: CreateClientFlowState | null
 }
 
 export function parseAssistantThreadContext(raw: unknown): AssistantThreadContext | null {
@@ -53,6 +71,9 @@ export function mergeAssistantContext(
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'lastUndo') && patch.lastUndo === null) {
     out.lastUndo = null
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'createClientFlow') && patch.createClientFlow === null) {
+    delete out.createClientFlow
   }
   return out
 }

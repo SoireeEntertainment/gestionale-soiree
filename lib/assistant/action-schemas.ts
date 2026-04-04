@@ -1,5 +1,13 @@
 import { z } from 'zod'
 
+export const createClientPayloadSchema = z.object({
+  name: z.string().min(1),
+  contactName: z.string().optional().nullable(),
+  email: z.string().optional().nullable(),
+  phone: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
+})
+
 export const createClientCredentialPayloadSchema = z.object({
   clientId: z.string().min(1),
   label: z.string().min(1),

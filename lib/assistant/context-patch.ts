@@ -26,6 +26,21 @@ export async function buildThreadContextAfterConfirmedAction(
     if (client) patch.lastClient = { id: clientId, name: client.name }
   }
 
+  if (actionType === 'create_client') {
+    const resolvedId = result.entityId
+    if (resolvedId) {
+      const client = await prisma.client.findUnique({
+        where: { id: resolvedId },
+        select: { name: true },
+      })
+      if (client) {
+        patch.lastClient = { id: resolvedId, name: client.name }
+        patch.lastWrite = { actionType, clientId: resolvedId, clientName: client.name }
+      }
+    }
+    patch.createClientFlow = null
+  }
+
   if (actionType === 'create_client_credential') {
     const label = typeof payload.label === 'string' ? payload.label : undefined
     if (label) patch.lastCredentialLabel = label

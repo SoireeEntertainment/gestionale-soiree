@@ -37,6 +37,20 @@ import {
   buildThreadContextForProposedAction,
   buildThreadContextAfterUndoSuccess,
 } from '@/lib/assistant/context-patch'
+import type { CreateClientDraft, CreateClientFlowState } from '@/lib/assistant/thread-context'
+import {
+  continueCreateClientFlow,
+  findExistingClientByNormalizedName,
+  formatDuplicateReply,
+  parseCreateClientRule,
+  startCreateClientFlowFromRule,
+} from '@/lib/assistant/create-client-flow'
+
+async function checkCreateClientDuplicate(name: string): Promise<{ reply: string } | null> {
+  const dup = await findExistingClientByNormalizedName(name)
+  if (!dup) return null
+  return { reply: formatDuplicateReply(dup) }
+}
 
 const SYSTEM_PROMPT = `Sei l'assistente interno del gestionale Soirëe Studio. Rispondi SOLO con JSON valido, senza markdown.
 
@@ -49,7 +63,7 @@ Schema di output obbligatorio:
   ],
   "read_intent": null | { "type": "ped_week_tasks", "userName": "string" } | { "type": "renewals_due", "days": number } | { "type": "active_works_for_user", "userName": "string" } | { "type": "client_credentials", "clientName": "string", "labelHint": "string", "revealSecrets": boolean } | { "type": "ped_month_remaining", "clientName": "string" } | { "type": "top_clients_active_works" } | { "type": "my_ped_today" } | { "type": "clients_active_category_work", "categoryHint": "string" },
   "write_intent": null | {
-    "type": "create_client_credential" | "create_work" | "create_work_step" | "update_work" | "create_ped_task" | "update_ped_task" | "create_client_renewal" | "update_client_renewal" | "update_client_credential" | "update_work_step",
+    "type": "create_client" | "create_client_credential" | "create_work" | "create_work_step" | "update_work" | "create_ped_task" | "update_ped_task" | "create_client_renewal" | "update_client_renewal" | "update_client_credential" | "update_work_step",
     "params": { ... campi estratti dal messaggio utente, usa nomi cliente/categoria/lavoro come stringhe se non hai id }
   }
 }
@@ -66,6 +80,7 @@ Regole:
 - Per create_work: params includono title, clientName (o clientId se noto), categoryName (o categoryId).
 - Per create_work_step: clientName, workTitleHint, stepTitle.
 - Per update_work: clientName, workTitleHint, e opzionalmente deadline (YYYY-MM-DD), title, status, priority.
+- Per create_client (nuovo cliente in anagrafica): params con name obbligatorio; opzionali contactName, email, phone, notes. NON usare per credenziali/login.
 - Per create_client_credential: clientName, label (es. Instagram), username, password se forniti.
 - Per create_ped_task: clientName, date (YYYY-MM-DD), title, type (es. POST, REEL), kind tipicamente CONTENT.
 - Non inventare id: usa nomi; il sistema risolverà.
@@ -255,6 +270,29 @@ async function normalizeWriteIntent(
   const str = (k: string) => (typeof params[k] === 'string' ? (params[k] as string).trim() : '')
 
   switch (type) {
+    case 'create_client': {
+      const name = str('name') || str('clientName') || str('nome') || str('ragioneSociale')
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[assistant] normalizeWriteIntent create_client', { name, paramsKeys: Object.keys(params) })
+      }
+      if (!name) {
+        return { ok: false, reply: 'Per creare un cliente serve almeno il nome (ragione sociale o nome commerciale).' }
+      }
+      const dupMsg = await checkCreateClientDuplicate(name)
+      if (dupMsg) return { ok: false, reply: dupMsg.reply }
+      return {
+        ok: true,
+        actionType: 'create_client',
+        payload: {
+          name,
+          contactName: str('contactName') || str('referente') || null,
+          email: str('email') || null,
+          phone: str('phone') || str('telefono') || str('tel') || null,
+          notes: str('notes') || str('note') || null,
+        },
+      }
+    }
+
     case 'create_client_credential': {
       const clientHint = str('clientName') || str('client')
       const label = str('label') || 'Credenziale'
@@ -565,10 +603,144 @@ async function normalizeWriteIntent(
   }
 }
 
+function draftToCreateClientPayload(d: CreateClientDraft): Record<string, unknown> {
+  const name = d.name?.trim()
+  if (!name) throw new Error('Nome cliente mancante')
+  return {
+    name,
+    contactName: d.contactName?.trim() || null,
+    email: d.email?.trim() || null,
+    phone: d.phone?.trim() || null,
+    notes: d.notes?.trim() || null,
+  }
+}
+
 function previewPayload(actionType: string, payload: Record<string, unknown>): string {
+  if (actionType === 'create_client') {
+    const name = typeof payload.name === 'string' ? payload.name : '?'
+    const bits = [`nome: ${name}`]
+    if (payload.contactName) bits.push(`referente: ${String(payload.contactName)}`)
+    if (payload.email) bits.push(`email: ${String(payload.email)}`)
+    if (payload.phone) bits.push(`tel: ${String(payload.phone)}`)
+    if (payload.notes) bits.push('note: …')
+    return `create_client (${bits.join(', ')})`
+  }
   const redact = { ...payload }
   if ('password' in redact && redact.password) redact.password = '***'
   return `${actionType}: ${JSON.stringify(redact)}`
+}
+
+async function handleCreateClientFlowTurn(params: {
+  user: CurrentUser
+  threadId: string
+  userMessage: string
+  flow: CreateClientFlowState
+  suggestedThreadTitle: string | null
+}): Promise<AssistantChatResponse> {
+  const { user, threadId, userMessage, flow, suggestedThreadTitle } = params
+
+  if (/^(annulla|lascia\s+stare|non\s+creare|stop)\b/i.test(userMessage.trim())) {
+    if (process.env.NODE_ENV !== 'production') console.log('[assistant] create_client cancelled by user')
+    return {
+      reply: 'Ok, annullo la creazione del nuovo cliente.',
+      mode: 'answer',
+      threadContextUpdate: { createClientFlow: null },
+      suggestedThreadTitle,
+    }
+  }
+
+  const cont = continueCreateClientFlow({ userMessage, flow })
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[assistant] create_client step', {
+      kind: cont.kind,
+      draft: cont.draft,
+      extractedFields: cont.draft,
+    })
+  }
+
+  const nameTrimmed = cont.draft.name?.trim()
+  if (nameTrimmed) {
+    const dup = await findExistingClientByNormalizedName(nameTrimmed)
+    if (dup) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[assistant] create_client duplicate', { existing: dup.name })
+      }
+      return {
+        reply: formatDuplicateReply(dup),
+        mode: 'clarification',
+        threadContextUpdate: { createClientFlow: null },
+        suggestedThreadTitle,
+      }
+    }
+  }
+
+  if (cont.kind === 'needs_confirmation' && nameTrimmed) {
+    const payload = draftToCreateClientPayload(cont.draft)
+    const intro = `Sto per creare il cliente **${nameTrimmed}**${
+      cont.draft.contactName?.trim() ? ` con referente **${cont.draft.contactName.trim()}**` : ''
+    }.`
+    const res = await buildNeedsConfirmationResponse({
+      user,
+      threadId,
+      baseReply: intro,
+      normalized: { actionType: 'create_client', payload },
+      suggestedThreadTitle: cont.suggestedThreadTitle ?? suggestedThreadTitle,
+    })
+    return {
+      ...res,
+      threadContextUpdate: {
+        ...(res.threadContextUpdate ?? {}),
+        createClientFlow: null,
+      },
+    }
+  }
+
+  if (cont.kind === 'clarify_name') {
+    return {
+      reply: cont.reply,
+      mode: 'clarification',
+      threadContextUpdate: {
+        createClientFlow: {
+          status: 'awaiting_details',
+          draft: cont.draft,
+          promptedForOptional: flow.promptedForOptional,
+        },
+      },
+      suggestedThreadTitle: cont.suggestedThreadTitle ?? suggestedThreadTitle,
+    }
+  }
+
+  if (cont.kind === 'clarify_optional') {
+    return {
+      reply: cont.reply,
+      mode: 'clarification',
+      threadContextUpdate: {
+        createClientFlow: {
+          status: 'awaiting_details',
+          draft: cont.draft,
+          promptedForOptional: cont.promptedForOptional,
+        },
+      },
+      suggestedThreadTitle: cont.suggestedThreadTitle ?? suggestedThreadTitle,
+    }
+  }
+
+  if (cont.kind === 'noop_details') {
+    return {
+      reply: cont.reply,
+      mode: 'clarification',
+      threadContextUpdate: {
+        createClientFlow: {
+          status: 'awaiting_details',
+          draft: cont.draft,
+          promptedForOptional: cont.promptedForOptional,
+        },
+      },
+      suggestedThreadTitle,
+    }
+  }
+
+  throw new Error(`Unhandled create_client flow kind: ${(cont as { kind: string }).kind}`)
 }
 
 async function buildNeedsConfirmationResponse(params: {
@@ -696,6 +868,38 @@ export async function processAssistantMessage(params: {
       result,
       threadContextUpdate: result.success ? buildThreadContextAfterUndoSuccess() : null,
       suggestedThreadTitle,
+    }
+  }
+
+  const createRuleEarly = parseCreateClientRule(userMessage)
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[assistant] orchestrator', {
+      threadId,
+      pendingCreateClientFlow: threadCtx.createClientFlow ?? null,
+      createRuleEarly: !!createRuleEarly,
+      detectedIntent: rule?.kind ?? null,
+    })
+  }
+
+  if (canWrite(user)) {
+    if (threadCtx.createClientFlow?.status === 'awaiting_details') {
+      return handleCreateClientFlowTurn({
+        user,
+        threadId,
+        userMessage,
+        flow: threadCtx.createClientFlow,
+        suggestedThreadTitle,
+      })
+    }
+    if (createRuleEarly) {
+      const flow = startCreateClientFlowFromRule(userMessage, createRuleEarly)
+      return handleCreateClientFlowTurn({
+        user,
+        threadId,
+        userMessage,
+        flow,
+        suggestedThreadTitle,
+      })
     }
   }
 
