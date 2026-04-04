@@ -53,3 +53,55 @@ export function parseItalianDatePhrase(raw: string, refYear?: number): string | 
 
   return null
 }
+
+const IT_WEEKDAY: Record<string, number> = {
+  domenica: 0,
+  lunedi: 1,
+  lunedì: 1,
+  martedi: 2,
+  martedì: 2,
+  mercoledi: 3,
+  mercoledì: 3,
+  giovedi: 4,
+  giovedì: 4,
+  venerdi: 5,
+  venerdì: 5,
+  sabato: 6,
+}
+
+/**
+ * Frasi tipo "lunedì prossimo", "martedì prossimo" → YYYY-MM-DD (prossimo occorrenza dopo oggi).
+ */
+export function parseItalianNextWeekdayPhrase(raw: string): string | null {
+  const s = raw.trim().toLowerCase().replace(/\s+/g, ' ')
+  const m = s.match(
+    /^(luned[iì]|marted[iì]|mercoled[iì]|gioved[iì]|venerd[iì]|sabato|domenica)\s+prossim[oa]?$/i
+  )
+  if (!m) return null
+  const key = m[1].toLowerCase().normalize('NFD').replace(/\u0300/g, '')
+  const wd = IT_WEEKDAY[key]
+  if (wd === undefined) return null
+
+  const start = new Date()
+  start.setHours(12, 0, 0, 0)
+  for (let add = 1; add <= 14; add++) {
+    const d = new Date(start)
+    d.setDate(d.getDate() + add)
+    if (d.getDay() === wd) {
+      const y = d.getFullYear()
+      const mo = String(d.getMonth() + 1).padStart(2, '0')
+      const da = String(d.getDate()).padStart(2, '0')
+      return `${y}-${mo}-${da}`
+    }
+  }
+  return null
+}
+
+/** Combina parsing assoluto e relativo settimanale. */
+export function parseDeadlineFlexible(raw: string): string | null {
+  const t = raw.trim()
+  if (!t) return null
+  const abs = parseItalianDatePhrase(t)
+  if (abs) return abs
+  return parseItalianNextWeekdayPhrase(t)
+}

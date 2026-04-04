@@ -39,6 +39,8 @@ model ChatThread {
   id        String   @id @default(cuid())
   userId    String
   title     String   @default("Nuova chat")
+  // Contesto assistente: entità citate, undo, ultima azione proposta (JSON).
+  assistantContext Json?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

@@ -36,6 +36,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       createdAt: m.createdAt,
       pendingConfirmationId: pendingId,
       mode: typeof meta?.mode === 'string' ? meta.mode : undefined,
+      assistantBadge: typeof meta?.assistantBadge === 'string' ? meta.assistantBadge : undefined,
       result: meta?.result as { href?: string; success?: boolean; summary?: string } | undefined,
     }
   })

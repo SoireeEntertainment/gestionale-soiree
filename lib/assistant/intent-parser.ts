@@ -33,10 +33,22 @@ export type RuleBasedIntent =
     }
   | { kind: 'query_active_works'; userName: string }
   | { kind: 'query_renewals'; days: number }
-  | { kind: 'query_client_credentials'; clientName: string; labelHint: string }
+  | { kind: 'query_client_credentials'; clientName: string; labelHint: string; revealSecrets: boolean }
+  | { kind: 'undo_last_action' }
+  | { kind: 'query_ped_month_remaining'; clientName: string }
+  | { kind: 'query_top_clients_active_works' }
+  | { kind: 'query_my_ped_today' }
+  | { kind: 'query_clients_active_category_work'; categoryHint: string }
 
 function cleanName(s: string) {
   return s.replace(/^["'«»]|["'«»]$/g, '').trim()
+}
+
+/** True se l’utente chiede esplicitamente password / valori in chiaro. */
+export function wantsCredentialSecretsInMessage(message: string): boolean {
+  return /\b(password|passwords|pwd|in chiaro|valori completi|mostra\s+tutto|mostrami\s+le\s+password|dammi\s+la\s+password)\b/i.test(
+    message
+  )
 }
 
 /** Estrae username/password da coda messaggio (ordine flessibile). */
@@ -52,6 +64,43 @@ function extractUserPass(text: string): { username?: string; password?: string }
 export function parseRuleBasedIntent(message: string): RuleBasedIntent | null {
   const m = message.trim()
   const lower = m.toLowerCase()
+  const revealCred = wantsCredentialSecretsInMessage(m)
+
+  // --- Annulla ultima azione ---
+  if (
+    /^(?:annulla|undo|cancella)\s+(?:l[''])?ultima\s+azione\b/i.test(m) ||
+    /^annulla\s+ultimo\b/i.test(m)
+  ) {
+    return { kind: 'undo_last_action' }
+  }
+
+  // --- Task PED cliente mese corrente ---
+  if (/task|ped/i.test(m) && /mancano|rimangono|quante/i.test(m) && /mese|questo mese|del mese/i.test(m)) {
+    const c = m.match(
+      /(?:a|per|per il cliente|cliente)\s+(.+?)(?:\s+questo|\s+del|\s*$|\?)/i
+    )
+    if (c) {
+      return { kind: 'query_ped_month_remaining', clientName: cleanName(c[1]) }
+    }
+  }
+
+  // --- Clienti con più lavori attivi ---
+  if (/clienti?\s+con\s+pi[uù]\s+lavori?\s+attiv/i.test(m) || /pi[uù]\s+lavori?\s+attiv.*clienti/i.test(m)) {
+    return { kind: 'query_top_clients_active_works' }
+  }
+
+  // --- Le mie task oggi ---
+  if (/quali\s+task\s+ho\s+oggi/i.test(m) || /^task\s+di\s+oggi\s+per\s+me\b/i.test(m)) {
+    return { kind: 'query_my_ped_today' }
+  }
+
+  // --- Clienti con lavoro <categoria> attivo ---
+  if (/clienti.*lavoro.*attiv/i.test(m) || /hanno.*lavoro.*attiv/i.test(m)) {
+    const cat = m.match(/lavoro\s+(\S+)\s+attiv/i) || m.match(/lavoro\s+tipo\s+(\S+)/i)
+    if (cat) {
+      return { kind: 'query_clients_active_category_work', categoryHint: cat[1] }
+    }
+  }
 
   // --- Credenziali cliente ---
   if (/credenzial/i.test(m) && /(?:aggiungi|inserisci|salva|registra)/i.test(m)) {
@@ -97,19 +146,39 @@ export function parseRuleBasedIntent(message: string): RuleBasedIntent | null {
   ) {
     const g = m.match(/le\s+credenziali\s+(\w+)\s+di\s+(.+?)(?:\?|$)/i)
     if (g) {
-      return { kind: 'query_client_credentials', labelHint: g[1], clientName: cleanName(g[2]) }
+      return {
+        kind: 'query_client_credentials',
+        labelHint: g[1],
+        clientName: cleanName(g[2]),
+        revealSecrets: revealCred,
+      }
     }
     const g0 = m.match(/credenziali\s+(\w+)\s+di\s+(.+?)(?:\?|$)/i)
     if (g0) {
-      return { kind: 'query_client_credentials', labelHint: g0[1], clientName: cleanName(g0[2]) }
+      return {
+        kind: 'query_client_credentials',
+        labelHint: g0[1],
+        clientName: cleanName(g0[2]),
+        revealSecrets: revealCred,
+      }
     }
     const gAlt = m.match(/credenziali\s+(\w+)(?:\s+di\s+|\s+del\s+cliente\s+)(.+)/i)
     if (gAlt) {
-      return { kind: 'query_client_credentials', labelHint: gAlt[1], clientName: cleanName(gAlt[2]) }
+      return {
+        kind: 'query_client_credentials',
+        labelHint: gAlt[1],
+        clientName: cleanName(gAlt[2]),
+        revealSecrets: revealCred,
+      }
     }
     const g2 = m.match(/(?:di|del\s+cliente)\s+(.+?)\s+(?:le\s+)?(?:credenziali|account)\s+(\w+)/i)
     if (g2) {
-      return { kind: 'query_client_credentials', clientName: cleanName(g2[1]), labelHint: g2[2] }
+      return {
+        kind: 'query_client_credentials',
+        clientName: cleanName(g2[1]),
+        labelHint: g2[2],
+        revealSecrets: revealCred,
+      }
     }
   }
 

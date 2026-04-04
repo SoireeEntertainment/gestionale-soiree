@@ -13,7 +13,29 @@ type MsgRow = {
   createdAt: string
   pendingConfirmationId?: string
   mode?: string
+  assistantBadge?: string
   result?: { href?: string; success?: boolean; summary?: string }
+}
+
+function Badge({ kind }: { kind: string }) {
+  const styles: Record<string, string> = {
+    needs_confirmation: 'bg-amber-500/20 text-amber-200 border-amber-500/40',
+    action_done: 'bg-emerald-500/15 text-emerald-200 border-emerald-500/30',
+    action_failed: 'bg-red-500/15 text-red-200 border-red-500/30',
+    info: 'bg-white/10 text-white/70 border-white/15',
+  }
+  const labels: Record<string, string> = {
+    needs_confirmation: 'Richiede conferma',
+    action_done: 'Azione eseguita',
+    action_failed: 'Azione non riuscita',
+    info: 'Info',
+  }
+  const cls = styles[kind] ?? 'bg-white/10 text-white/60 border-white/10'
+  return (
+    <span className={`inline-block text-[10px] uppercase tracking-wide px-2 py-0.5 rounded border ${cls}`}>
+      {labels[kind] ?? kind}
+    </span>
+  )
 }
 
 export function AssistantPage() {
@@ -147,6 +169,9 @@ export function AssistantPage() {
             ) : (
               <>
                 <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                  {loading && !loadingThread && (
+                    <p className="text-accent/80 text-sm animate-pulse">L’assistente sta elaborando…</p>
+                  )}
                   {loadingThread ? (
                     <p className="text-white/50">Caricamento…</p>
                   ) : (
@@ -162,10 +187,15 @@ export function AssistantPage() {
                               : 'bg-white/5 text-white/90 border border-white/10'
                           }`}
                         >
+                          {m.role === 'assistant' && m.assistantBadge && (
+                            <div className="mb-2">
+                              <Badge kind={m.assistantBadge} />
+                            </div>
+                          )}
                           {m.content}
                           {m.role === 'assistant' && m.pendingConfirmationId && (
                             <div className="mt-3 pt-2 border-t border-amber-500/30 space-y-2">
-                              <p className="text-amber-200/90 text-xs font-medium">In attesa di conferma</p>
+                              <p className="text-amber-200/90 text-xs font-medium">Azione proposta — in attesa di conferma</p>
                               <div className="flex flex-wrap gap-2">
                                 <Button
                                   size="sm"
@@ -194,9 +224,13 @@ export function AssistantPage() {
                             <div className="mt-2">
                               <Link
                                 href={m.result.href}
-                                className="text-accent text-sm underline hover:no-underline"
+                                className="text-accent text-sm font-medium underline hover:no-underline"
                               >
-                                Apri risorsa
+                                {m.result.href.startsWith('/clients/')
+                                  ? 'Apri scheda cliente'
+                                  : m.result.href.startsWith('/works/')
+                                    ? 'Apri lavoro'
+                                    : 'Apri risorsa'}
                               </Link>
                             </div>
                           )}
@@ -225,7 +259,7 @@ export function AssistantPage() {
                     disabled={loading}
                   />
                   <Button type="submit" disabled={loading || !input.trim()}>
-                    {loading ? 'Invio…' : 'Invia'}
+                    {loading ? 'Elaborazione…' : 'Invia'}
                   </Button>
                 </form>
               </>

@@ -5,7 +5,11 @@ import { canWrite } from '@/lib/auth-dev'
 import { buildAssistantLlmContext } from '@/lib/assistant/context'
 import { callOpenAiChat } from '@/lib/assistant/openai'
 import type { AssistantChatResponse, PendingConfirmationMetadata } from '@/lib/assistant/types'
-import { executeAssistantAction, logAssistantAction } from '@/lib/assistant/action-executor'
+import {
+  executeAssistantAction,
+  logAssistantAction,
+  performAssistantUndo,
+} from '@/lib/assistant/action-executor'
 import {
   resolveSingleClient,
   findCategoryByNameHint,
@@ -16,9 +20,23 @@ import {
   readRenewalsDueWithinDays,
   readActiveWorksForUser,
   readClientCredentialsForQuery,
+  readPedTasksRemainingThisMonthForClient,
+  readTopClientsByActiveWorks,
+  readMyPedTasksToday,
+  readClientsWithActiveCategoryWork,
 } from '@/lib/assistant/read-handlers'
 import { parseRuleBasedIntent, type RuleBasedIntent } from '@/lib/assistant/intent-parser'
-import { parseItalianDatePhrase } from '@/lib/assistant/parse-it-date'
+import { parseDeadlineFlexible } from '@/lib/assistant/parse-it-date'
+import { buildConversationMemoryBlock } from '@/lib/assistant/conversation-memory'
+import { loadThreadAssistantContext } from '@/lib/assistant/thread-context'
+import { tryParseFollowUpRule } from '@/lib/assistant/follow-up-parser'
+import { suggestThreadTitleFromRule } from '@/lib/assistant/thread-title'
+import { runAssistantTool, type ToolName } from '@/lib/assistant/tools-runner'
+import {
+  buildThreadContextAfterConfirmedAction,
+  buildThreadContextForProposedAction,
+  buildThreadContextAfterUndoSuccess,
+} from '@/lib/assistant/context-patch'
 
 const SYSTEM_PROMPT = `Sei l'assistente interno del gestionale Soirëe Studio. Rispondi SOLO con JSON valido, senza markdown.
 
@@ -26,7 +44,10 @@ Schema di output obbligatorio:
 {
   "reply": "testo in italiano per l'utente",
   "intent": "read" | "write" | "clarify" | "chat",
-  "read_intent": null | { "type": "ped_week_tasks", "userName": "string" } | { "type": "renewals_due", "days": number } | { "type": "active_works_for_user", "userName": "string" } | { "type": "client_credentials", "clientName": "string", "labelHint": "string" },
+  "tool_requests": null | [
+    { "name": "search_clients" | "search_works" | "search_credentials" | "search_renewals" | "search_ped_tasks", "args": { "query": "string opzionale", "limit": number opzionale } }
+  ],
+  "read_intent": null | { "type": "ped_week_tasks", "userName": "string" } | { "type": "renewals_due", "days": number } | { "type": "active_works_for_user", "userName": "string" } | { "type": "client_credentials", "clientName": "string", "labelHint": "string", "revealSecrets": boolean } | { "type": "ped_month_remaining", "clientName": "string" } | { "type": "top_clients_active_works" } | { "type": "my_ped_today" } | { "type": "clients_active_category_work", "categoryHint": "string" },
   "write_intent": null | {
     "type": "create_client_credential" | "create_work" | "create_work_step" | "update_work" | "create_ped_task" | "update_ped_task" | "create_client_renewal" | "update_client_renewal" | "update_client_credential" | "update_work_step",
     "params": { ... campi estratti dal messaggio utente, usa nomi cliente/categoria/lavoro come stringhe se non hai id }
@@ -35,23 +56,34 @@ Schema di output obbligatorio:
 
 Regole:
 - Se mancano informazioni essenziali, usa intent "clarify" e read_intent/write_intent null.
+- tool_requests: usa SOLO se ti servono dati dal DB prima di rispondere (max 2 strumenti). Se il contesto conversazione già basta, lascia null.
 - Per letture (read): imposta read_intent appropriato; reply può essere breve (es. "Ecco i dati richiesti.").
 - Per "lavori attivi di [nome]": read_intent { "type": "active_works_for_user", "userName": "..." }.
-- Per credenziali cliente: read_intent { "type": "client_credentials", "clientName": "...", "labelHint": "Instagram" }.
+- Per credenziali: read_intent con revealSecrets true SOLO se l'utente chiede esplicitamente password in chiaro / valori completi; altrimenti revealSecrets false.
 - Per modifiche (write): imposta write_intent con type e params; NON dire di aver già eseguito l'azione.
 - Per conversazione generica senza azione sul DB: intent "chat", read_intent e write_intent null.
-- Date: preferisci formato YYYY-MM-DD nei params quando possibile.
+- Date: preferisci formato YYYY-MM-DD nei params quando possibile; per "lunedì prossimo" passa la frase nella deadline e il sistema la interpreterà.
 - Per create_work: params includono title, clientName (o clientId se noto), categoryName (o categoryId).
 - Per create_work_step: clientName, workTitleHint, stepTitle.
 - Per update_work: clientName, workTitleHint, e opzionalmente deadline (YYYY-MM-DD), title, status, priority.
 - Per create_client_credential: clientName, label (es. Instagram), username, password se forniti.
 - Per create_ped_task: clientName, date (YYYY-MM-DD), title, type (es. POST, REEL), kind tipicamente CONTENT.
-- Non inventare id: usa nomi; il sistema risolverà.`
+- Non inventare id: usa nomi; il sistema risolverà.
+- Se hai già ricevuto "Risultati strumenti" nel messaggio utente, NON impostare tool_requests di nuovo.`
 
 type LlmOut = {
   reply?: string
   intent?: string
-  read_intent?: { type?: string; userName?: string; days?: number } | null
+  tool_requests?: { name?: string; args?: Record<string, unknown> }[] | null
+  read_intent?: {
+    type?: string
+    userName?: string
+    days?: number
+    clientName?: string
+    labelHint?: string
+    revealSecrets?: boolean
+    categoryHint?: string
+  } | null
   write_intent?: { type?: string; params?: Record<string, unknown> } | null
 }
 
@@ -68,17 +100,21 @@ function normalizeDeadlineInput(raw: string | undefined | null): string | null {
   const t = raw.trim()
   if (!t) return null
   if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t
-  const parsed = parseItalianDatePhrase(t)
-  return parsed
+  return parseDeadlineFlexible(t)
 }
 
-async function runReadIntent(read: {
-  type?: string
-  userName?: string
-  days?: number
-  clientName?: string
-  labelHint?: string
-}): Promise<string> {
+async function runReadIntent(
+  read: {
+    type?: string
+    userName?: string
+    days?: number
+    clientName?: string
+    labelHint?: string
+    revealSecrets?: boolean
+    categoryHint?: string
+  },
+  opts?: { currentUserId?: string; currentUserName?: string }
+): Promise<string> {
   if (read.type === 'ped_week_tasks' && read.userName) {
     return readPedTasksThisWeekForUser(read.userName)
   }
@@ -90,22 +126,74 @@ async function runReadIntent(read: {
     return readActiveWorksForUser(read.userName)
   }
   if (read.type === 'client_credentials' && read.clientName && read.labelHint) {
-    return readClientCredentialsForQuery(read.clientName, read.labelHint)
+    return readClientCredentialsForQuery(read.clientName, read.labelHint, {
+      revealSecrets: read.revealSecrets === true,
+    })
+  }
+  if (read.type === 'ped_month_remaining' && read.clientName) {
+    return readPedTasksRemainingThisMonthForClient(read.clientName)
+  }
+  if (read.type === 'top_clients_active_works') {
+    return readTopClientsByActiveWorks(12)
+  }
+  if (read.type === 'my_ped_today' && opts?.currentUserId && opts?.currentUserName) {
+    return readMyPedTasksToday(opts.currentUserId, opts.currentUserName)
+  }
+  if (read.type === 'clients_active_category_work' && read.categoryHint) {
+    return readClientsWithActiveCategoryWork(read.categoryHint)
   }
   return 'Richiesta di lettura non riconosciuta.'
 }
 
-async function runRuleBasedRead(rule: RuleBasedIntent): Promise<string | null> {
+async function runRuleBasedRead(
+  rule: RuleBasedIntent,
+  opts?: { currentUserId?: string; currentUserName?: string }
+): Promise<string | null> {
   switch (rule.kind) {
     case 'query_active_works':
       return readActiveWorksForUser(rule.userName)
     case 'query_renewals':
       return readRenewalsDueWithinDays(rule.days)
     case 'query_client_credentials':
-      return readClientCredentialsForQuery(rule.clientName, rule.labelHint)
+      return readClientCredentialsForQuery(rule.clientName, rule.labelHint, {
+        revealSecrets: rule.revealSecrets,
+      })
+    case 'query_ped_month_remaining':
+      return readPedTasksRemainingThisMonthForClient(rule.clientName)
+    case 'query_top_clients_active_works':
+      return readTopClientsByActiveWorks(12)
+    case 'query_my_ped_today':
+      if (!opts?.currentUserId || !opts?.currentUserName) {
+        return 'Accedi come utente per vedere le tue task di oggi.'
+      }
+      return readMyPedTasksToday(opts.currentUserId, opts.currentUserName)
+    case 'query_clients_active_category_work':
+      return readClientsWithActiveCategoryWork(rule.categoryHint)
     default:
       return null
   }
+}
+
+async function runLlmToolRequests(
+  requests: { name?: string; args?: Record<string, unknown> }[]
+): Promise<string> {
+  const lines: string[] = []
+  const allowed = new Set<string>([
+    'search_clients',
+    'search_works',
+    'search_credentials',
+    'search_renewals',
+    'search_ped_tasks',
+  ])
+  let i = 0
+  for (const r of requests.slice(0, 3)) {
+    const name = r.name as ToolName | undefined
+    if (!name || !allowed.has(name)) continue
+    i += 1
+    const out = await runAssistantTool(name, r.args ?? {})
+    lines.push(`### ${i}. ${name}\n${out}`)
+  }
+  return lines.length ? lines.join('\n\n') : 'Nessun risultato dagli strumenti.'
 }
 
 function ruleIntentToWriteParams(rule: RuleBasedIntent): { type: string; params: Record<string, unknown> } | null {
@@ -488,8 +576,9 @@ async function buildNeedsConfirmationResponse(params: {
   threadId: string
   baseReply: string
   normalized: { actionType: string; payload: Record<string, unknown> }
+  suggestedThreadTitle?: string | null
 }): Promise<AssistantChatResponse> {
-  const { user, threadId, baseReply, normalized } = params
+  const { user, threadId, baseReply, normalized, suggestedThreadTitle } = params
   const pendingConfirmationId = randomUUID()
   const preview = previewPayload(normalized.actionType, normalized.payload)
   const confirmationMeta: PendingConfirmationMetadata = {
@@ -517,7 +606,55 @@ async function buildNeedsConfirmationResponse(params: {
     pendingConfirmationId,
     proposedAction: { type: normalized.actionType, payload: normalized.payload },
     confirmationMeta,
+    threadContextUpdate: buildThreadContextForProposedAction(normalized.actionType, normalized.payload),
+    suggestedThreadTitle: suggestedThreadTitle ?? null,
   }
+}
+
+async function findLatestPendingPreview(threadId: string): Promise<string | null> {
+  const rows = await prisma.chatMessage.findMany({
+    where: { threadId, role: 'assistant' },
+    orderBy: { createdAt: 'desc' },
+    take: 8,
+    select: { metadata: true },
+  })
+  for (const r of rows) {
+    const m = r.metadata as Record<string, unknown> | null
+    if (m && typeof m.preview === 'string') return m.preview as string
+  }
+  return null
+}
+
+async function runLlmPipeline(
+  systemContent: string,
+  history: { role: string; content: string }[],
+  userContent: string
+): Promise<LlmOut> {
+  const messages = [
+    { role: 'system' as const, content: systemContent },
+    ...history.map((m) => ({
+      role: m.role as 'user' | 'assistant' | 'system',
+      content: m.content,
+    })),
+    { role: 'user' as const, content: userContent },
+  ]
+  let raw = await callOpenAiChat(messages)
+  let parsed = safeParseLlmJson(raw)
+  const tr = parsed.tool_requests
+  if (Array.isArray(tr) && tr.length > 0) {
+    const toolOut = await runLlmToolRequests(tr)
+    const messages2 = [
+      ...messages,
+      { role: 'assistant' as const, content: raw },
+      {
+        role: 'user' as const,
+        content: `Risultati strumenti interni:\n\n${toolOut}\n\nRispondi ORA con JSON finale (imposta tool_requests a null o [], stesso schema di prima).`,
+      },
+    ]
+    raw = await callOpenAiChat(messages2)
+    parsed = safeParseLlmJson(raw)
+  }
+  return parsed
 }
 
 export async function processAssistantMessage(params: {
@@ -527,69 +664,107 @@ export async function processAssistantMessage(params: {
 }): Promise<AssistantChatResponse> {
   const { user, threadId, userMessage } = params
 
-  const rule = parseRuleBasedIntent(userMessage)
+  const threadCtx = await loadThreadAssistantContext(threadId)
+  const follow = tryParseFollowUpRule(userMessage, threadCtx)
+  const rule = parseRuleBasedIntent(userMessage) ?? follow
+  const suggestedThreadTitle = suggestThreadTitleFromRule(rule, userMessage)
+
+  const userOpts = { currentUserId: user.id, currentUserName: user.name }
+
+  if (rule?.kind === 'undo_last_action') {
+    if (!canWrite(user)) {
+      return {
+        reply: 'Con il tuo ruolo non puoi annullare azioni sul database.',
+        mode: 'clarification',
+        suggestedThreadTitle,
+      }
+    }
+    if (!threadCtx.lastUndo) {
+      return {
+        reply:
+          'Non trovo un’azione creata di recente da annullare in questa chat (supportate: ultima credenziale, ultimo lavoro, ultimo step).',
+        mode: 'clarification',
+        suggestedThreadTitle,
+      }
+    }
+    const result = await performAssistantUndo(user.id, threadId, threadCtx.lastUndo)
+    return {
+      reply: result.success
+        ? `${result.summary ?? 'Operazione annullata.'}${result.href ? `\n\nApri: ${result.href}` : ''}`
+        : `Non sono riuscito ad annullare: ${result.summary ?? 'errore'}`,
+      mode: 'action_result',
+      result,
+      threadContextUpdate: result.success ? buildThreadContextAfterUndoSuccess() : null,
+      suggestedThreadTitle,
+    }
+  }
 
   if (!canWrite(user)) {
     if (rule) {
-      const readOnly = await runRuleBasedRead(rule)
+      const readOnly = await runRuleBasedRead(rule, userOpts)
       if (readOnly !== null) {
-        return { reply: readOnly, mode: 'answer' }
+        return { reply: readOnly, mode: 'answer', suggestedThreadTitle }
       }
     }
-    let raw: string
+    const llmCtx = await buildAssistantLlmContext()
+    const contextBlock = `Contesto clienti (id|nome): ${llmCtx.clients.slice(0, 50).map((c) => `${c.id}|${c.name}`).join('; ')}`
+    const hist = await prisma.chatMessage.findMany({
+      where: { threadId },
+      orderBy: { createdAt: 'asc' },
+      take: 28,
+      select: { role: true, content: true, metadata: true },
+    })
+    const pendingPreview = await findLatestPendingPreview(threadId)
+    const memory = buildConversationMemoryBlock(threadCtx, hist, { lastPendingPreview: pendingPreview })
+    const userContent = memory ? `${memory}\n\n---\n\n${userMessage}` : userMessage
     try {
-      const ctx = await buildAssistantLlmContext()
-      raw = await callOpenAiChat([
-        { role: 'system', content: SYSTEM_PROMPT + '\nL\'utente è AGENTE (sola lettura). Se chiede modifiche, spiega che non può eseguirle.' },
-        {
-          role: 'user',
-          content: `Contesto clienti (id|nome): ${ctx.clients.slice(0, 50).map((c) => `${c.id}|${c.name}`).join('; ')}\n\nMessaggio: ${userMessage}`,
-        },
-      ])
+      const parsed = await runLlmPipeline(
+        `${SYSTEM_PROMPT}\n\n${contextBlock}\n\nL'utente è AGENTE (sola lettura). Se chiede modifiche, spiega che non può eseguirle.`,
+        hist.map((m) => ({ role: m.role, content: m.content })),
+        userContent
+      )
+      if (parsed.intent === 'read' && parsed.read_intent) {
+        const text = await runReadIntent(parsed.read_intent as Parameters<typeof runReadIntent>[0], userOpts)
+        return {
+          reply: `${parsed.reply ?? ''}\n\n${text}`.trim(),
+          mode: 'answer',
+          suggestedThreadTitle,
+        }
+      }
+      return {
+        reply:
+          parsed.reply ??
+          'Il tuo ruolo non consente modifiche ai dati. Puoi chiedere informazioni in lettura.',
+        mode: 'clarification',
+        suggestedThreadTitle,
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Errore sconosciuto'
       return {
-        reply: `Non posso usare il modello linguistico (${msg}). Per le letture frequenti (lavori attivi, rinnovi, credenziali) prova una frase più diretta oppure configura OPENAI_API_KEY.`,
+        reply: `Non posso usare il modello linguistico (${msg}). Prova una frase diretta (lavori attivi, rinnovi, …) oppure configura OPENAI_API_KEY.`,
         mode: 'clarification',
+        suggestedThreadTitle,
       }
-    }
-    const parsed = safeParseLlmJson(raw)
-    if (parsed.intent === 'read' && parsed.read_intent) {
-      const text = await runReadIntent(
-        parsed.read_intent as {
-          type?: string
-          userName?: string
-          days?: number
-          clientName?: string
-          labelHint?: string
-        }
-      )
-      return { reply: `${parsed.reply ?? ''}\n\n${text}`.trim(), mode: 'answer' }
-    }
-    return {
-      reply:
-        parsed.reply ??
-        'Il tuo ruolo non consente modifiche ai dati. Puoi chiedere informazioni in lettura (es. task PED della settimana, rinnovi in scadenza).',
-      mode: 'clarification',
     }
   }
 
   if (rule) {
-    const readText = await runRuleBasedRead(rule)
+    const readText = await runRuleBasedRead(rule, userOpts)
     if (readText !== null) {
-      return { reply: readText, mode: 'answer' }
+      return { reply: readText, mode: 'answer', suggestedThreadTitle }
     }
     const writeSpec = ruleIntentToWriteParams(rule)
     if (writeSpec) {
       const normalized = await normalizeWriteIntent(writeSpec.type, writeSpec.params)
       if (!normalized.ok) {
-        return { reply: normalized.reply, mode: 'clarification' }
+        return { reply: normalized.reply, mode: 'clarification', suggestedThreadTitle }
       }
       return buildNeedsConfirmationResponse({
         user,
         threadId,
         baseReply: '',
         normalized: { actionType: normalized.actionType, payload: normalized.payload },
+        suggestedThreadTitle,
       })
     }
   }
@@ -599,57 +774,49 @@ export async function processAssistantMessage(params: {
     `Clienti (id|nome): ${ctx.clients.map((c) => `${c.id}|${c.name}`).join('; ')}`,
     `Categorie (id|nome): ${ctx.categories.map((c) => `${c.id}|${c.name}`).join('; ')}`,
     `Utenti (id|nome): ${ctx.users.map((u) => `${u.id}|${u.name}`).join('; ')}`,
+    `Utente corrente: ${user.name} (id: ${user.id})`,
   ].join('\n')
 
   const history = await prisma.chatMessage.findMany({
     where: { threadId },
     orderBy: { createdAt: 'asc' },
     take: 40,
-    select: { role: true, content: true },
+    select: { role: true, content: true, metadata: true },
   })
+  const pendingPreview = await findLatestPendingPreview(threadId)
+  const memory = buildConversationMemoryBlock(threadCtx, history, { lastPendingPreview: pendingPreview })
+  const userContent = memory ? `${memory}\n\n---\n\n${userMessage}` : userMessage
 
-  const messages = [
-    { role: 'system' as const, content: `${SYSTEM_PROMPT}\n\n${contextBlock}` },
-    ...history.map((m) => ({
-      role: m.role as 'user' | 'assistant' | 'system',
-      content: m.content,
-    })),
-    { role: 'user' as const, content: userMessage },
-  ]
-
-  let raw: string
+  let parsed: LlmOut
   try {
-    raw = await callOpenAiChat(messages)
+    parsed = await runLlmPipeline(
+      `${SYSTEM_PROMPT}\n\n${contextBlock}`,
+      history.map((m) => ({ role: m.role, content: m.content })),
+      userContent
+    )
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Errore sconosciuto'
     return {
-      reply: `Il modello linguistico non è disponibile (${msg}). Riformula la richiesta in italiano semplice (es. «crea lavoro Website per Cliente X») oppure verifica OPENAI_API_KEY.`,
+      reply: `Il modello linguistico non è disponibile (${msg}). Riformula in italiano semplice o verifica OPENAI_API_KEY.`,
       mode: 'clarification',
+      suggestedThreadTitle: null,
     }
   }
-  const parsed = safeParseLlmJson(raw)
   const baseReply = typeof parsed.reply === 'string' ? parsed.reply : ''
 
   if (parsed.intent === 'read' && parsed.read_intent) {
-    const factual = await runReadIntent(
-      parsed.read_intent as {
-        type?: string
-        userName?: string
-        days?: number
-        clientName?: string
-        labelHint?: string
-      }
-    )
+    const factual = await runReadIntent(parsed.read_intent as Parameters<typeof runReadIntent>[0], userOpts)
     return {
       reply: [baseReply, factual].filter(Boolean).join('\n\n'),
       mode: 'answer',
+      suggestedThreadTitle,
     }
   }
 
   if (parsed.intent === 'write' && parsed.write_intent?.type && parsed.write_intent.params) {
     const normalized = await normalizeWriteIntent(parsed.write_intent.type, parsed.write_intent.params)
     if (!normalized.ok) {
-      return { reply: normalized.reply, mode: 'clarification' }
+      return { reply: normalized.reply, mode: 'clarification', suggestedThreadTitle }
     }
 
     return buildNeedsConfirmationResponse({
@@ -657,12 +824,14 @@ export async function processAssistantMessage(params: {
       threadId,
       baseReply,
       normalized: { actionType: normalized.actionType, payload: normalized.payload },
+      suggestedThreadTitle,
     })
   }
 
   return {
     reply: baseReply || 'Come posso aiutarti?',
     mode: parsed.intent === 'clarify' ? 'clarification' : 'answer',
+    suggestedThreadTitle,
   }
 }
 
@@ -706,12 +875,19 @@ export async function confirmPendingAction(params: {
     data: { metadata: { mode: 'answer' } },
   })
 
+  const threadContextUpdate = result.success
+    ? await buildThreadContextAfterConfirmedAction(actionType, payload, result)
+    : null
+
+  const replyBase = result.success
+    ? (result.summary ?? 'Operazione completata.')
+    : `Non sono riuscito a completare l'operazione: ${result.summary ?? 'errore'}`
+
   return {
-    reply: result.success
-      ? (result.summary ?? 'Operazione completata.')
-      : `Non sono riuscito a completare l'operazione: ${result.summary ?? 'errore'}`,
+    reply: replyBase,
     mode: 'action_result',
     result,
+    threadContextUpdate,
   }
 }
 
@@ -760,5 +936,9 @@ export async function cancelPendingAssistantAction(params: {
     status: 'failed',
   })
 
-  return { reply: 'Ok, ho annullato l’azione in sospeso.', mode: 'answer' }
+  return {
+    reply: 'Ok, ho annullato l’azione in sospeso.',
+    mode: 'answer',
+    threadContextUpdate: { lastProposed: null },
+  }
 }

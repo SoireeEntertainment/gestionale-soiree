@@ -7,6 +7,8 @@ import {
   cancelPendingAssistantAction,
 } from '@/lib/assistant/orchestrator'
 import type { Prisma } from '@prisma/client'
+import { patchThreadAssistantContext } from '@/lib/assistant/thread-context'
+import type { AssistantChatResponse } from '@/lib/assistant/types'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -27,6 +29,30 @@ async function findLatestPendingId(threadId: string): Promise<string | null> {
     }
   }
   return null
+}
+
+function assistantUiBadge(mode: AssistantChatResponse['mode'], success?: boolean): string | undefined {
+  if (mode === 'needs_confirmation') return 'needs_confirmation'
+  if (mode === 'action_result') return success ? 'action_done' : 'action_failed'
+  if (mode === 'clarification') return 'info'
+  return undefined
+}
+
+async function persistAssistantSideEffects(
+  threadId: string,
+  response: AssistantChatResponse,
+  threadTitleBefore: string
+) {
+  if (response.threadContextUpdate) {
+    await patchThreadAssistantContext(threadId, response.threadContextUpdate)
+  }
+  const t = response.suggestedThreadTitle?.trim()
+  if (threadTitleBefore === 'Nuova chat' && t) {
+    await prisma.chatThread.update({
+      where: { id: threadId },
+      data: { title: t.slice(0, 80) },
+    })
+  }
 }
 
 export async function POST(req: Request) {
@@ -81,12 +107,17 @@ export async function POST(req: Request) {
       pendingConfirmationId: cancelPendingId,
     })
 
+    await persistAssistantSideEffects(threadId, response, thread.title)
+
     await prisma.chatMessage.create({
       data: {
         threadId,
         role: 'assistant',
         content: response.reply,
-        metadata: { mode: response.mode } as object,
+        metadata: {
+          mode: response.mode,
+          assistantBadge: assistantUiBadge(response.mode),
+        } as object,
       },
     })
 
@@ -113,6 +144,8 @@ export async function POST(req: Request) {
       pendingConfirmationId: confirmPendingId,
     })
 
+    await persistAssistantSideEffects(threadId, response, thread.title)
+
     await prisma.chatMessage.create({
       data: {
         threadId,
@@ -120,8 +153,12 @@ export async function POST(req: Request) {
         content: response.reply,
         metadata:
           response.result != null
-            ? ({ result: response.result, mode: response.mode } as object)
-            : ({ mode: response.mode } as object),
+            ? ({
+                result: response.result,
+                mode: response.mode,
+                assistantBadge: assistantUiBadge(response.mode, response.result.success),
+              } as object)
+            : ({ mode: response.mode, assistantBadge: assistantUiBadge(response.mode) } as object),
       },
     })
 
@@ -129,7 +166,6 @@ export async function POST(req: Request) {
       where: { id: threadId },
       data: {
         updatedAt: new Date(),
-        ...(thread.title === 'Nuova chat' ? { title: 'Chat assistente' } : {}),
       },
     })
 
@@ -151,6 +187,7 @@ export async function POST(req: Request) {
         threadId,
         pendingConfirmationId: pending,
       })
+      await persistAssistantSideEffects(threadId, response, thread.title)
       await prisma.chatMessage.create({
         data: {
           threadId,
@@ -158,8 +195,12 @@ export async function POST(req: Request) {
           content: response.reply,
           metadata:
             response.result != null
-              ? ({ result: response.result, mode: response.mode } as object)
-              : ({ mode: response.mode } as object),
+              ? ({
+                  result: response.result,
+                  mode: response.mode,
+                  assistantBadge: assistantUiBadge(response.mode, response.result.success),
+                } as object)
+              : ({ mode: response.mode, assistantBadge: assistantUiBadge(response.mode) } as object),
         },
       })
       await prisma.chatThread.update({ where: { id: threadId }, data: { updatedAt: new Date() } })
@@ -171,17 +212,9 @@ export async function POST(req: Request) {
     data: { threadId, role: 'user', content: rawMessage },
   })
 
-  if (thread.title === 'Nuova chat') {
-    const short = rawMessage.slice(0, 48) + (rawMessage.length > 48 ? '…' : '')
-    await prisma.chatThread.update({
-      where: { id: threadId },
-      data: { title: short || 'Chat assistente', updatedAt: new Date() },
-    })
-  } else {
-    await prisma.chatThread.update({ where: { id: threadId }, data: { updatedAt: new Date() } })
-  }
+  await prisma.chatThread.update({ where: { id: threadId }, data: { updatedAt: new Date() } })
 
-  let response
+  let response: AssistantChatResponse
   try {
     response = await processAssistantMessage({ user, threadId, userMessage: rawMessage })
   } catch (e) {
@@ -192,12 +225,30 @@ export async function POST(req: Request) {
     }
   }
 
+  await persistAssistantSideEffects(threadId, response, thread.title)
+
+  if (thread.title === 'Nuova chat' && !response.suggestedThreadTitle?.trim()) {
+    const short = rawMessage.slice(0, 48) + (rawMessage.length > 48 ? '…' : '')
+    await prisma.chatThread.update({
+      where: { id: threadId },
+      data: { title: short || 'Chat assistente' },
+    })
+  }
+
+  const badge = assistantUiBadge(
+    response.mode,
+    response.result?.success
+  )
   const meta =
     response.mode === 'needs_confirmation' && response.confirmationMeta
-      ? (response.confirmationMeta as object)
+      ? ({ ...(response.confirmationMeta as object), assistantBadge: badge } as object)
       : response.result != null
-        ? ({ mode: response.mode, result: response.result } as object)
-        : ({ mode: response.mode } as object)
+        ? ({
+            mode: response.mode,
+            result: response.result,
+            assistantBadge: badge,
+          } as object)
+        : ({ mode: response.mode, assistantBadge: badge } as object)
 
   await prisma.chatMessage.create({
     data: {

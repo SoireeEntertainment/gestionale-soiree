@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { AssistantThreadContext } from '@/lib/assistant/thread-context'
 
 export const assistantResponseModeSchema = z.enum([
   'answer',
@@ -16,12 +17,22 @@ export const proposedActionSchema = z.object({
 
 export type ProposedAction = z.infer<typeof proposedActionSchema>
 
+export const assistantUndoSnapshotSchema = z.object({
+  kind: z.enum(['create_client_credential', 'create_work', 'create_work_step']),
+  entityId: z.string(),
+  clientId: z.string(),
+  workId: z.string().optional(),
+  createdAt: z.string(),
+})
+
 export const assistantResultSchema = z.object({
   success: z.boolean(),
   entityType: z.string().optional(),
   entityId: z.string().optional(),
   summary: z.string().optional(),
   href: z.string().optional(),
+  /** Presente se l’azione può essere annullata (solo alcune create). */
+  undo: assistantUndoSnapshotSchema.optional(),
 })
 
 export type AssistantResult = z.infer<typeof assistantResultSchema>
@@ -36,6 +47,10 @@ export type AssistantChatResponse = {
   pendingConfirmationId?: string
   /** Da salvare in `ChatMessage.metadata` per la conferma successiva. */
   confirmationMeta?: PendingConfirmationMetadata
+  /** Merge sul campo `assistantContext` del thread (lato API). */
+  threadContextUpdate?: Partial<AssistantThreadContext> | null
+  /** Titolo sidebar suggerito (solo prima conversazione utile). */
+  suggestedThreadTitle?: string | null
 }
 
 /** Metadata salvato sul messaggio assistant per conferma successiva. */
