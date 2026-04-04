@@ -37,7 +37,13 @@ import {
   buildThreadContextForProposedAction,
   buildThreadContextAfterUndoSuccess,
 } from '@/lib/assistant/context-patch'
-import type { CreateClientDraft, CreateClientFlowState } from '@/lib/assistant/thread-context'
+import type {
+  AssistantThreadContext,
+  CreateClientDraft,
+  CreateClientFlowState,
+} from '@/lib/assistant/thread-context'
+import { tryNormalizeGranularWorkIntent } from '@/lib/assistant/work-granular-normalize'
+import { resolveWorkFromAssistantParams, resolveUserIdsFromLabelList } from '@/lib/assistant/work-resolve'
 import {
   continueCreateClientFlow,
   findExistingClientByNormalizedName,
@@ -63,7 +69,11 @@ Schema di output obbligatorio:
   ],
   "read_intent": null | { "type": "ped_week_tasks", "userName": "string" } | { "type": "renewals_due", "days": number } | { "type": "active_works_for_user", "userName": "string" } | { "type": "client_credentials", "clientName": "string", "labelHint": "string", "revealSecrets": boolean } | { "type": "ped_month_remaining", "clientName": "string" } | { "type": "top_clients_active_works" } | { "type": "my_ped_today" } | { "type": "clients_active_category_work", "categoryHint": "string" },
   "write_intent": null | {
-    "type": "create_client" | "create_client_credential" | "create_work" | "create_work_step" | "update_work" | "create_ped_task" | "update_ped_task" | "create_client_renewal" | "update_client_renewal" | "update_client_credential" | "update_work_step",
+    "type": "create_client" | "create_client_credential" | "create_work" | "create_work_step" | "update_work" | "update_work_step" |
+      "update_work_title" | "update_work_description" | "update_work_category" | "update_work_status" | "update_work_priority" | "update_work_deadline" |
+      "assign_work_users" | "unassign_work_users" | "add_work_note" |
+      "delete_work_step" | "reorder_work_steps" | "mark_work_step_done" | "mark_work_step_todo" |
+      "create_ped_task" | "update_ped_task" | "create_client_renewal" | "update_client_renewal" | "update_client_credential",
     "params": { ... campi estratti dal messaggio utente, usa nomi cliente/categoria/lavoro come stringhe se non hai id }
   }
 }
@@ -77,9 +87,10 @@ Regole:
 - Per modifiche (write): imposta write_intent con type e params; NON dire di aver già eseguito l'azione.
 - Per conversazione generica senza azione sul DB: intent "chat", read_intent e write_intent null.
 - Date: preferisci formato YYYY-MM-DD nei params quando possibile; per "lunedì prossimo" passa la frase nella deadline e il sistema la interpreterà.
-- Per create_work: params includono title, clientName (o clientId se noto), categoryName (o categoryId).
-- Per create_work_step: clientName, workTitleHint, stepTitle.
-- Per update_work: clientName, workTitleHint, e opzionalmente deadline (YYYY-MM-DD), title, status, priority.
+- Per create_work: title, clientName (o clientId), categoryName (o categoryId); opzionali description, deadline, assigneeNames (es. "Davide e Cristian"), status, priority.
+- Per create_work_step: clientName, workTitleHint (o categoryName), stepTitle; oppure workId se noto; useImplicitLastWork "true" se l’utente continua sul lavoro appena citato.
+- Per update_work: clientName, workTitleHint, e campi da cambiare (deadline, title, status, priority, description, categoryName, assigneeNames).
+- Per azioni granulari su un lavoro: stessi identificativi (clientName + workTitleHint o categoryName, o workId). Esempi: update_work_title (title), update_work_description (description), update_work_category (categoryName), update_work_status (status), update_work_priority (priority), update_work_deadline (deadline), assign_work_users / unassign_work_users (assigneeNames o userNames), add_work_note (note), delete_work_step (stepTitle), reorder_work_steps (stepTitlesInOrder: array o stringa "A, B, C"), mark_work_step_done / mark_work_step_todo (stepTitle).
 - Per create_client (nuovo cliente in anagrafica): params con name obbligatorio; opzionali contactName, email, phone, notes. NON usare per credenziali/login.
 - Per create_client_credential: clientName, label (es. Instagram), username, password se forniti.
 - Per create_ped_task: clientName, date (YYYY-MM-DD), title, type (es. POST, REEL), kind tipicamente CONTENT.
@@ -226,16 +237,34 @@ function ruleIntentToWriteParams(rule: RuleBasedIntent): { type: string; params:
     case 'create_work': {
       const title = (rule.title ?? rule.categoryName).trim()
       const deadline = rule.deadlineRaw ? normalizeDeadlineInput(rule.deadlineRaw) : null
+      const params: Record<string, unknown> = {
+        title,
+        clientName: rule.clientName,
+        categoryName: rule.categoryName,
+        deadline: deadline ?? '',
+      }
+      if (rule.assigneeNames?.trim()) params.assigneeNames = rule.assigneeNames.trim()
+      return { type: 'create_work', params }
+    }
+    case 'mark_work_step_done':
       return {
-        type: 'create_work',
+        type: 'mark_work_step_done',
         params: {
-          title,
           clientName: rule.clientName,
-          categoryName: rule.categoryName,
-          deadline: deadline ?? '',
+          workTitleHint: rule.workHint,
+          stepTitle: rule.stepTitle,
         },
       }
-    }
+    case 'assign_work_users_rule':
+      return {
+        type: 'assign_work_users',
+        params: { workId: rule.workId, assigneeNames: rule.assigneeNames },
+      }
+    case 'create_work_step_followup':
+      return {
+        type: 'create_work_step',
+        params: { workId: rule.workId, stepTitle: rule.stepTitle },
+      }
     case 'create_work_step':
       return {
         type: 'create_work_step',
@@ -265,9 +294,13 @@ function ruleIntentToWriteParams(rule: RuleBasedIntent): { type: string; params:
 /** Normalizza write_intent in payload eseguibile o messaggio di chiarimento. */
 async function normalizeWriteIntent(
   type: string,
-  params: Record<string, unknown>
+  params: Record<string, unknown>,
+  threadCtx: AssistantThreadContext | null
 ): Promise<{ ok: true; actionType: string; payload: Record<string, unknown> } | { ok: false; reply: string }> {
   const str = (k: string) => (typeof params[k] === 'string' ? (params[k] as string).trim() : '')
+
+  const granular = await tryNormalizeGranularWorkIntent(type, params, threadCtx)
+  if (granular !== null) return granular
 
   switch (type) {
     case 'create_client': {
@@ -317,11 +350,12 @@ async function normalizeWriteIntent(
     }
 
     case 'create_work': {
-      const title = str('title')
       const clientHint = str('clientName') || str('client')
-      const catHint = str('categoryName') || str('category') || 'Website'
-      if (!title) return { ok: false, reply: 'Che titolo deve avere il lavoro?' }
+      const catHint = str('categoryName') || str('category')
+      const title =
+        str('title') || catHint || str('categoryName')
       if (!clientHint) return { ok: false, reply: 'Per quale cliente è il lavoro?' }
+      if (!title) return { ok: false, reply: 'Che tipo di lavoro o titolo devo usare (es. Website, Social)?' }
       const cr = await resolveSingleClient(clientHint)
       if (!cr) return { ok: false, reply: `Cliente non trovato per "${clientHint}".` }
       if ('ambiguous' in cr) {
@@ -331,8 +365,8 @@ async function normalizeWriteIntent(
         }
       }
       const client = cr
-      const cat = await findCategoryByNameHint(catHint)
-      if (!cat) return { ok: false, reply: `Non ho trovato una categoria simile a "${catHint}".` }
+      const cat = await findCategoryByNameHint(catHint || title)
+      if (!cat) return { ok: false, reply: `Non ho trovato una categoria simile a "${catHint || title}".` }
       const rawDl = str('deadline')
       let deadline: string | null = null
       if (rawDl) {
@@ -344,6 +378,14 @@ async function normalizeWriteIntent(
           }
         }
       }
+      const assigneeNames = str('assigneeNames') || str('assignedUsers') || str('assignees')
+      let assigneeUserIds: string[] | undefined
+      if (assigneeNames) {
+        const ru = await resolveUserIdsFromLabelList(assigneeNames)
+        if (!ru.ok) return { ok: false, reply: ru.reply }
+        assigneeUserIds = ru.ids
+      }
+      const primaryAssignee = (assigneeUserIds?.[0] ?? str('assignedToUserId')) || null
       return {
         ok: true,
         actionType: 'create_work',
@@ -355,58 +397,35 @@ async function normalizeWriteIntent(
           status: str('status') || undefined,
           priority: str('priority') || null,
           deadline,
-          assignedToUserId: str('assignedToUserId') || null,
+          assignedToUserId: primaryAssignee,
+          assigneeUserIds: assigneeUserIds && assigneeUserIds.length > 0 ? assigneeUserIds : undefined,
         },
       }
     }
 
     case 'create_work_step': {
-      const clientHint = str('clientName') || str('client')
-      const workHint = str('workTitleHint') || str('workTitle') || str('titleWork')
       const stepTitle = str('stepTitle') || str('title')
-      if (!clientHint || !workHint || !stepTitle) {
-        return { ok: false, reply: 'Indica cliente, titolo del lavoro e titolo dello step.' }
-      }
-      const cr = await resolveSingleClient(clientHint)
-      if (!cr || 'ambiguous' in cr) {
-        return { ok: false, reply: 'Cliente non univoco o non trovato. Specifica meglio il nome.' }
-      }
-      const works = await findWorksByClientCategoryOrTitle(cr.id, workHint)
-      if (works.length === 0) return { ok: false, reply: `Nessun lavoro trovato per "${workHint}" su ${cr.name}.` }
-      if (works.length > 1) {
+      if (!stepTitle) return { ok: false, reply: 'Che titolo deve avere lo step?' }
+      const implicit = str('useImplicitLastWork') === 'true'
+      const rw = await resolveWorkFromAssistantParams(params, threadCtx, { implicitLastWork: implicit })
+      if (!rw.ok) {
         return {
           ok: false,
-          reply: `Ho trovato più lavori: ${works.map((w) => w.title).join(', ')}. Quale intendi?`,
+          reply: rw.reply.includes('servono') ? `${rw.reply} Poi indica il titolo dello step.` : rw.reply,
         }
       }
       return {
         ok: true,
         actionType: 'create_work_step',
-        payload: { workId: works[0].id, title: stepTitle },
+        payload: { workId: rw.work.id, title: stepTitle },
       }
     }
 
     case 'update_work': {
-      const clientHint = str('clientName') || str('client')
-      const workHint = str('workTitleHint') || str('workTitle')
-      if (!clientHint || !workHint) {
-        return { ok: false, reply: 'Indica cliente e titolo (o parte del titolo) del lavoro da aggiornare.' }
-      }
-      const cr = await resolveSingleClient(clientHint)
-      if (!cr || 'ambiguous' in cr) {
-        return { ok: false, reply: 'Cliente non univoco o non trovato.' }
-      }
-      const works = await findWorksByClientCategoryOrTitle(cr.id, workHint)
-      if (works.length !== 1) {
-        return {
-          ok: false,
-          reply:
-            works.length === 0
-              ? 'Nessun lavoro corrispondente (né per titolo né per categoria).'
-              : `Più lavori: ${works.map((w) => w.title).join(', ')}. Quale?`,
-        }
-      }
-      const patch: Record<string, unknown> = { workId: works[0].id }
+      const implicit = str('useImplicitLastWork') === 'true'
+      const rw = await resolveWorkFromAssistantParams(params, threadCtx, { implicitLastWork: implicit })
+      if (!rw.ok) return rw
+      const patch: Record<string, unknown> = { workId: rw.work.id }
       const rawDl = str('deadline')
       if (rawDl) {
         const norm = normalizeDeadlineInput(rawDl)
@@ -422,8 +441,22 @@ async function normalizeWriteIntent(
       if (str('status')) patch.status = str('status')
       if (str('priority')) patch.priority = str('priority')
       if (str('description')) patch.description = str('description')
+      const catNew = str('categoryName') || str('categoryId')
+      if (str('categoryId')) {
+        patch.categoryId = str('categoryId')
+      } else if (catNew) {
+        const c = await findCategoryByNameHint(catNew)
+        if (!c) return { ok: false, reply: `Categoria non trovata per "${catNew}".` }
+        patch.categoryId = c.id
+      }
+      const assigneeNames = str('assigneeNames') || str('assignedUsers')
+      if (assigneeNames) {
+        const ru = await resolveUserIdsFromLabelList(assigneeNames)
+        if (!ru.ok) return { ok: false, reply: ru.reply }
+        patch.assigneeUserIds = ru.ids
+      }
       if (Object.keys(patch).length === 1) {
-        return { ok: false, reply: 'Cosa vuoi modificare del lavoro (deadline, titolo, stato, …)?' }
+        return { ok: false, reply: 'Cosa vuoi modificare del lavoro (deadline, titolo, stato, priorità, descrizione, categoria, assegnatari)?' }
       }
       return { ok: true, actionType: 'update_work', payload: patch }
     }
@@ -959,7 +992,7 @@ export async function processAssistantMessage(params: {
     }
     const writeSpec = ruleIntentToWriteParams(rule)
     if (writeSpec) {
-      const normalized = await normalizeWriteIntent(writeSpec.type, writeSpec.params)
+      const normalized = await normalizeWriteIntent(writeSpec.type, writeSpec.params, threadCtx)
       if (!normalized.ok) {
         return { reply: normalized.reply, mode: 'clarification', suggestedThreadTitle }
       }
@@ -1018,7 +1051,7 @@ export async function processAssistantMessage(params: {
   }
 
   if (parsed.intent === 'write' && parsed.write_intent?.type && parsed.write_intent.params) {
-    const normalized = await normalizeWriteIntent(parsed.write_intent.type, parsed.write_intent.params)
+    const normalized = await normalizeWriteIntent(parsed.write_intent.type, parsed.write_intent.params, threadCtx)
     if (!normalized.ok) {
       return { reply: normalized.reply, mode: 'clarification', suggestedThreadTitle }
     }

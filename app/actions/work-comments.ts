@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { getCurrentUser } from '@/lib/auth-dev'
+import { getCurrentUser, canWrite } from '@/lib/auth-dev'
 import { prisma } from '@/lib/prisma'
 
 export async function getWorkComments(workId: string) {
@@ -17,7 +17,7 @@ export async function getWorkComments(workId: string) {
 
 export async function createWorkComment(workId: string, body: string, type = 'COMMENT') {
   const user = await getCurrentUser()
-  if (!user) throw new Error('Non autorizzato')
+  if (!user || !canWrite(user)) throw new Error('Non autorizzato')
 
   await prisma.workComment.create({
     data: { workId, userId: user.id, body: body.trim(), type },

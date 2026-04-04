@@ -43,6 +43,8 @@ export const workSchema = z.object({
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH']).optional(),
   deadline: z.string().optional().or(z.literal('')),
   assignedToUserId: z.string().optional().nullable(),
+  /** Co-assegnatari (oltre al primario); usato dall'assistente e dalla UI avanzata */
+  assigneeUserIds: z.array(z.string().min(1)).optional(),
 })
 
 export const clientCategorySchema = z.object({

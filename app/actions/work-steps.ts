@@ -65,6 +65,35 @@ export async function updateWorkStep(
   revalidatePath('/profilo')
 }
 
+export async function reorderWorkSteps(workId: string, orderedStepIds: string[]) {
+  const user = await getCurrentUser()
+  if (!user || !canWrite(user)) throw new Error('Non autorizzato')
+
+  const steps = await prisma.workStep.findMany({
+    where: { workId },
+    select: { id: true },
+  })
+  const valid = new Set(steps.map((s) => s.id))
+  if (orderedStepIds.some((id) => !valid.has(id))) {
+    throw new Error('Uno o più step non appartengono a questo lavoro')
+  }
+  if (orderedStepIds.length !== valid.size) {
+    throw new Error('L’elenco degli step non è completo per questo lavoro')
+  }
+
+  await prisma.$transaction(
+    orderedStepIds.map((id, index) =>
+      prisma.workStep.update({
+        where: { id },
+        data: { sortOrder: index },
+      })
+    )
+  )
+
+  revalidatePath(`/works/${workId}`)
+  revalidatePath('/profilo')
+}
+
 export async function deleteWorkStep(stepId: string) {
   const user = await getCurrentUser()
   if (!user || !canWrite(user)) throw new Error('Non autorizzato')

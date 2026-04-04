@@ -23,6 +23,7 @@ model User {
   assignedClients    Client[]
   clientAssignments  ClientAssignee[]
   assignedWorks      Work[]
+  workAssignees      WorkAssignee[]
   workComments       WorkComment[]
   todos              UserTodo[]
   preference         UserPreference?
@@ -210,11 +211,28 @@ model Work {
   client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
   category        Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   assignedTo      User?    @relation(fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  assignees       WorkAssignee[]
   steps           WorkStep[]
   comments        WorkComment[]
   pedItems        PedItem[]
 
   @@map("works")
+}
+
+model WorkAssignee {
+  id        String   @id @default(cuid())
+  workId    String
+  userId    String
+  role      String   @default("ASSIGNEE")
+  createdAt DateTime @default(now())
+
+  work Work @relation(fields: [workId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workId, userId])
+  @@index([workId])
+  @@index([userId])
+  @@map("work_assignees")
 }
 
 model WorkStep {

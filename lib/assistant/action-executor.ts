@@ -13,10 +13,29 @@ import {
   updateClientRenewalPayloadSchema,
   createPedTaskPayloadSchema,
   updatePedTaskPayloadSchema,
+  updateWorkTitlePayloadSchema,
+  updateWorkDescriptionPayloadSchema,
+  updateWorkCategoryPayloadSchema,
+  updateWorkStatusPayloadSchema,
+  updateWorkPriorityPayloadSchema,
+  updateWorkDeadlinePayloadSchema,
+  assignWorkUsersPayloadSchema,
+  unassignWorkUsersPayloadSchema,
+  addWorkNotePayloadSchema,
+  deleteWorkStepPayloadSchema,
+  reorderWorkStepsPayloadSchema,
+  markWorkStepPayloadSchema,
 } from '@/lib/assistant/action-schemas'
 import { upsertClientCredential, deleteClientCredential } from '@/app/actions/client-credentials'
-import { createWork, updateWork, deleteWork } from '@/app/actions/works'
-import { createWorkStep, updateWorkStep, deleteWorkStep } from '@/app/actions/work-steps'
+import {
+  createWork,
+  updateWork,
+  deleteWork,
+  syncWorkAssignees,
+  removeWorkAssignees,
+} from '@/app/actions/works'
+import { createWorkStep, updateWorkStep, deleteWorkStep, reorderWorkSteps } from '@/app/actions/work-steps'
+import { createWorkComment } from '@/app/actions/work-comments'
 import { createClientRenewal, updateClientRenewal } from '@/app/actions/client-renewals'
 import { createPedItem, updatePedItem } from '@/app/actions/ped'
 import { createClient } from '@/app/actions/clients'
@@ -57,6 +76,45 @@ function ok(
 
 function fail(summary: string): AssistantResult {
   return { success: false, summary }
+}
+
+type WorkStatus = 'TODO' | 'IN_PROGRESS' | 'IN_REVIEW' | 'WAITING_CLIENT' | 'DONE' | 'PAUSED' | 'CANCELED'
+
+async function buildMergedWorkData(
+  workId: string,
+  overrides: {
+    title?: string
+    description?: string | null
+    categoryId?: string
+    status?: string
+    priority?: string | null
+    deadline?: string | null
+    assignedToUserId?: string | null
+  }
+) {
+  const existing = await prisma.work.findUnique({ where: { id: workId } })
+  if (!existing) throw new Error('Lavoro non trovato')
+  const deadlineStr =
+    overrides.deadline !== undefined
+      ? overrides.deadline ?? ''
+      : existing.deadline
+        ? existing.deadline.toISOString().slice(0, 10)
+        : ''
+  return {
+    title: overrides.title ?? existing.title,
+    description: (overrides.description !== undefined ? overrides.description : existing.description) ?? '',
+    clientId: existing.clientId,
+    categoryId: overrides.categoryId ?? existing.categoryId,
+    status: (overrides.status ?? existing.status) as WorkStatus,
+    priority: (overrides.priority !== undefined ? overrides.priority : existing.priority) as
+      | 'LOW'
+      | 'MEDIUM'
+      | 'HIGH'
+      | undefined,
+    deadline: deadlineStr,
+    assignedToUserId:
+      overrides.assignedToUserId !== undefined ? overrides.assignedToUserId : existing.assignedToUserId,
+  }
 }
 
 export async function executeAssistantAction(
@@ -195,6 +253,7 @@ export async function executeAssistantAction(
           priority: p.priority ?? undefined,
           deadline: p.deadline ?? '',
           assignedToUserId: p.assignedToUserId ?? null,
+          assigneeUserIds: p.assigneeUserIds,
         })
         await logAssistantAction({
           userId,
@@ -238,14 +297,22 @@ export async function executeAssistantAction(
           title: patch.title ?? existing.title,
           description: patch.description ?? existing.description ?? '',
           clientId: existing.clientId,
-          categoryId: existing.categoryId,
-          status: (patch.status ?? existing.status) as 'TODO' | 'IN_PROGRESS' | 'IN_REVIEW' | 'WAITING_CLIENT' | 'DONE' | 'PAUSED' | 'CANCELED',
+          categoryId: patch.categoryId ?? existing.categoryId,
+          status: (patch.status ?? existing.status) as WorkStatus,
           priority: patch.priority ?? existing.priority ?? undefined,
           deadline: deadlineStr,
           assignedToUserId:
             patch.assignedToUserId !== undefined ? patch.assignedToUserId : existing.assignedToUserId,
         }
         await updateWork(patch.workId, workPayload)
+        if (patch.assigneeUserIds !== undefined && patch.assigneeUserIds.length > 0) {
+          const cur = await prisma.workAssignee.findMany({
+            where: { workId: patch.workId },
+            select: { userId: true },
+          })
+          const merged = [...new Set([...cur.map((c) => c.userId), ...patch.assigneeUserIds])]
+          await syncWorkAssignees(patch.workId, merged)
+        }
         await logAssistantAction({
           userId,
           threadId,
@@ -256,6 +323,206 @@ export async function executeAssistantAction(
           status: 'success',
         })
         return ok('Lavoro aggiornato.', 'Work', patch.workId, `/works/${patch.workId}`)
+      }
+
+      case 'update_work_title': {
+        const p = updateWorkTitlePayloadSchema.parse(payload)
+        const data = await buildMergedWorkData(p.workId, { title: p.title })
+        await updateWork(p.workId, data)
+        await logAssistantAction({
+          userId,
+          threadId,
+          actionType,
+          entityType: 'Work',
+          entityId: p.workId,
+          input: p,
+          status: 'success',
+        })
+        return ok(`Titolo lavoro aggiornato in **${p.title}**.`, 'Work', p.workId, `/works/${p.workId}`)
+      }
+
+      case 'update_work_description': {
+        const p = updateWorkDescriptionPayloadSchema.parse(payload)
+        const data = await buildMergedWorkData(p.workId, { description: p.description })
+        await updateWork(p.workId, data)
+        await logAssistantAction({
+          userId,
+          threadId,
+          actionType,
+          entityType: 'Work',
+          entityId: p.workId,
+          input: p,
+          status: 'success',
+        })
+        return ok('Descrizione del lavoro aggiornata.', 'Work', p.workId, `/works/${p.workId}`)
+      }
+
+      case 'update_work_category': {
+        const p = updateWorkCategoryPayloadSchema.parse(payload)
+        const data = await buildMergedWorkData(p.workId, { categoryId: p.categoryId })
+        await updateWork(p.workId, data)
+        await logAssistantAction({
+          userId,
+          threadId,
+          actionType,
+          entityType: 'Work',
+          entityId: p.workId,
+          input: p,
+          status: 'success',
+        })
+        return ok('Categoria del lavoro aggiornata.', 'Work', p.workId, `/works/${p.workId}`)
+      }
+
+      case 'update_work_status': {
+        const p = updateWorkStatusPayloadSchema.parse(payload)
+        const data = await buildMergedWorkData(p.workId, { status: p.status })
+        await updateWork(p.workId, data)
+        await logAssistantAction({
+          userId,
+          threadId,
+          actionType,
+          entityType: 'Work',
+          entityId: p.workId,
+          input: p,
+          status: 'success',
+        })
+        return ok(`Stato del lavoro impostato a **${p.status}**.`, 'Work', p.workId, `/works/${p.workId}`)
+      }
+
+      case 'update_work_priority': {
+        const p = updateWorkPriorityPayloadSchema.parse(payload)
+        const data = await buildMergedWorkData(p.workId, { priority: p.priority })
+        await updateWork(p.workId, data)
+        await logAssistantAction({
+          userId,
+          threadId,
+          actionType,
+          entityType: 'Work',
+          entityId: p.workId,
+          input: p,
+          status: 'success',
+        })
+        return ok(`Priorità aggiornata (**${p.priority}**).`, 'Work', p.workId, `/works/${p.workId}`)
+      }
+
+      case 'update_work_deadline': {
+        const p = updateWorkDeadlinePayloadSchema.parse(payload)
+        const data = await buildMergedWorkData(p.workId, { deadline: p.deadline })
+        await updateWork(p.workId, data)
+        await logAssistantAction({
+          userId,
+          threadId,
+          actionType,
+          entityType: 'Work',
+          entityId: p.workId,
+          input: p,
+          status: 'success',
+        })
+        return ok(`Deadline aggiornata al **${p.deadline}**.`, 'Work', p.workId, `/works/${p.workId}`)
+      }
+
+      case 'assign_work_users': {
+        const p = assignWorkUsersPayloadSchema.parse(payload)
+        const cur = await prisma.workAssignee.findMany({
+          where: { workId: p.workId },
+          select: { userId: true },
+        })
+        const merged = [...new Set([...cur.map((c) => c.userId), ...p.userIds])]
+        await syncWorkAssignees(p.workId, merged)
+        await logAssistantAction({
+          userId,
+          threadId,
+          actionType,
+          entityType: 'Work',
+          entityId: p.workId,
+          input: p,
+          status: 'success',
+        })
+        return ok('Assegnatari aggiornati sul lavoro.', 'Work', p.workId, `/works/${p.workId}`)
+      }
+
+      case 'unassign_work_users': {
+        const p = unassignWorkUsersPayloadSchema.parse(payload)
+        await removeWorkAssignees(p.workId, p.userIds)
+        await logAssistantAction({
+          userId,
+          threadId,
+          actionType,
+          entityType: 'Work',
+          entityId: p.workId,
+          input: p,
+          status: 'success',
+        })
+        return ok('Utenti rimossi dall’assegnazione del lavoro.', 'Work', p.workId, `/works/${p.workId}`)
+      }
+
+      case 'add_work_note': {
+        const p = addWorkNotePayloadSchema.parse(payload)
+        await createWorkComment(p.workId, p.body, 'COMMENT')
+        await logAssistantAction({
+          userId,
+          threadId,
+          actionType,
+          entityType: 'Work',
+          entityId: p.workId,
+          input: p,
+          status: 'success',
+        })
+        return ok('Nota aggiunta al lavoro.', 'Work', p.workId, `/works/${p.workId}`)
+      }
+
+      case 'delete_work_step': {
+        const p = deleteWorkStepPayloadSchema.parse(payload)
+        await deleteWorkStep(p.stepId)
+        await logAssistantAction({
+          userId,
+          threadId,
+          actionType,
+          entityType: 'WorkStep',
+          entityId: p.stepId,
+          input: p,
+          status: 'success',
+        })
+        return ok('Step eliminato.', 'WorkStep', p.stepId, `/works/${p.workId}`)
+      }
+
+      case 'reorder_work_steps': {
+        const p = reorderWorkStepsPayloadSchema.parse(payload)
+        await reorderWorkSteps(p.workId, p.orderedStepIds)
+        await logAssistantAction({
+          userId,
+          threadId,
+          actionType,
+          entityType: 'Work',
+          entityId: p.workId,
+          input: p,
+          status: 'success',
+        })
+        return ok('Ordine degli step aggiornato.', 'Work', p.workId, `/works/${p.workId}`)
+      }
+
+      case 'mark_work_step_done':
+      case 'mark_work_step_todo': {
+        const p = markWorkStepPayloadSchema.parse(payload)
+        await updateWorkStep(p.stepId, {
+          status: p.markDone ? 'DONE' : 'TODO',
+          completedAt: p.markDone ? new Date() : null,
+        })
+        await logAssistantAction({
+          userId,
+          threadId,
+          actionType,
+          entityType: 'WorkStep',
+          entityId: p.stepId,
+          input: p,
+          status: 'success',
+        })
+        return ok(
+          p.markDone ? 'Step segnato come completato.' : 'Step rimesso in da fare.',
+          'WorkStep',
+          p.stepId,
+          `/works/${p.workId}`
+        )
       }
 
       case 'create_work_step': {

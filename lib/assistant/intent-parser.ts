@@ -17,7 +17,11 @@ export type RuleBasedIntent =
       clientName: string
       title?: string
       deadlineRaw?: string
+      assigneeNames?: string
     }
+  | { kind: 'mark_work_step_done'; stepTitle: string; workHint: string; clientName: string }
+  | { kind: 'assign_work_users_rule'; workId: string; assigneeNames: string }
+  | { kind: 'create_work_step_followup'; workId: string; stepTitle: string }
   | {
       kind: 'create_work_step'
       stepTitle: string
@@ -40,7 +44,7 @@ export type RuleBasedIntent =
   | { kind: 'query_my_ped_today' }
   | { kind: 'query_clients_active_category_work'; categoryHint: string }
 
-function cleanName(s: string) {
+export function cleanName(s: string) {
   return s.replace(/^["'«»]|["'«»]$/g, '').trim()
 }
 
@@ -205,14 +209,24 @@ export function parseRuleBasedIntent(message: string): RuleBasedIntent | null {
 
   // --- Crea lavoro: "lavoro Website per Rinlux" / "crea un lavoro ..." ---
   const createWork =
-    m.match(
-      /(?:crea(?:re)?|nuovo)\s+(?:un\s+)?lavoro\s+(\S+)\s+per\s+(.+?)(?:\s+con\s+deadline\s+(.+))?$/i
-    ) || m.match(/lavoro\s+(\S+)\s+per\s+(.+?)(?:\s+con\s+deadline\s+(.+))?$/i)
-  if (createWork && /(?:crea|nuovo|lavoro)/i.test(lower)) {
+    m.match(/(?:crea(?:re)?|nuovo)\s+(?:un\s+)?lavoro\s+(\S+)\s+per\s+(.+)/i) ||
+    m.match(/\blavoro\s+(\S+)\s+per\s+(.+)/i)
+  if (createWork && /(?:crea|nuovo|\blavoro\b)/i.test(lower)) {
     const categoryName = createWork[1]
-    const rest = createWork[2].replace(/\s+con\s+deadline.*$/i, '').trim()
-    const deadlineRaw = createWork[3]?.trim()
-    const clientName = cleanName(rest.split(/\s+con\s+/i)[0] || rest)
+    let tail = createWork[2].trim()
+    let deadlineRaw: string | undefined
+    const dl = tail.match(/\s+con\s+deadline\s+(.+)$/i)
+    if (dl) {
+      deadlineRaw = dl[1].trim()
+      tail = tail.slice(0, dl.index).trim()
+    }
+    let assigneeNames: string | undefined
+    const asn = tail.match(/\s+assegnat[oa]\w*\s+(?:a\s+)?(.+)$/i)
+    if (asn) {
+      assigneeNames = cleanName(asn[1])
+      tail = tail.slice(0, asn.index).trim()
+    }
+    const clientName = cleanName(tail)
     if (clientName) {
       return {
         kind: 'create_work',
@@ -220,6 +234,7 @@ export function parseRuleBasedIntent(message: string): RuleBasedIntent | null {
         clientName,
         title: categoryName,
         deadlineRaw,
+        assigneeNames,
       }
     }
   }
@@ -253,6 +268,20 @@ export function parseRuleBasedIntent(message: string): RuleBasedIntent | null {
       workHint: upd[1],
       clientName: cleanName(upd[2]),
       deadlineRaw: upd[3].trim(),
+    }
+  }
+
+  // --- Segna step completato ---
+  const markStep =
+    m.match(
+      /(?:segna|marca|imposta)\s+(?:come\s+)?(?:completat[oa]|fatto)\s+(?:lo\s+)?step\s+(.+?)\s+del\s+lavoro\s+(\S+)\s+di\s+(.+)/i
+    ) || m.match(/completa\s+(?:lo\s+)?step\s+(.+?)\s+del\s+lavoro\s+(\S+)\s+di\s+(.+)/i)
+  if (markStep) {
+    return {
+      kind: 'mark_work_step_done',
+      stepTitle: cleanName(markStep[1]),
+      workHint: markStep[2],
+      clientName: cleanName(markStep[3]),
     }
   }
 

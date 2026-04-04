@@ -12,10 +12,11 @@ export async function createWork(data: unknown) {
 
   const validated = workSchema.parse(data)
   const deadlineDate = parseDeadlineFromInput(validated.deadline ?? undefined)
+  const { assigneeUserIds, ...workFields } = validated
 
   const work = await prisma.work.create({
     data: {
-      ...validated,
+      ...workFields,
       deadline: deadlineDate,
     },
     include: {
@@ -24,10 +25,90 @@ export async function createWork(data: unknown) {
     },
   })
 
+  const assigneeSet = new Set<string>(assigneeUserIds ?? [])
+  if (workFields.assignedToUserId) assigneeSet.add(workFields.assignedToUserId)
+  const list = [...assigneeSet]
+  if (list.length > 0) {
+    await prisma.workAssignee.createMany({
+      data: list.map((userId) => ({ workId: work.id, userId, role: 'ASSIGNEE' })),
+      skipDuplicates: true,
+    })
+    if (!work.assignedToUserId && list[0]) {
+      await prisma.work.update({
+        where: { id: work.id },
+        data: { assignedToUserId: list[0] },
+      })
+    }
+  }
+
   revalidatePath('/works')
   revalidatePath('/calendar')
   revalidatePath(`/clients/${validated.clientId}`)
-  return { success: true, work }
+  const workOut =
+    list.length > 0 && !work.assignedToUserId
+      ? await prisma.work.findUniqueOrThrow({
+          where: { id: work.id },
+          include: { client: true, category: true },
+        })
+      : work
+
+  return { success: true, work: workOut }
+}
+
+export async function syncWorkAssignees(workId: string, userIds: string[]) {
+  const user = await getCurrentUser()
+  if (!user || !canWrite(user)) throw new Error('Non autorizzato')
+
+  const unique = [...new Set(userIds.filter(Boolean))]
+  await prisma.$transaction(async (tx) => {
+    await tx.workAssignee.deleteMany({ where: { workId } })
+    if (unique.length > 0) {
+      await tx.workAssignee.createMany({
+        data: unique.map((userId) => ({ workId, userId, role: 'ASSIGNEE' })),
+      })
+    }
+    await tx.work.update({
+      where: { id: workId },
+      data: { assignedToUserId: unique[0] ?? null },
+    })
+  })
+
+  revalidatePath('/works')
+  revalidatePath('/calendar')
+  revalidatePath('/profilo')
+  revalidatePath(`/works/${workId}`)
+}
+
+export async function removeWorkAssignees(workId: string, userIds: string[]) {
+  const user = await getCurrentUser()
+  if (!user || !canWrite(user)) throw new Error('Non autorizzato')
+
+  const toRemove = new Set(userIds.filter(Boolean))
+  if (toRemove.size === 0) return
+
+  await prisma.workAssignee.deleteMany({
+    where: { workId, userId: { in: [...toRemove] } },
+  })
+
+  const work = await prisma.work.findUnique({
+    where: { id: workId },
+    select: { assignedToUserId: true },
+  })
+  if (work?.assignedToUserId && toRemove.has(work.assignedToUserId)) {
+    const first = await prisma.workAssignee.findFirst({
+      where: { workId },
+      select: { userId: true },
+    })
+    await prisma.work.update({
+      where: { id: workId },
+      data: { assignedToUserId: first?.userId ?? null },
+    })
+  }
+
+  revalidatePath('/works')
+  revalidatePath('/calendar')
+  revalidatePath('/profilo')
+  revalidatePath(`/works/${workId}`)
 }
 
 export async function updateWork(id: string, data: unknown) {
@@ -36,11 +117,12 @@ export async function updateWork(id: string, data: unknown) {
 
   const validated = workSchema.parse(data)
   const deadlineDate = parseDeadlineFromInput(validated.deadline ?? undefined)
+  const { assigneeUserIds, ...workFields } = validated
 
   const work = await prisma.work.update({
     where: { id },
     data: {
-      ...validated,
+      ...workFields,
       deadline: deadlineDate,
     },
     include: {
@@ -48,6 +130,10 @@ export async function updateWork(id: string, data: unknown) {
       category: true,
     },
   })
+
+  if (assigneeUserIds !== undefined) {
+    await syncWorkAssignees(id, assigneeUserIds)
+  }
 
   revalidatePath('/works')
   revalidatePath('/calendar')

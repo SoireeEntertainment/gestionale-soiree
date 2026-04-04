@@ -2,7 +2,7 @@
  * Messaggi ellittici in base al contesto thread (ultimo cliente, lavoro, …).
  */
 
-import type { RuleBasedIntent } from '@/lib/assistant/intent-parser'
+import { cleanName, type RuleBasedIntent } from '@/lib/assistant/intent-parser'
 import type { AssistantThreadContext } from '@/lib/assistant/thread-context'
 
 function extractUserPass(text: string): { username?: string; password?: string } {
@@ -63,7 +63,7 @@ export function tryFollowUpDeadlineOnly(
   const clientName = w?.clientName ?? ctx.lastClient?.name
   if (!w || !clientName) return null
   const m = message.match(
-    /(?:sposta|cambia|imposta)\s+(?:la\s+)?deadline\s+(?:al|a)\s+(.+)/i
+    /(?:sposta|cambia|imposta|metti)\s+(?:la\s+)?deadline\s+(?:al|a|il|al\s+giorno)?\s+(.+)/i
   )
   if (!m) return null
   return {
@@ -74,12 +74,41 @@ export function tryFollowUpDeadlineOnly(
   }
 }
 
+/** Es. "assegnalo a Davide e Cristian" dopo aver creato o citato un lavoro */
+export function tryFollowUpAssignWorkUsers(
+  message: string,
+  ctx: AssistantThreadContext
+): RuleBasedIntent | null {
+  const w = ctx.lastWork
+  if (!w?.id) return null
+  const m = message
+    .trim()
+    .match(/(?:^|\b)(?:assegnalo|assegna(?:lo)?)\s+(?:il\s+lavoro\s+)?(?:a|ad)\s+(.+)/i)
+  if (!m) return null
+  const names = cleanName(m[1])
+  if (names.length < 2) return null
+  return { kind: 'assign_work_users_rule', workId: w.id, assigneeNames: names }
+}
+
+/** Es. "aggiungi lo step Revisione" sul lastWork */
+export function tryFollowUpAddWorkStep(message: string, ctx: AssistantThreadContext): RuleBasedIntent | null {
+  const w = ctx.lastWork
+  if (!w?.id) return null
+  const m = message.trim().match(/(?:aggiungi|inserisci)\s+(?:lo\s+)?step\s+(.+)/i)
+  if (!m) return null
+  const stepTitle = cleanName(m[1])
+  if (stepTitle.length < 1) return null
+  return { kind: 'create_work_step_followup', workId: w.id, stepTitle }
+}
+
 export function tryParseFollowUpRule(
   message: string,
   ctx: AssistantThreadContext
 ): RuleBasedIntent | null {
   return (
     tryFollowUpAddCredential(message, ctx) ||
+    tryFollowUpAssignWorkUsers(message, ctx) ||
+    tryFollowUpAddWorkStep(message, ctx) ||
     tryFollowUpDeadlineOnly(message, ctx) ||
     null
   )

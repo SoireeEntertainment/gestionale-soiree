@@ -121,6 +121,47 @@ export async function buildThreadContextAfterConfirmedAction(
     }
   }
 
+  const granularWorkMemory = new Set([
+    'update_work_title',
+    'update_work_description',
+    'update_work_category',
+    'update_work_status',
+    'update_work_priority',
+    'update_work_deadline',
+    'assign_work_users',
+    'unassign_work_users',
+    'add_work_note',
+    'delete_work_step',
+    'reorder_work_steps',
+    'mark_work_step_done',
+    'mark_work_step_todo',
+  ])
+  if (granularWorkMemory.has(actionType) && result.success) {
+    const wid = typeof payload.workId === 'string' ? payload.workId : undefined
+    if (wid) {
+      const w = await prisma.work.findUnique({
+        where: { id: wid },
+        select: { title: true, clientId: true, client: { select: { name: true } }, category: { select: { name: true } } },
+      })
+      if (w) {
+        patch.lastWork = {
+          id: wid,
+          title: w.title,
+          clientId: w.clientId,
+          clientName: w.client.name,
+        }
+        patch.lastCategoryHint = w.category.name
+        patch.lastWrite = {
+          actionType,
+          clientId: w.clientId,
+          clientName: w.client.name,
+          workId: wid,
+          categoryName: w.category.name,
+        }
+      }
+    }
+  }
+
   return patch
 }
 

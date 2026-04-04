@@ -19,6 +19,12 @@ export function suggestThreadTitleFromRule(rule: RuleBasedIntent | null, fallbac
         return titleCase(`Step ${rule.stepTitle} · ${rule.clientName}`.slice(0, 42))
       case 'update_work':
         return titleCase(`Deadline ${rule.workHint} · ${rule.clientName}`.slice(0, 42))
+      case 'mark_work_step_done':
+        return titleCase(`Step ✓ ${rule.stepTitle} · ${rule.clientName}`.slice(0, 42))
+      case 'assign_work_users_rule':
+        return 'Assegnazione lavoro'
+      case 'create_work_step_followup':
+        return titleCase(`Step ${rule.stepTitle}`.slice(0, 42))
       case 'query_active_works':
         return `Lavori attivi · ${rule.userName}`.slice(0, 42)
       case 'query_renewals':

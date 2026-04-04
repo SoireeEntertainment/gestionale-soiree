@@ -36,18 +36,21 @@ export const createWorkPayloadSchema = z.object({
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH']).optional().nullable(),
   deadline: z.string().optional().nullable(),
   assignedToUserId: z.string().optional().nullable(),
+  assigneeUserIds: z.array(z.string().min(1)).optional(),
 })
 
 export const updateWorkPayloadSchema = z.object({
   workId: z.string().min(1),
   title: z.string().optional(),
   description: z.string().optional().nullable(),
+  categoryId: z.string().optional(),
   status: z
     .enum(['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'WAITING_CLIENT', 'DONE', 'PAUSED', 'CANCELED'])
     .optional(),
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH']).optional().nullable(),
   deadline: z.string().optional().nullable(),
   assignedToUserId: z.string().optional().nullable(),
+  assigneeUserIds: z.array(z.string().min(1)).optional(),
 })
 
 export const createWorkStepPayloadSchema = z.object({
@@ -59,6 +62,67 @@ export const updateWorkStepPayloadSchema = z.object({
   stepId: z.string().min(1),
   title: z.string().optional(),
   status: z.enum(['TODO', 'DONE', 'BLOCKED']).optional(),
+})
+
+export const updateWorkTitlePayloadSchema = z.object({
+  workId: z.string().min(1),
+  title: z.string().min(1),
+})
+
+export const updateWorkDescriptionPayloadSchema = z.object({
+  workId: z.string().min(1),
+  description: z.string().min(1),
+})
+
+export const updateWorkCategoryPayloadSchema = z.object({
+  workId: z.string().min(1),
+  categoryId: z.string().min(1),
+})
+
+export const updateWorkStatusPayloadSchema = z.object({
+  workId: z.string().min(1),
+  status: z.enum(['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'WAITING_CLIENT', 'DONE', 'PAUSED', 'CANCELED']),
+})
+
+export const updateWorkPriorityPayloadSchema = z.object({
+  workId: z.string().min(1),
+  priority: z.enum(['LOW', 'MEDIUM', 'HIGH']),
+})
+
+export const updateWorkDeadlinePayloadSchema = z.object({
+  workId: z.string().min(1),
+  deadline: z.string().min(1),
+})
+
+export const assignWorkUsersPayloadSchema = z.object({
+  workId: z.string().min(1),
+  userIds: z.array(z.string().min(1)).min(1),
+})
+
+export const unassignWorkUsersPayloadSchema = z.object({
+  workId: z.string().min(1),
+  userIds: z.array(z.string().min(1)).min(1),
+})
+
+export const addWorkNotePayloadSchema = z.object({
+  workId: z.string().min(1),
+  body: z.string().min(1),
+})
+
+export const deleteWorkStepPayloadSchema = z.object({
+  workId: z.string().min(1),
+  stepId: z.string().min(1),
+})
+
+export const reorderWorkStepsPayloadSchema = z.object({
+  workId: z.string().min(1),
+  orderedStepIds: z.array(z.string().min(1)).min(1),
+})
+
+export const markWorkStepPayloadSchema = z.object({
+  workId: z.string().min(1),
+  stepId: z.string().min(1),
+  markDone: z.boolean(),
 })
 
 export const createClientRenewalPayloadSchema = z.object({
