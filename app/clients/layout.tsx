@@ -1,15 +1,9 @@
-import { NavbarWithAuth } from '@/components/layout/navbar-with-auth'
+import { AuthenticatedChrome } from '@/components/layout/authenticated-chrome'
 
 export default function ClientsLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  return (
-    <>
-      <NavbarWithAuth />
-      {children}
-    </>
-  )
+  return <AuthenticatedChrome>{children}</AuthenticatedChrome>
 }
-

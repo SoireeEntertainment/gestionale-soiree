@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
+import { useAssistantUiStore } from '@/lib/stores/assistant-ui-store'
 
-type ThreadRow = { id: string; title: string; createdAt: string; updatedAt: string }
+export type ThreadRow = { id: string; title: string; createdAt: string; updatedAt: string }
 
-type MsgRow = {
+export type MsgRow = {
   id: string
   role: string
   content: string
@@ -38,14 +39,33 @@ function Badge({ kind }: { kind: string }) {
   )
 }
 
-export function AssistantPage() {
+type AssistantPanelProps = {
+  /** true = drawer globale: thread e bozza da store Zustand */
+  embedded?: boolean
+  /** Pagina dedicata: layout più arioso */
+  variant?: 'page' | 'embedded'
+}
+
+export function AssistantPanel({ embedded = false, variant }: AssistantPanelProps) {
+  const isEmbedded = embedded || variant === 'embedded'
+
+  const storeThreadId = useAssistantUiStore((s) => s.activeThreadId)
+  const setStoreThread = useAssistantUiStore((s) => s.setActiveThread)
+  const inputDraft = useAssistantUiStore((s) => s.inputDraft)
+  const setInputDraft = useAssistantUiStore((s) => s.setInputDraft)
+
   const [threads, setThreads] = useState<ThreadRow[]>([])
-  const [activeId, setActiveId] = useState<string | null>(null)
+  const [localActiveId, setLocalActiveId] = useState<string | null>(null)
+  const [localInput, setLocalInput] = useState('')
   const [messages, setMessages] = useState<MsgRow[]>([])
-  const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [loadingThread, setLoadingThread] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const activeId = isEmbedded ? storeThreadId : localActiveId
+  const setActiveId = isEmbedded ? setStoreThread : setLocalActiveId
+  const input = isEmbedded ? inputDraft : localInput
+  const setInput = isEmbedded ? setInputDraft : setLocalInput
 
   const loadThreads = useCallback(async () => {
     const res = await fetch('/api/assistant/threads')
@@ -75,6 +95,7 @@ export function AssistantPage() {
 
   useEffect(() => {
     if (activeId) loadMessages(activeId)
+    else setMessages([])
   }, [activeId, loadMessages])
 
   const newThread = async () => {
@@ -126,31 +147,46 @@ export function AssistantPage() {
     }
   }
 
-  return (
-    <div className="min-h-screen bg-dark text-white p-6">
-      <div className="w-[90vw] max-w-[90vw] mx-auto flex flex-col gap-4" style={{ height: 'calc(100vh - 8rem)' }}>
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <h1 className="text-2xl font-bold text-white">Assistente</h1>
-          <p className="text-white/50 text-sm max-w-xl">
-            Comandi frequenti (credenziali, lavori, step, letture) funzionano anche senza LLM. Per il resto serve{' '}
-            <code className="text-accent/90">OPENAI_API_KEY</code> sul server. Le modifiche richiedono conferma.
-          </p>
-        </div>
+  const shellClass = isEmbedded
+    ? 'flex flex-1 min-h-0 flex-col bg-dark text-white'
+    : 'min-h-screen bg-dark text-white p-6'
 
-        <div className="flex flex-1 min-h-0 gap-4 border border-accent/20 rounded-xl overflow-hidden">
-          <aside className="w-64 shrink-0 border-r border-white/10 flex flex-col bg-dark">
-            <div className="p-3 border-b border-white/10">
-              <Button size="sm" className="w-full" onClick={newThread}>
+  const innerClass = isEmbedded
+    ? 'flex flex-1 min-h-0 flex-col gap-0'
+    : 'w-[90vw] max-w-[90vw] mx-auto flex flex-col gap-4'
+  const innerStyle = isEmbedded ? undefined : ({ height: 'calc(100vh - 8rem)' } as const)
+
+  const gridClass = isEmbedded
+    ? 'flex flex-1 min-h-0 gap-0 border-t border-accent/20 overflow-hidden'
+    : 'flex flex-1 min-h-0 gap-4 border border-accent/20 rounded-xl overflow-hidden'
+
+  return (
+    <div className={shellClass}>
+      <div className={innerClass} style={innerStyle}>
+        {!isEmbedded && (
+          <div className="flex items-center justify-between flex-wrap gap-2 shrink-0">
+            <h1 className="text-2xl font-bold text-white">Assistente</h1>
+            <p className="text-white/50 text-sm max-w-xl">
+              Comandi frequenti (credenziali, lavori, step, letture) funzionano anche senza LLM. Per il resto serve{' '}
+              <code className="text-accent/90">OPENAI_API_KEY</code> sul server. Le modifiche richiedono conferma.
+            </p>
+          </div>
+        )}
+
+        <div className={gridClass}>
+          <aside className="w-[min(40%,11rem)] sm:w-56 shrink-0 border-r border-white/10 flex flex-col bg-dark">
+            <div className="p-2 border-b border-white/10">
+              <Button size="sm" className="w-full text-xs" onClick={newThread}>
                 + Nuova chat
               </Button>
             </div>
-            <ul className="overflow-y-auto flex-1 p-2 space-y-1">
+            <ul className="overflow-y-auto flex-1 p-1.5 space-y-0.5 min-h-0">
               {threads.map((t) => (
                 <li key={t.id}>
                   <button
                     type="button"
                     onClick={() => setActiveId(t.id)}
-                    className={`w-full text-left px-3 py-2 rounded-lg text-sm truncate ${
+                    className={`w-full text-left px-2 py-1.5 rounded-lg text-xs truncate ${
                       activeId === t.id ? 'bg-accent/20 text-accent' : 'text-white/80 hover:bg-white/5'
                     }`}
                   >
@@ -161,19 +197,19 @@ export function AssistantPage() {
             </ul>
           </aside>
 
-          <section className="flex-1 flex flex-col min-w-0 bg-dark">
+          <section className="flex-1 flex flex-col min-w-0 bg-dark min-h-0">
             {!activeId ? (
-              <div className="flex-1 flex items-center justify-center text-white/50 p-8">
-                Seleziona o crea una chat
+              <div className="flex-1 flex items-center justify-center text-white/50 p-6 text-sm text-center">
+                Seleziona o crea una conversazione
               </div>
             ) : (
               <>
-                <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                <div className="flex-1 overflow-y-auto p-3 space-y-3 min-h-0">
                   {loading && !loadingThread && (
-                    <p className="text-accent/80 text-sm animate-pulse">L’assistente sta elaborando…</p>
+                    <p className="text-accent/80 text-xs animate-pulse">L’assistente sta elaborando…</p>
                   )}
                   {loadingThread ? (
-                    <p className="text-white/50">Caricamento…</p>
+                    <p className="text-white/50 text-sm">Caricamento…</p>
                   ) : (
                     messages.map((m) => (
                       <div
@@ -181,22 +217,24 @@ export function AssistantPage() {
                         className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
                       >
                         <div
-                          className={`max-w-[85%] rounded-xl px-4 py-2 text-sm whitespace-pre-wrap ${
+                          className={`max-w-[90%] rounded-xl px-3 py-2 text-xs sm:text-sm whitespace-pre-wrap ${
                             m.role === 'user'
                               ? 'bg-accent/15 text-white border border-accent/30'
                               : 'bg-white/5 text-white/90 border border-white/10'
                           }`}
                         >
                           {m.role === 'assistant' && m.assistantBadge && (
-                            <div className="mb-2">
+                            <div className="mb-1.5">
                               <Badge kind={m.assistantBadge} />
                             </div>
                           )}
                           {m.content}
                           {m.role === 'assistant' && m.pendingConfirmationId && (
-                            <div className="mt-3 pt-2 border-t border-amber-500/30 space-y-2">
-                              <p className="text-amber-200/90 text-xs font-medium">Azione proposta — in attesa di conferma</p>
-                              <div className="flex flex-wrap gap-2">
+                            <div className="mt-2 pt-2 border-t border-amber-500/30 space-y-2">
+                              <p className="text-amber-200/90 text-[10px] sm:text-xs font-medium">
+                                Azione proposta — in attesa di conferma
+                              </p>
+                              <div className="flex flex-wrap gap-1.5">
                                 <Button
                                   size="sm"
                                   disabled={loading}
@@ -224,7 +262,7 @@ export function AssistantPage() {
                             <div className="mt-2">
                               <Link
                                 href={m.result.href}
-                                className="text-accent text-sm font-medium underline hover:no-underline"
+                                className="text-accent text-xs sm:text-sm font-medium underline hover:no-underline"
                               >
                                 {m.result.href.startsWith('/clients/')
                                   ? 'Apri scheda cliente'
@@ -241,11 +279,11 @@ export function AssistantPage() {
                 </div>
 
                 {error && (
-                  <div className="px-4 py-2 text-red-400 text-sm border-t border-white/10">{error}</div>
+                  <div className="px-3 py-2 text-red-400 text-xs border-t border-white/10 shrink-0">{error}</div>
                 )}
 
                 <form
-                  className="p-3 border-t border-white/10 flex gap-2"
+                  className="p-2 border-t border-white/10 flex gap-2 shrink-0"
                   onSubmit={(e) => {
                     e.preventDefault()
                     send()
@@ -255,11 +293,11 @@ export function AssistantPage() {
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     placeholder="Scrivi un messaggio…"
-                    className="flex-1 px-3 py-2 rounded-lg bg-dark border border-accent/20 text-white text-sm placeholder:text-white/40"
+                    className="flex-1 min-w-0 px-2 py-2 rounded-lg bg-dark border border-accent/20 text-white text-sm placeholder:text-white/40"
                     disabled={loading}
                   />
-                  <Button type="submit" disabled={loading || !input.trim()}>
-                    {loading ? 'Elaborazione…' : 'Invia'}
+                  <Button type="submit" disabled={loading || !input.trim()} size="sm">
+                    {loading ? '…' : 'Invia'}
                   </Button>
                 </form>
               </>
