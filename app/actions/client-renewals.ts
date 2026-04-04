@@ -60,7 +60,7 @@ export async function createClientRenewal(
   const client = await prisma.client.findUnique({ where: { id: clientId } })
   if (!client) throw new Error('Cliente non trovato')
 
-  await prisma.clientRenewal.create({
+  const row = await prisma.clientRenewal.create({
     data: {
       clientId,
       serviceName: validated.serviceName,
@@ -75,6 +75,7 @@ export async function createClientRenewal(
   })
 
   revalidatePath(`/clients/${clientId}`)
+  return { id: row.id }
 }
 
 export async function updateClientRenewal(

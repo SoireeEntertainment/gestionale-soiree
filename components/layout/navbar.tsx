@@ -15,6 +15,7 @@ const allNavItems = [
   { href: '/preventivi', label: 'Preventivi' },
   { href: '/ped', label: 'PED' },
   { href: '/calendar', label: 'Calendario' },
+  { href: '/assistente', label: 'Assistente' },
   { href: '/profilo', label: 'Area operativa' },
 ]
 
@@ -22,6 +23,7 @@ const allNavItems = [
 const agenteNavItems = [
   { href: '/clients', label: 'Clienti' },
   { href: '/preventivi', label: 'Preventivi' },
+  { href: '/assistente', label: 'Assistente' },
   { href: '/profilo', label: 'Area operativa' },
 ]
 

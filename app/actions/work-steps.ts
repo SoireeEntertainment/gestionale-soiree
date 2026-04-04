@@ -23,7 +23,7 @@ export async function createWorkStep(workId: string, title: string) {
     _max: { sortOrder: true },
   })
 
-  await prisma.workStep.create({
+  const step = await prisma.workStep.create({
     data: {
       workId,
       title,
@@ -33,6 +33,7 @@ export async function createWorkStep(workId: string, title: string) {
 
   revalidatePath(`/works/${workId}`)
   revalidatePath('/profilo')
+  return { id: step.id }
 }
 
 export async function updateWorkStep(

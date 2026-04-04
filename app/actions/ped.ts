@@ -818,6 +818,8 @@ export async function createPedItem(payload: unknown) {
 
   const { ensureClientAssigneeIfNone } = await import('@/app/actions/clients')
   ensureClientAssigneeIfNone(validated.clientId, ownerId).catch(() => {})
+
+  return { id }
 }
 
 /** Aggiorna una task PED. Quando si cambia giorno/colonna (date o isExtra), la data salvata è sempre quella del giorno di destinazione (single source of truth). */
