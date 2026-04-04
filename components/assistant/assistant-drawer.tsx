@@ -13,15 +13,16 @@ export function AssistantDrawer() {
   return (
     <DialogPrimitive.Root open={isOpen} onOpenChange={(open) => !open && closeAssistant()}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-[2px]" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-[2px] transition-opacity duration-300 data-[state=open]:opacity-100 data-[state=closed]:opacity-0" />
         <DialogPrimitive.Content
+          data-assistant-drawer-content
           className={cn(
             'fixed z-[101] flex flex-col overflow-hidden bg-[#0e1116] outline-none',
             'border border-white/[0.08] shadow-[0_25px_80px_-12px_rgba(0,0,0,0.7)]',
             'rounded-2xl',
             'inset-3 max-h-[calc(100dvh-1.5rem)]',
             'sm:inset-auto sm:bottom-6 sm:right-6 sm:left-auto sm:top-auto',
-            'sm:h-[min(82vh,760px)] sm:max-h-[85vh] sm:w-[min(420px,calc(100vw-3rem))]'
+            'sm:h-[min(84vh,912px)] sm:max-h-[88vh] sm:w-[min(504px,calc(100vw-3rem))]'
           )}
           onOpenAutoFocus={(e) => e.preventDefault()}
         >

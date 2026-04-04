@@ -46,3 +46,18 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 
   return NextResponse.json({ thread, messages: safeMessages })
 }
+
+/** Elimina thread e messaggi (cascade). AssistantActionLog.threadId viene messo a null (SetNull). */
+export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const user = await getCurrentUser()
+  if (!user) return NextResponse.json({ error: 'Non autorizzato' }, { status: 401 })
+
+  const { id } = await ctx.params
+  const deleted = await prisma.chatThread.deleteMany({
+    where: { id, userId: user.id },
+  })
+  if (deleted.count === 0) {
+    return NextResponse.json({ error: 'Thread non trovato' }, { status: 404 })
+  }
+  return NextResponse.json({ ok: true })
+}
