@@ -60,6 +60,7 @@ function QuickPromptBar({
             type="button"
             disabled={disabled}
             onClick={() => onPick(p.text)}
+            aria-busy={disabled}
             className={cn(
               'rounded-full border border-white/[0.1] bg-white/[0.05] px-3 py-1.5 text-left text-[11px] font-medium leading-snug text-white/80',
               'transition-colors hover:border-accent/30 hover:bg-accent/[0.08] hover:text-accent',
@@ -116,6 +117,7 @@ export function AssistantPanel({ embedded = false, variant }: AssistantPanelProp
   const setStoreThread = useAssistantUiStore((s) => s.setActiveThread)
   const inputDraft = useAssistantUiStore((s) => s.inputDraft)
   const setInputDraft = useAssistantUiStore((s) => s.setInputDraft)
+  const openAssistant = useAssistantUiStore((s) => s.openAssistant)
 
   const [threads, setThreads] = useState<ThreadRow[]>([])
   const [localActiveId, setLocalActiveId] = useState<string | null>(null)
@@ -128,6 +130,9 @@ export function AssistantPanel({ embedded = false, variant }: AssistantPanelProp
   const [deleting, setDeleting] = useState(false)
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const skipNextLoadRef = useRef<string | null>(null)
+  const submittingRef = useRef(false)
 
   const activeId = isEmbedded ? storeThreadId : localActiveId
   const setActiveId = isEmbedded ? setStoreThread : setLocalActiveId
@@ -173,9 +178,20 @@ export function AssistantPanel({ embedded = false, variant }: AssistantPanelProp
   }, [loadThreads])
 
   useEffect(() => {
-    if (activeId) loadMessages(activeId)
-    else setMessages([])
+    if (!activeId) {
+      setMessages([])
+      return
+    }
+    if (skipNextLoadRef.current === activeId) {
+      skipNextLoadRef.current = null
+      return
+    }
+    void loadMessages(activeId)
   }, [activeId, loadMessages])
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+  }, [messages, loading, loadingThread, activeId])
 
   const newThread = async () => {
     const res = await fetch('/api/assistant/threads', { method: 'POST' })
@@ -187,51 +203,117 @@ export function AssistantPanel({ embedded = false, variant }: AssistantPanelProp
     setMessages([])
   }
 
-  const applyQuickPrompt = (text: string) => {
-    setInput(text)
-    requestAnimationFrame(() => {
-      textareaRef.current?.focus()
-      adjustTextareaHeight()
-    })
-  }
-
+  /** Stesso flusso del submit manuale: usato da Invio e dai suggerimenti rapidi. */
   const send = async (opts?: {
     confirmPendingId?: string
     cancelPendingId?: string
     message?: string
   }) => {
-    const msg = opts?.message ?? input.trim()
-    if (!opts?.confirmPendingId && !opts?.cancelPendingId && !msg) return
+    const confirmId = opts?.confirmPendingId
+    const cancelId = opts?.cancelPendingId
+    const explicit = opts?.message
+
+    const msg =
+      confirmId || cancelId
+        ? (explicit ?? input).trim() || (confirmId ? 'Conferma' : 'Annulla')
+        : (explicit ?? input).trim()
+
+    if (!confirmId && !cancelId && !msg) return
+    if (submittingRef.current) return
+    submittingRef.current = true
     setLoading(true)
     setError(null)
+
+    if (!confirmId && !cancelId && msg) {
+      setInput('')
+    }
+
+    let tid: string | null = activeId
+
     try {
+      if (!confirmId && !cancelId && !tid) {
+        const tr = await fetch('/api/assistant/threads', { method: 'POST' })
+        if (!tr.ok) throw new Error('Impossibile creare la chat')
+        const created = await tr.json()
+        const t = created.thread as ThreadRow
+        tid = t.id
+        skipNextLoadRef.current = t.id
+        setThreads((prev) => [t, ...prev.filter((x) => x.id !== t.id)])
+        setActiveId(t.id)
+        setMessages([
+          {
+            id: `optimistic-user-${Date.now()}`,
+            role: 'user',
+            content: msg,
+            createdAt: new Date().toISOString(),
+          },
+        ])
+      } else if (!confirmId && !cancelId && msg) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `optimistic-user-${Date.now()}`,
+            role: 'user',
+            content: msg,
+            createdAt: new Date().toISOString(),
+          },
+        ])
+      }
+
       const res = await fetch('/api/assistant/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          threadId: activeId,
-          message: opts?.confirmPendingId
-            ? msg || 'Conferma'
-            : opts?.cancelPendingId
-              ? msg || 'Annulla'
-              : msg,
-          confirmPendingId: opts?.confirmPendingId ?? null,
-          cancelPendingId: opts?.cancelPendingId ?? null,
+          threadId: tid,
+          message: msg,
+          confirmPendingId: confirmId ?? null,
+          cancelPendingId: cancelId ?? null,
         }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Invio fallito')
 
-      const tid = (data.threadId as string) || activeId
+      const outTid = (data.threadId as string) || tid
       if (data.threadId) setActiveId(data.threadId)
       setInput('')
       await loadThreads()
-      if (tid) await loadMessages(tid)
+      if (outTid) await loadMessages(outTid)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Errore')
+      if (tid) {
+        try {
+          await loadMessages(tid)
+        } catch {
+          /* ignore */
+        }
+      } else {
+        setActiveId(null)
+        setMessages([])
+      }
     } finally {
+      submittingRef.current = false
       setLoading(false)
+      requestAnimationFrame(() => {
+        textareaRef.current?.focus()
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+      })
     }
+  }
+
+  const handleQuickPrompt = (text: string) => {
+    const trimmed = text.trim()
+    if (!trimmed || submittingRef.current || loading) return
+    if (isEmbedded) {
+      const alreadyOpen = useAssistantUiStore.getState().isOpen
+      openAssistant()
+      if (!alreadyOpen) {
+        requestAnimationFrame(() => {
+          void send({ message: trimmed })
+        })
+        return
+      }
+    }
+    void send({ message: trimmed })
   }
 
   const onComposerKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -408,7 +490,7 @@ export function AssistantPanel({ embedded = false, variant }: AssistantPanelProp
                   <p className="text-sm leading-relaxed text-white/45">
                     Puoi gestire clienti, lavori, PED, calendario e scadenze.
                   </p>
-                  <QuickPromptBar onPick={applyQuickPrompt} disabled={loading} />
+                  <QuickPromptBar onPick={handleQuickPrompt} disabled={loading} />
                   <Button
                     type="button"
                     className="mx-auto mt-2 w-full max-w-xs"
@@ -429,14 +511,11 @@ export function AssistantPanel({ embedded = false, variant }: AssistantPanelProp
                         Puoi gestire clienti, lavori, PED, calendario e scadenze.
                       </p>
                     </div>
-                    <QuickPromptBar onPick={applyQuickPrompt} disabled={loading} compact />
+                    <QuickPromptBar onPick={handleQuickPrompt} disabled={loading} compact />
                   </div>
                 ) : null}
 
                 <div className="assistant-scrollbar min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
-                  {loading && !loadingThread && (
-                    <p className="text-xs font-medium text-accent/70 animate-pulse">Sto elaborando…</p>
-                  )}
                   {loadingThread ? (
                     <p className="text-sm text-white/40">Caricamento messaggi…</p>
                   ) : (
@@ -520,6 +599,18 @@ export function AssistantPanel({ embedded = false, variant }: AssistantPanelProp
                       </div>
                     ))
                   )}
+                  {loading && !loadingThread && (
+                    <div className="flex justify-start">
+                      <p
+                        className="rounded-2xl rounded-bl-md bg-white/[0.05] px-3.5 py-2.5 text-[13px] leading-relaxed text-white/55 ring-1 ring-white/[0.07] animate-pulse"
+                        role="status"
+                        aria-live="polite"
+                      >
+                        Sto pensando…
+                      </p>
+                    </div>
+                  )}
+                  <div ref={messagesEndRef} className="h-px shrink-0" aria-hidden />
                 </div>
 
                 {error && (
