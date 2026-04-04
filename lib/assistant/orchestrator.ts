@@ -9,9 +9,16 @@ import { executeAssistantAction, logAssistantAction } from '@/lib/assistant/acti
 import {
   resolveSingleClient,
   findCategoryByNameHint,
-  findWorksByClientAndTitle,
+  findWorksByClientCategoryOrTitle,
 } from '@/lib/assistant/resolve-entities'
-import { readPedTasksThisWeekForUser, readRenewalsDueWithinDays } from '@/lib/assistant/read-handlers'
+import {
+  readPedTasksThisWeekForUser,
+  readRenewalsDueWithinDays,
+  readActiveWorksForUser,
+  readClientCredentialsForQuery,
+} from '@/lib/assistant/read-handlers'
+import { parseRuleBasedIntent, type RuleBasedIntent } from '@/lib/assistant/intent-parser'
+import { parseItalianDatePhrase } from '@/lib/assistant/parse-it-date'
 
 const SYSTEM_PROMPT = `Sei l'assistente interno del gestionale Soirëe Studio. Rispondi SOLO con JSON valido, senza markdown.
 
@@ -19,7 +26,7 @@ Schema di output obbligatorio:
 {
   "reply": "testo in italiano per l'utente",
   "intent": "read" | "write" | "clarify" | "chat",
-  "read_intent": null | { "type": "ped_week_tasks", "userName": "string" } | { "type": "renewals_due", "days": number },
+  "read_intent": null | { "type": "ped_week_tasks", "userName": "string" } | { "type": "renewals_due", "days": number } | { "type": "active_works_for_user", "userName": "string" } | { "type": "client_credentials", "clientName": "string", "labelHint": "string" },
   "write_intent": null | {
     "type": "create_client_credential" | "create_work" | "create_work_step" | "update_work" | "create_ped_task" | "update_ped_task" | "create_client_renewal" | "update_client_renewal" | "update_client_credential" | "update_work_step",
     "params": { ... campi estratti dal messaggio utente, usa nomi cliente/categoria/lavoro come stringhe se non hai id }
@@ -29,6 +36,8 @@ Schema di output obbligatorio:
 Regole:
 - Se mancano informazioni essenziali, usa intent "clarify" e read_intent/write_intent null.
 - Per letture (read): imposta read_intent appropriato; reply può essere breve (es. "Ecco i dati richiesti.").
+- Per "lavori attivi di [nome]": read_intent { "type": "active_works_for_user", "userName": "..." }.
+- Per credenziali cliente: read_intent { "type": "client_credentials", "clientName": "...", "labelHint": "Instagram" }.
 - Per modifiche (write): imposta write_intent con type e params; NON dire di aver già eseguito l'azione.
 - Per conversazione generica senza azione sul DB: intent "chat", read_intent e write_intent null.
 - Date: preferisci formato YYYY-MM-DD nei params quando possibile.
@@ -54,7 +63,22 @@ function safeParseLlmJson(raw: string): LlmOut {
   }
 }
 
-async function runReadIntent(read: { type?: string; userName?: string; days?: number }): Promise<string> {
+function normalizeDeadlineInput(raw: string | undefined | null): string | null {
+  if (!raw || typeof raw !== 'string') return null
+  const t = raw.trim()
+  if (!t) return null
+  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t
+  const parsed = parseItalianDatePhrase(t)
+  return parsed
+}
+
+async function runReadIntent(read: {
+  type?: string
+  userName?: string
+  days?: number
+  clientName?: string
+  labelHint?: string
+}): Promise<string> {
   if (read.type === 'ped_week_tasks' && read.userName) {
     return readPedTasksThisWeekForUser(read.userName)
   }
@@ -62,7 +86,77 @@ async function runReadIntent(read: { type?: string; userName?: string; days?: nu
     const days = typeof read.days === 'number' && read.days > 0 ? read.days : 30
     return readRenewalsDueWithinDays(days)
   }
+  if (read.type === 'active_works_for_user' && read.userName) {
+    return readActiveWorksForUser(read.userName)
+  }
+  if (read.type === 'client_credentials' && read.clientName && read.labelHint) {
+    return readClientCredentialsForQuery(read.clientName, read.labelHint)
+  }
   return 'Richiesta di lettura non riconosciuta.'
+}
+
+async function runRuleBasedRead(rule: RuleBasedIntent): Promise<string | null> {
+  switch (rule.kind) {
+    case 'query_active_works':
+      return readActiveWorksForUser(rule.userName)
+    case 'query_renewals':
+      return readRenewalsDueWithinDays(rule.days)
+    case 'query_client_credentials':
+      return readClientCredentialsForQuery(rule.clientName, rule.labelHint)
+    default:
+      return null
+  }
+}
+
+function ruleIntentToWriteParams(rule: RuleBasedIntent): { type: string; params: Record<string, unknown> } | null {
+  switch (rule.kind) {
+    case 'add_client_credential':
+      return {
+        type: 'create_client_credential',
+        params: {
+          clientName: rule.clientName,
+          label: rule.label,
+          username: rule.username ?? '',
+          password: rule.password ?? '',
+        },
+      }
+    case 'create_work': {
+      const title = (rule.title ?? rule.categoryName).trim()
+      const deadline = rule.deadlineRaw ? normalizeDeadlineInput(rule.deadlineRaw) : null
+      return {
+        type: 'create_work',
+        params: {
+          title,
+          clientName: rule.clientName,
+          categoryName: rule.categoryName,
+          deadline: deadline ?? '',
+        },
+      }
+    }
+    case 'create_work_step':
+      return {
+        type: 'create_work_step',
+        params: {
+          clientName: rule.clientName,
+          workTitleHint: rule.workHint,
+          stepTitle: rule.stepTitle,
+        },
+      }
+    case 'update_work': {
+      const deadline = rule.deadlineRaw ? normalizeDeadlineInput(rule.deadlineRaw) : null
+      return {
+        type: 'update_work',
+        params: {
+          clientName: rule.clientName,
+          workTitleHint: rule.workHint,
+          deadline: deadline ?? '',
+          title: rule.newTitle ?? '',
+        },
+      }
+    }
+    default:
+      return null
+  }
 }
 
 /** Normalizza write_intent in payload eseguibile o messaggio di chiarimento. */
@@ -113,6 +207,17 @@ async function normalizeWriteIntent(
       const client = cr
       const cat = await findCategoryByNameHint(catHint)
       if (!cat) return { ok: false, reply: `Non ho trovato una categoria simile a "${catHint}".` }
+      const rawDl = str('deadline')
+      let deadline: string | null = null
+      if (rawDl) {
+        deadline = normalizeDeadlineInput(rawDl)
+        if (!deadline) {
+          return {
+            ok: false,
+            reply: `Non ho capito la data "${rawDl}". Indica una data tipo 15 marzo o YYYY-MM-DD.`,
+          }
+        }
+      }
       return {
         ok: true,
         actionType: 'create_work',
@@ -123,7 +228,7 @@ async function normalizeWriteIntent(
           description: str('description') || null,
           status: str('status') || undefined,
           priority: str('priority') || null,
-          deadline: str('deadline') || null,
+          deadline,
           assignedToUserId: str('assignedToUserId') || null,
         },
       }
@@ -140,7 +245,7 @@ async function normalizeWriteIntent(
       if (!cr || 'ambiguous' in cr) {
         return { ok: false, reply: 'Cliente non univoco o non trovato. Specifica meglio il nome.' }
       }
-      const works = await findWorksByClientAndTitle(cr.id, workHint)
+      const works = await findWorksByClientCategoryOrTitle(cr.id, workHint)
       if (works.length === 0) return { ok: false, reply: `Nessun lavoro trovato per "${workHint}" su ${cr.name}.` }
       if (works.length > 1) {
         return {
@@ -165,18 +270,28 @@ async function normalizeWriteIntent(
       if (!cr || 'ambiguous' in cr) {
         return { ok: false, reply: 'Cliente non univoco o non trovato.' }
       }
-      const works = await findWorksByClientAndTitle(cr.id, workHint)
+      const works = await findWorksByClientCategoryOrTitle(cr.id, workHint)
       if (works.length !== 1) {
         return {
           ok: false,
           reply:
             works.length === 0
-              ? 'Nessun lavoro corrispondente.'
+              ? 'Nessun lavoro corrispondente (né per titolo né per categoria).'
               : `Più lavori: ${works.map((w) => w.title).join(', ')}. Quale?`,
         }
       }
       const patch: Record<string, unknown> = { workId: works[0].id }
-      if (str('deadline')) patch.deadline = str('deadline')
+      const rawDl = str('deadline')
+      if (rawDl) {
+        const norm = normalizeDeadlineInput(rawDl)
+        if (!norm) {
+          return {
+            ok: false,
+            reply: `Non ho capito la data "${rawDl}". Usa formato 20 marzo o YYYY-MM-DD.`,
+          }
+        }
+        patch.deadline = norm
+      }
       if (str('title')) patch.title = str('title')
       if (str('status')) patch.status = str('status')
       if (str('priority')) patch.priority = str('priority')
@@ -338,7 +453,7 @@ async function normalizeWriteIntent(
       }
       const cr = await resolveSingleClient(clientHint)
       if (!cr || 'ambiguous' in cr) return { ok: false, reply: 'Cliente non univoco.' }
-      const works = await findWorksByClientAndTitle(cr.id, workHint)
+      const works = await findWorksByClientCategoryOrTitle(cr.id, workHint)
       if (works.length !== 1) return { ok: false, reply: 'Lavoro non univoco o non trovato.' }
       const steps = await prisma.workStep.findMany({
         where: { workId: works[0].id, title: { contains: stepHint, mode: 'insensitive' } },
@@ -368,6 +483,43 @@ function previewPayload(actionType: string, payload: Record<string, unknown>): s
   return `${actionType}: ${JSON.stringify(redact)}`
 }
 
+async function buildNeedsConfirmationResponse(params: {
+  user: CurrentUser
+  threadId: string
+  baseReply: string
+  normalized: { actionType: string; payload: Record<string, unknown> }
+}): Promise<AssistantChatResponse> {
+  const { user, threadId, baseReply, normalized } = params
+  const pendingConfirmationId = randomUUID()
+  const preview = previewPayload(normalized.actionType, normalized.payload)
+  const confirmationMeta: PendingConfirmationMetadata = {
+    version: 1,
+    pendingConfirmationId,
+    actionType: normalized.actionType,
+    payload: normalized.payload,
+    preview,
+    mode: 'needs_confirmation',
+  }
+
+  await logAssistantAction({
+    userId: user.id,
+    threadId,
+    actionType: normalized.actionType,
+    entityType: 'Pending',
+    input: normalized.payload,
+    status: 'needs_confirmation',
+  })
+
+  const intro = baseReply ? `${baseReply}\n\n` : ''
+  return {
+    reply: `${intro}Ho capito questa azione:\n${preview}\n\nConfermi? Rispondi **sì**, scrivi **Confermo**, oppure usa i pulsanti sotto.`,
+    mode: 'needs_confirmation',
+    pendingConfirmationId,
+    proposedAction: { type: normalized.actionType, payload: normalized.payload },
+    confirmationMeta,
+  }
+}
+
 export async function processAssistantMessage(params: {
   user: CurrentUser
   threadId: string
@@ -375,18 +527,43 @@ export async function processAssistantMessage(params: {
 }): Promise<AssistantChatResponse> {
   const { user, threadId, userMessage } = params
 
+  const rule = parseRuleBasedIntent(userMessage)
+
   if (!canWrite(user)) {
-    const ctx = await buildAssistantLlmContext()
-    const raw = await callOpenAiChat([
-      { role: 'system', content: SYSTEM_PROMPT + '\nL\'utente è AGENTE (sola lettura). Se chiede modifiche, spiega che non può eseguirle.' },
-      {
-        role: 'user',
-        content: `Contesto clienti (id|nome): ${ctx.clients.slice(0, 50).map((c) => `${c.id}|${c.name}`).join('; ')}\n\nMessaggio: ${userMessage}`,
-      },
-    ])
+    if (rule) {
+      const readOnly = await runRuleBasedRead(rule)
+      if (readOnly !== null) {
+        return { reply: readOnly, mode: 'answer' }
+      }
+    }
+    let raw: string
+    try {
+      const ctx = await buildAssistantLlmContext()
+      raw = await callOpenAiChat([
+        { role: 'system', content: SYSTEM_PROMPT + '\nL\'utente è AGENTE (sola lettura). Se chiede modifiche, spiega che non può eseguirle.' },
+        {
+          role: 'user',
+          content: `Contesto clienti (id|nome): ${ctx.clients.slice(0, 50).map((c) => `${c.id}|${c.name}`).join('; ')}\n\nMessaggio: ${userMessage}`,
+        },
+      ])
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Errore sconosciuto'
+      return {
+        reply: `Non posso usare il modello linguistico (${msg}). Per le letture frequenti (lavori attivi, rinnovi, credenziali) prova una frase più diretta oppure configura OPENAI_API_KEY.`,
+        mode: 'clarification',
+      }
+    }
     const parsed = safeParseLlmJson(raw)
     if (parsed.intent === 'read' && parsed.read_intent) {
-      const text = await runReadIntent(parsed.read_intent as { type?: string; userName?: string; days?: number })
+      const text = await runReadIntent(
+        parsed.read_intent as {
+          type?: string
+          userName?: string
+          days?: number
+          clientName?: string
+          labelHint?: string
+        }
+      )
       return { reply: `${parsed.reply ?? ''}\n\n${text}`.trim(), mode: 'answer' }
     }
     return {
@@ -394,6 +571,26 @@ export async function processAssistantMessage(params: {
         parsed.reply ??
         'Il tuo ruolo non consente modifiche ai dati. Puoi chiedere informazioni in lettura (es. task PED della settimana, rinnovi in scadenza).',
       mode: 'clarification',
+    }
+  }
+
+  if (rule) {
+    const readText = await runRuleBasedRead(rule)
+    if (readText !== null) {
+      return { reply: readText, mode: 'answer' }
+    }
+    const writeSpec = ruleIntentToWriteParams(rule)
+    if (writeSpec) {
+      const normalized = await normalizeWriteIntent(writeSpec.type, writeSpec.params)
+      if (!normalized.ok) {
+        return { reply: normalized.reply, mode: 'clarification' }
+      }
+      return buildNeedsConfirmationResponse({
+        user,
+        threadId,
+        baseReply: '',
+        normalized: { actionType: normalized.actionType, payload: normalized.payload },
+      })
     }
   }
 
@@ -420,12 +617,29 @@ export async function processAssistantMessage(params: {
     { role: 'user' as const, content: userMessage },
   ]
 
-  const raw = await callOpenAiChat(messages)
+  let raw: string
+  try {
+    raw = await callOpenAiChat(messages)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Errore sconosciuto'
+    return {
+      reply: `Il modello linguistico non è disponibile (${msg}). Riformula la richiesta in italiano semplice (es. «crea lavoro Website per Cliente X») oppure verifica OPENAI_API_KEY.`,
+      mode: 'clarification',
+    }
+  }
   const parsed = safeParseLlmJson(raw)
   const baseReply = typeof parsed.reply === 'string' ? parsed.reply : ''
 
   if (parsed.intent === 'read' && parsed.read_intent) {
-    const factual = await runReadIntent(parsed.read_intent as { type?: string; userName?: string; days?: number })
+    const factual = await runReadIntent(
+      parsed.read_intent as {
+        type?: string
+        userName?: string
+        days?: number
+        clientName?: string
+        labelHint?: string
+      }
+    )
     return {
       reply: [baseReply, factual].filter(Boolean).join('\n\n'),
       mode: 'answer',
@@ -438,32 +652,12 @@ export async function processAssistantMessage(params: {
       return { reply: normalized.reply, mode: 'clarification' }
     }
 
-    const pendingConfirmationId = randomUUID()
-    const preview = previewPayload(normalized.actionType, normalized.payload)
-    const confirmationMeta: PendingConfirmationMetadata = {
-      version: 1,
-      pendingConfirmationId,
-      actionType: normalized.actionType,
-      payload: normalized.payload,
-      preview,
-    }
-
-    await logAssistantAction({
-      userId: user.id,
+    return buildNeedsConfirmationResponse({
+      user,
       threadId,
-      actionType: normalized.actionType,
-      entityType: 'Pending',
-      input: normalized.payload,
-      status: 'needs_confirmation',
+      baseReply,
+      normalized: { actionType: normalized.actionType, payload: normalized.payload },
     })
-
-    return {
-      reply: `${baseReply}\n\nHo capito questa azione:\n${preview}\n\nConfermi? Rispondi **sì** o usa il pulsante Conferma.`,
-      mode: 'needs_confirmation',
-      pendingConfirmationId,
-      proposedAction: { type: normalized.actionType, payload: normalized.payload },
-      confirmationMeta,
-    }
   }
 
   return {
@@ -487,7 +681,7 @@ export async function confirmPendingAction(params: {
     where: { threadId, role: 'assistant' },
     orderBy: { createdAt: 'desc' },
     take: 24,
-    select: { metadata: true },
+    select: { id: true, metadata: true },
   })
   const msg = rows.find((m) => {
     const meta = m.metadata as Record<string, unknown> | null
@@ -507,6 +701,11 @@ export async function confirmPendingAction(params: {
 
   const result = await executeAssistantAction(user.id, threadId, actionType, payload)
 
+  await prisma.chatMessage.update({
+    where: { id: msg.id },
+    data: { metadata: { mode: 'answer' } },
+  })
+
   return {
     reply: result.success
       ? (result.summary ?? 'Operazione completata.')
@@ -514,4 +713,52 @@ export async function confirmPendingAction(params: {
     mode: 'action_result',
     result,
   }
+}
+
+export async function cancelPendingAssistantAction(params: {
+  user: CurrentUser
+  threadId: string
+  pendingConfirmationId: string
+}): Promise<AssistantChatResponse> {
+  const { user, threadId, pendingConfirmationId } = params
+
+  if (!canWrite(user)) {
+    return { reply: 'Non hai permessi per annullare questa azione.', mode: 'clarification' }
+  }
+
+  const rows = await prisma.chatMessage.findMany({
+    where: { threadId, role: 'assistant' },
+    orderBy: { createdAt: 'desc' },
+    take: 40,
+    select: { id: true, metadata: true },
+  })
+  const found = rows.find((r) => {
+    const m = r.metadata as Record<string, unknown> | null
+    return m?.pendingConfirmationId === pendingConfirmationId
+  })
+
+  if (!found) {
+    return { reply: 'Nessuna azione in sospeso con quell’identificativo.', mode: 'clarification' }
+  }
+
+  const prev = found.metadata as Record<string, unknown>
+  const actionType = typeof prev.actionType === 'string' ? prev.actionType : 'unknown'
+  const payload = (prev.payload as Record<string, unknown>) ?? {}
+
+  await prisma.chatMessage.update({
+    where: { id: found.id },
+    data: { metadata: { mode: 'answer' } },
+  })
+
+  await logAssistantAction({
+    userId: user.id,
+    threadId,
+    actionType,
+    entityType: 'Pending',
+    input: payload,
+    result: { cancelled: true },
+    status: 'failed',
+  })
+
+  return { reply: 'Ok, ho annullato l’azione in sospeso.', mode: 'answer' }
 }

@@ -12,6 +12,7 @@ type MsgRow = {
   content: string
   createdAt: string
   pendingConfirmationId?: string
+  mode?: string
   result?: { href?: string; success?: boolean; summary?: string }
 }
 
@@ -64,9 +65,13 @@ export function AssistantPage() {
     setMessages([])
   }
 
-  const send = async (opts?: { confirmPendingId?: string; message?: string }) => {
+  const send = async (opts?: {
+    confirmPendingId?: string
+    cancelPendingId?: string
+    message?: string
+  }) => {
     const msg = opts?.message ?? input.trim()
-    if (!opts?.confirmPendingId && !msg) return
+    if (!opts?.confirmPendingId && !opts?.cancelPendingId && !msg) return
     setLoading(true)
     setError(null)
     try {
@@ -75,8 +80,13 @@ export function AssistantPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           threadId: activeId,
-          message: opts?.confirmPendingId ? (msg || 'Conferma') : msg,
+          message: opts?.confirmPendingId
+            ? msg || 'Conferma'
+            : opts?.cancelPendingId
+              ? msg || 'Annulla'
+              : msg,
           confirmPendingId: opts?.confirmPendingId ?? null,
+          cancelPendingId: opts?.cancelPendingId ?? null,
         }),
       })
       const data = await res.json()
@@ -100,7 +110,8 @@ export function AssistantPage() {
         <div className="flex items-center justify-between flex-wrap gap-2">
           <h1 className="text-2xl font-bold text-white">Assistente</h1>
           <p className="text-white/50 text-sm max-w-xl">
-            Chiedi informazioni o proponi azioni (con conferma). Richiede <code className="text-accent/90">OPENAI_API_KEY</code> sul server.
+            Comandi frequenti (credenziali, lavori, step, letture) funzionano anche senza LLM. Per il resto serve{' '}
+            <code className="text-accent/90">OPENAI_API_KEY</code> sul server. Le modifiche richiedono conferma.
           </p>
         </div>
 
@@ -153,16 +164,30 @@ export function AssistantPage() {
                         >
                           {m.content}
                           {m.role === 'assistant' && m.pendingConfirmationId && (
-                            <div className="mt-3 pt-2 border-t border-white/10">
-                              <Button
-                                size="sm"
-                                disabled={loading}
-                                onClick={() =>
-                                  send({ confirmPendingId: m.pendingConfirmationId, message: 'Confermo' })
-                                }
-                              >
-                                Conferma azione
-                              </Button>
+                            <div className="mt-3 pt-2 border-t border-amber-500/30 space-y-2">
+                              <p className="text-amber-200/90 text-xs font-medium">In attesa di conferma</p>
+                              <div className="flex flex-wrap gap-2">
+                                <Button
+                                  size="sm"
+                                  disabled={loading}
+                                  onClick={() =>
+                                    send({ confirmPendingId: m.pendingConfirmationId, message: 'Confermo' })
+                                  }
+                                >
+                                  Conferma
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  className="border-white/25 text-white hover:bg-white/10"
+                                  disabled={loading}
+                                  onClick={() =>
+                                    send({ cancelPendingId: m.pendingConfirmationId, message: 'Annulla' })
+                                  }
+                                >
+                                  Annulla
+                                </Button>
+                              </div>
                             </div>
                           )}
                           {m.role === 'assistant' && m.result?.href && m.result.success && (

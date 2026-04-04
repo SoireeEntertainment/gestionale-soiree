@@ -45,6 +45,8 @@ export type PendingConfirmationMetadata = {
   actionType: string
   payload: Record<string, unknown>
   preview: string
+  /** Per la UI: messaggio ancora in attesa di conferma. */
+  mode?: 'needs_confirmation'
 }
 
 export function isPendingMetadata(v: unknown): v is PendingConfirmationMetadata {

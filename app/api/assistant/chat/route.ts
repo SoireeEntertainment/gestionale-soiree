@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import {
   processAssistantMessage,
   confirmPendingAction,
+  cancelPendingAssistantAction,
 } from '@/lib/assistant/orchestrator'
 import type { Prisma } from '@prisma/client'
 
@@ -38,6 +39,7 @@ export async function POST(req: Request) {
     threadId?: string | null
     message?: string
     confirmPendingId?: string | null
+    cancelPendingId?: string | null
   }
   try {
     body = await req.json()
@@ -48,6 +50,7 @@ export async function POST(req: Request) {
   let threadId = body.threadId ?? null
   const rawMessage = typeof body.message === 'string' ? body.message.trim() : ''
   let confirmPendingId = body.confirmPendingId?.trim() || null
+  const cancelPendingId = body.cancelPendingId?.trim() || null
 
   if (!threadId) {
     const t = await prisma.chatThread.create({
@@ -61,6 +64,38 @@ export async function POST(req: Request) {
   })
   if (!thread) {
     return NextResponse.json({ error: 'Thread non trovato' }, { status: 404 })
+  }
+
+  if (cancelPendingId) {
+    await prisma.chatMessage.create({
+      data: {
+        threadId,
+        role: 'user',
+        content: rawMessage || 'Annulla',
+      },
+    })
+
+    const response = await cancelPendingAssistantAction({
+      user,
+      threadId,
+      pendingConfirmationId: cancelPendingId,
+    })
+
+    await prisma.chatMessage.create({
+      data: {
+        threadId,
+        role: 'assistant',
+        content: response.reply,
+        metadata: { mode: response.mode } as object,
+      },
+    })
+
+    await prisma.chatThread.update({
+      where: { id: threadId },
+      data: { updatedAt: new Date() },
+    })
+
+    return NextResponse.json({ threadId, ...response })
   }
 
   if (confirmPendingId) {

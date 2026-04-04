@@ -54,6 +54,38 @@ export async function findWorksByClientAndTitle(
   })
 }
 
+/**
+ * Risolve lavori per titolo (contains) o, se non c’è match, per nome categoria.
+ */
+export type ResolvedWork = { id: string; title: string; clientId: string }
+
+export async function findWorksByClientCategoryOrTitle(
+  clientId: string,
+  workHint: string
+): Promise<ResolvedWork[]> {
+  const byTitle = await findWorksByClientAndTitle(clientId, workHint)
+  if (byTitle.length > 0) return byTitle
+  const cat = await findCategoryByNameHint(workHint)
+  if (!cat) return []
+  return prisma.work.findMany({
+    where: { clientId, categoryId: cat.id },
+    select: { id: true, title: true, clientId: true },
+    orderBy: { updatedAt: 'desc' },
+    take: 15,
+  })
+}
+
+/** Risolve un lavoro per cliente + titolo (parziale) o nome categoria. */
+export async function resolveWorkByClientAndCategory(
+  clientId: string,
+  categoryOrTitleHint: string
+): Promise<ResolvedWork | { ambiguous: ResolvedWork[] } | null> {
+  const list = await findWorksByClientCategoryOrTitle(clientId, categoryOrTitleHint)
+  if (list.length === 0) return null
+  if (list.length === 1) return list[0]
+  return { ambiguous: list }
+}
+
 export async function resolveUserByNameHint(hint: string): Promise<{ id: string; name: string } | { ambiguous: { id: string; name: string }[] } | null> {
   const q = hint.trim()
   if (!q) return null
@@ -71,3 +103,7 @@ export async function resolveUserByNameHint(hint: string): Promise<{ id: string;
   if (exact.length === 1) return exact[0]
   return { ambiguous: rows }
 }
+
+/** Alias espliciti per orchestrator / documentazione. */
+export const resolveClientByName = resolveSingleClient
+export const resolveUserByName = resolveUserByNameHint
