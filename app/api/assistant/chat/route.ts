@@ -13,7 +13,7 @@ import type { AssistantChatResponse } from '@/lib/assistant/types'
 export const runtime = 'nodejs'
 export const maxDuration = 60
 
-const CONFIRM_REGEX = /^(sì|si|ok|confermo|va bene|yes)\b/i
+const CONFIRM_REGEX = /^(sì|si|ok|confermo|va bene|yes|crealo|procedi|conferma)\b/i
 
 async function findLatestPendingId(threadId: string): Promise<string | null> {
   const rows = await prisma.chatMessage.findMany({

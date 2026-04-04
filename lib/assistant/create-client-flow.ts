@@ -24,7 +24,12 @@ export async function findExistingClientByNormalizedName(
 }
 
 export function isConfirmLikeMessage(message: string): boolean {
-  return /^(sì|si|ok|confermo|va bene|yes|procedi|vai|conferma)\b/i.test(message.trim())
+  return /^(sì|si|ok|confermo|va bene|yes|procedi|vai|conferma|crealo)\b/i.test(message.trim())
+}
+
+/** Risposte negative esplicite (annulla flusso cliente/lavoro in sospeso). */
+export function isRejectLikeMessage(message: string): boolean {
+  return /^(no|annulla|lascia\s+stare|non\s+creare|no\s+grazie|stop)\b/i.test(message.trim())
 }
 
 /** Primo turno: frasi tipo "aggiungi/crea cliente chiamato X" */

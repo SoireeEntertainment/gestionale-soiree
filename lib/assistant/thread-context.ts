@@ -18,6 +18,34 @@ export type CreateClientFlowState = {
   promptedForOptional?: boolean
 }
 
+/** Bozza lavoro prima che esista il clientId (create_work con cliente assente). */
+export type PendingCreateWorkDraft = {
+  title: string
+  clientNameHint: string
+  categoryNameHint: string
+  description: string | null
+  status: string | undefined
+  priority: string | null
+  /** Testo originale o stringa vuota se assente */
+  deadlineRaw: string
+  assigneeNames: string | null
+}
+
+export type PendingWorkMissingClientState = {
+  pendingIntent: 'create_work'
+  status: 'awaiting_missing_client_confirmation'
+  missingClientName: string
+  pendingWorkDraft: PendingCreateWorkDraft
+}
+
+/** Dopo creazione cliente: serve ancora categoria/deadline per chiudere il lavoro. */
+export type PendingWorkCompletionState = {
+  reason: 'category' | 'deadline'
+  clientId: string
+  clientName: string
+  baseDraft: PendingCreateWorkDraft
+}
+
 /** Snapshot per annullare l’ultima creazione semplice (stesso thread). */
 export type AssistantUndoSnapshot = {
   kind: 'create_client_credential' | 'create_work' | 'create_work_step'
@@ -47,6 +75,12 @@ export type AssistantThreadContext = {
   lastUndo?: AssistantUndoSnapshot | null
   /** Flusso attivo "crea cliente" (priorità su ricerche / LLM). */
   createClientFlow?: CreateClientFlowState | null
+  /** create_work bloccato: cliente inesistente, in attesa sì/no. */
+  pendingWorkWithMissingClient?: PendingWorkMissingClientState | null
+  /** Dopo OK utente: creare cliente poi ripristinare questo draft per il lavoro. */
+  pendingWorkAfterClient?: PendingCreateWorkDraft | null
+  /** Cliente già creato ma serve chiarire categoria o deadline. */
+  pendingWorkCompletion?: PendingWorkCompletionState | null
   /** Ultima lettura lavori: risoluzione entità per follow-up (es. «e in ritardo?»). */
   lastResolvedUserId?: string
   lastResolvedUserName?: string
@@ -82,6 +116,18 @@ export function mergeAssistantContext(
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'createClientFlow') && patch.createClientFlow === null) {
     delete out.createClientFlow
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(patch, 'pendingWorkWithMissingClient') &&
+    patch.pendingWorkWithMissingClient === null
+  ) {
+    delete out.pendingWorkWithMissingClient
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'pendingWorkAfterClient') && patch.pendingWorkAfterClient === null) {
+    delete out.pendingWorkAfterClient
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'pendingWorkCompletion') && patch.pendingWorkCompletion === null) {
+    delete out.pendingWorkCompletion
   }
   return out
 }

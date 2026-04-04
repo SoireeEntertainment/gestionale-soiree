@@ -40,6 +40,9 @@ import type {
   AssistantThreadContext,
   CreateClientDraft,
   CreateClientFlowState,
+  PendingCreateWorkDraft,
+  PendingWorkMissingClientState,
+  PendingWorkCompletionState,
 } from '@/lib/assistant/thread-context'
 import { tryNormalizeGranularWorkIntent } from '@/lib/assistant/work-granular-normalize'
 import { resolveWorkFromAssistantParams, resolveUserIdsFromLabelList } from '@/lib/assistant/work-resolve'
@@ -60,14 +63,94 @@ import {
   continueCreateClientFlow,
   findExistingClientByNormalizedName,
   formatDuplicateReply,
+  isConfirmLikeMessage,
+  isRejectLikeMessage,
   parseCreateClientRule,
   startCreateClientFlowFromRule,
+  extractCreateClientFields,
 } from '@/lib/assistant/create-client-flow'
 
 async function checkCreateClientDuplicate(name: string): Promise<{ reply: string } | null> {
   const dup = await findExistingClientByNormalizedName(name)
   if (!dup) return null
   return { reply: formatDuplicateReply(dup) }
+}
+
+type NormalizeWriteIntentResult =
+  | { ok: true; actionType: string; payload: Record<string, unknown> }
+  | { ok: false; reply: string }
+  | {
+      ok: 'missing_client'
+      missingClientName: string
+      pendingWorkDraft: PendingCreateWorkDraft
+    }
+
+/** Completamento payload create_work quando il cliente è già noto (id). */
+async function buildCreateWorkPayloadFromResolvedClient(
+  client: { id: string; name: string },
+  draft: PendingCreateWorkDraft
+): Promise<
+  | { ok: true; payload: Record<string, unknown> }
+  | { ok: false; reply: string }
+  | { ok: 'need_category' }
+  | { ok: 'need_deadline'; reply: string }
+> {
+  const catHint = (draft.categoryNameHint?.trim() || draft.title?.trim() || '').trim()
+  const cat = await findCategoryByNameHint(catHint || draft.title)
+  if (!cat) return { ok: 'need_category' }
+
+  const rawDl = draft.deadlineRaw?.trim() ?? ''
+  let deadline: string | null = null
+  if (rawDl) {
+    deadline = normalizeDeadlineInput(rawDl)
+    if (!deadline) {
+      return {
+        ok: 'need_deadline',
+        reply: `Non ho capito la data "${rawDl}". Indica una data tipo 15 marzo o YYYY-MM-DD.`,
+      }
+    }
+  }
+
+  const assigneeNames = draft.assigneeNames?.trim() || ''
+  let assigneeUserIds: string[] | undefined
+  if (assigneeNames) {
+    const ru = await resolveUserIdsFromLabelList(assigneeNames)
+    if (!ru.ok) return { ok: false, reply: ru.reply }
+    assigneeUserIds = ru.ids
+  }
+  const primaryAssignee = assigneeUserIds?.[0] ?? null
+
+  return {
+    ok: true,
+    payload: {
+      title: draft.title,
+      clientId: client.id,
+      categoryId: cat.id,
+      description: draft.description,
+      status: draft.status || undefined,
+      priority: draft.priority || null,
+      deadline,
+      assignedToUserId: primaryAssignee,
+      assigneeUserIds: assigneeUserIds && assigneeUserIds.length > 0 ? assigneeUserIds : undefined,
+    },
+  }
+}
+
+function pendingDraftToWriteParams(
+  draft: PendingCreateWorkDraft,
+  clientNameOrHint: string
+): Record<string, unknown> {
+  const p: Record<string, unknown> = {
+    title: draft.title,
+    clientName: clientNameOrHint,
+    categoryName: draft.categoryNameHint,
+    deadline: draft.deadlineRaw || '',
+  }
+  if (draft.description) p.description = draft.description
+  if (draft.status) p.status = draft.status
+  if (draft.priority) p.priority = draft.priority
+  if (draft.assigneeNames) p.assigneeNames = draft.assigneeNames
+  return p
 }
 
 const SYSTEM_PROMPT = `Sei l'assistente interno del gestionale Soirëe Studio. Rispondi SOLO con JSON valido, senza markdown.
@@ -477,7 +560,7 @@ async function normalizeWriteIntent(
   type: string,
   params: Record<string, unknown>,
   threadCtx: AssistantThreadContext | null
-): Promise<{ ok: true; actionType: string; payload: Record<string, unknown> } | { ok: false; reply: string }> {
+): Promise<NormalizeWriteIntentResult> {
   const str = (k: string) => (typeof params[k] === 'string' ? (params[k] as string).trim() : '')
 
   const granular = await tryNormalizeGranularWorkIntent(type, params, threadCtx)
@@ -533,55 +616,43 @@ async function normalizeWriteIntent(
     case 'create_work': {
       const clientHint = str('clientName') || str('client')
       const catHint = str('categoryName') || str('category')
-      const title =
-        str('title') || catHint || str('categoryName')
+      const title = str('title') || catHint || str('categoryName')
       if (!clientHint) return { ok: false, reply: 'Per quale cliente è il lavoro?' }
       if (!title) return { ok: false, reply: 'Che tipo di lavoro o titolo devo usare (es. Website, Social)?' }
+      const pendingDraft: PendingCreateWorkDraft = {
+        title,
+        clientNameHint: clientHint,
+        categoryNameHint: catHint || title,
+        description: str('description') || null,
+        status: str('status') || undefined,
+        priority: str('priority') || null,
+        deadlineRaw: str('deadline'),
+        assigneeNames: str('assigneeNames') || str('assignedUsers') || str('assignees') || null,
+      }
       const cr = await resolveSingleClient(clientHint)
-      if (!cr) return { ok: false, reply: `Cliente non trovato per "${clientHint}".` }
+      if (!cr) {
+        return {
+          ok: 'missing_client',
+          missingClientName: clientHint,
+          pendingWorkDraft: pendingDraft,
+        }
+      }
       if ('ambiguous' in cr) {
         return {
           ok: false,
           reply: `Ho trovato più clienti: ${cr.ambiguous.map((c) => c.name).join(', ')}. Quale intendi?`,
         }
       }
-      const client = cr
-      const cat = await findCategoryByNameHint(catHint || title)
-      if (!cat) return { ok: false, reply: `Non ho trovato una categoria simile a "${catHint || title}".` }
-      const rawDl = str('deadline')
-      let deadline: string | null = null
-      if (rawDl) {
-        deadline = normalizeDeadlineInput(rawDl)
-        if (!deadline) {
-          return {
-            ok: false,
-            reply: `Non ho capito la data "${rawDl}". Indica una data tipo 15 marzo o YYYY-MM-DD.`,
-          }
+      const built = await buildCreateWorkPayloadFromResolvedClient(cr, pendingDraft)
+      if (built.ok === false) return built
+      if (built.ok === 'need_category') {
+        return {
+          ok: false,
+          reply: `Non ho trovato una categoria simile a "${catHint || title}".`,
         }
       }
-      const assigneeNames = str('assigneeNames') || str('assignedUsers') || str('assignees')
-      let assigneeUserIds: string[] | undefined
-      if (assigneeNames) {
-        const ru = await resolveUserIdsFromLabelList(assigneeNames)
-        if (!ru.ok) return { ok: false, reply: ru.reply }
-        assigneeUserIds = ru.ids
-      }
-      const primaryAssignee = (assigneeUserIds?.[0] ?? str('assignedToUserId')) || null
-      return {
-        ok: true,
-        actionType: 'create_work',
-        payload: {
-          title,
-          clientId: client.id,
-          categoryId: cat.id,
-          description: str('description') || null,
-          status: str('status') || undefined,
-          priority: str('priority') || null,
-          deadline,
-          assignedToUserId: primaryAssignee,
-          assigneeUserIds: assigneeUserIds && assigneeUserIds.length > 0 ? assigneeUserIds : undefined,
-        },
-      }
+      if (built.ok === 'need_deadline') return { ok: false, reply: built.reply }
+      return { ok: true, actionType: 'create_work', payload: built.payload }
     }
 
     case 'create_work_step': {
@@ -850,15 +921,45 @@ async function handleCreateClientFlowTurn(params: {
   userMessage: string
   flow: CreateClientFlowState
   suggestedThreadTitle: string | null
+  /** Dopo il cliente, riprendere questo create_work */
+  pendingWorkAfterClient?: PendingCreateWorkDraft | null
+  /** Toglie lo stato "cliente mancante per lavoro" */
+  clearPendingMissingClient?: boolean
 }): Promise<AssistantChatResponse> {
-  const { user, threadId, userMessage, flow, suggestedThreadTitle } = params
+  const {
+    user,
+    threadId,
+    userMessage,
+    flow,
+    suggestedThreadTitle,
+    pendingWorkAfterClient: workAfterClient,
+    clearPendingMissingClient,
+  } = params
+
+  const mergeWorkPending = (patch: Partial<AssistantThreadContext>): Partial<AssistantThreadContext> => {
+    const out: Partial<AssistantThreadContext> = { ...patch }
+    if (clearPendingMissingClient) {
+      out.pendingWorkWithMissingClient = null
+    }
+    if (workAfterClient) {
+      out.pendingWorkAfterClient = workAfterClient
+    }
+    return out
+  }
 
   if (/^(annulla|lascia\s+stare|non\s+creare|stop)\b/i.test(userMessage.trim())) {
     if (process.env.NODE_ENV !== 'production') console.log('[assistant] create_client cancelled by user')
     return {
-      reply: 'Ok, annullo la creazione del nuovo cliente.',
+      reply: workAfterClient
+        ? 'Ok, annullo: non creo il cliente e non procedo con il lavoro in sospeso.'
+        : 'Ok, annullo la creazione del nuovo cliente.',
       mode: 'answer',
-      threadContextUpdate: { createClientFlow: null },
+      threadContextUpdate: mergeWorkPending({
+        createClientFlow: null,
+        pendingWorkAfterClient: null,
+        pendingWorkWithMissingClient: null,
+        pendingWorkCompletion: null,
+      }),
       suggestedThreadTitle,
     }
   }
@@ -882,7 +983,11 @@ async function handleCreateClientFlowTurn(params: {
       return {
         reply: formatDuplicateReply(dup),
         mode: 'clarification',
-        threadContextUpdate: { createClientFlow: null },
+        threadContextUpdate: mergeWorkPending({
+          createClientFlow: null,
+          pendingWorkAfterClient: null,
+          pendingWorkWithMissingClient: null,
+        }),
         suggestedThreadTitle,
       }
     }
@@ -902,10 +1007,10 @@ async function handleCreateClientFlowTurn(params: {
     })
     return {
       ...res,
-      threadContextUpdate: {
+      threadContextUpdate: mergeWorkPending({
         ...(res.threadContextUpdate ?? {}),
         createClientFlow: null,
-      },
+      }),
     }
   }
 
@@ -913,13 +1018,13 @@ async function handleCreateClientFlowTurn(params: {
     return {
       reply: cont.reply,
       mode: 'clarification',
-      threadContextUpdate: {
+      threadContextUpdate: mergeWorkPending({
         createClientFlow: {
           status: 'awaiting_details',
           draft: cont.draft,
           promptedForOptional: flow.promptedForOptional,
         },
-      },
+      }),
       suggestedThreadTitle: cont.suggestedThreadTitle ?? suggestedThreadTitle,
     }
   }
@@ -928,13 +1033,13 @@ async function handleCreateClientFlowTurn(params: {
     return {
       reply: cont.reply,
       mode: 'clarification',
-      threadContextUpdate: {
+      threadContextUpdate: mergeWorkPending({
         createClientFlow: {
           status: 'awaiting_details',
           draft: cont.draft,
           promptedForOptional: cont.promptedForOptional,
         },
-      },
+      }),
       suggestedThreadTitle: cont.suggestedThreadTitle ?? suggestedThreadTitle,
     }
   }
@@ -943,18 +1048,192 @@ async function handleCreateClientFlowTurn(params: {
     return {
       reply: cont.reply,
       mode: 'clarification',
-      threadContextUpdate: {
+      threadContextUpdate: mergeWorkPending({
         createClientFlow: {
           status: 'awaiting_details',
           draft: cont.draft,
           promptedForOptional: cont.promptedForOptional,
         },
-      },
+      }),
       suggestedThreadTitle,
     }
   }
 
   throw new Error(`Unhandled create_client flow kind: ${(cont as { kind: string }).kind}`)
+}
+
+async function handlePendingWorkCompletionTurn(params: {
+  user: CurrentUser
+  threadId: string
+  userMessage: string
+  state: PendingWorkCompletionState
+  suggestedThreadTitle: string | null
+}): Promise<AssistantChatResponse> {
+  const { user, threadId, userMessage, state, suggestedThreadTitle } = params
+  const hint = userMessage.trim()
+  if (!hint) {
+    return {
+      reply:
+        state.reason === 'category'
+          ? 'Indica il nome della categoria del lavoro (come nel gestionale, es. Website).'
+          : 'Indica una scadenza chiara (es. 15 marzo o YYYY-MM-DD).',
+      mode: 'clarification',
+      suggestedThreadTitle,
+    }
+  }
+
+  let draft = { ...state.baseDraft }
+  if (state.reason === 'category') {
+    draft = { ...draft, categoryNameHint: hint }
+  } else {
+    draft = { ...draft, deadlineRaw: hint }
+  }
+
+  const built = await buildCreateWorkPayloadFromResolvedClient(
+    { id: state.clientId, name: state.clientName },
+    draft
+  )
+
+  if (built.ok === 'need_category') {
+    return {
+      reply: `Non ho trovato una categoria simile a "${hint}". Prova con il nome esatto o un altro riferimento.`,
+      mode: 'clarification',
+      suggestedThreadTitle,
+    }
+  }
+  if (built.ok === 'need_deadline') {
+    return { reply: built.reply, mode: 'clarification', suggestedThreadTitle }
+  }
+  if (built.ok === false) {
+    return { reply: built.reply, mode: 'clarification', suggestedThreadTitle }
+  }
+
+  const intro = `Cliente **${state.clientName}** creato. Ora confermiamo il lavoro **${draft.title}**.`
+  const res = await buildNeedsConfirmationResponse({
+    user,
+    threadId,
+    baseReply: intro,
+    normalized: { actionType: 'create_work', payload: built.payload },
+    suggestedThreadTitle,
+  })
+  return {
+    ...res,
+    threadContextUpdate: {
+      ...(res.threadContextUpdate ?? {}),
+      pendingWorkCompletion: null,
+    },
+  }
+}
+
+async function handlePendingMissingClientTurn(params: {
+  user: CurrentUser
+  threadId: string
+  userMessage: string
+  pending: PendingWorkMissingClientState
+  threadCtx: AssistantThreadContext
+  suggestedThreadTitle: string | null
+}): Promise<AssistantChatResponse> {
+  const { user, threadId, userMessage, pending, threadCtx, suggestedThreadTitle } = params
+
+  if (isRejectLikeMessage(userMessage)) {
+    return {
+      reply: 'Va bene, non creo il cliente e non procedo con la creazione del lavoro.',
+      mode: 'answer',
+      threadContextUpdate: { pendingWorkWithMissingClient: null },
+      suggestedThreadTitle,
+    }
+  }
+
+  const extracted = extractCreateClientFields(userMessage, { name: pending.missingClientName })
+  const effectiveName = extracted.name?.trim() || pending.missingClientName.trim()
+
+  const explicitYes = isConfirmLikeMessage(userMessage)
+  const renamed =
+    !!extracted.name?.trim() &&
+    extracted.name.trim().toLowerCase() !== pending.missingClientName.trim().toLowerCase()
+  const hasExtra =
+    !!(extracted.contactName || extracted.email || extracted.phone || extracted.notes) || renamed
+  const detailCue = /chiamalo|chiamat|referente|contatto|email|tel\b|telefono/i.test(userMessage)
+
+  if (!explicitYes && !hasExtra && !detailCue) {
+    return {
+      reply: `Non ho trovato il cliente **${pending.missingClientName}**. Vuoi che lo crei prima di creare il lavoro? Rispondi **sì** o **no**, oppure aggiungi dettagli (es. "sì, chiamalo Azienda AAA e metti contatto Mario").`,
+      mode: 'clarification',
+      suggestedThreadTitle,
+    }
+  }
+
+  const dup = await findExistingClientByNormalizedName(effectiveName)
+  if (dup) {
+    const normalized = await normalizeWriteIntent(
+      'create_work',
+      pendingDraftToWriteParams(pending.pendingWorkDraft, dup.name),
+      threadCtx
+    )
+    if (normalized.ok === true) {
+      const res = await buildNeedsConfirmationResponse({
+        user,
+        threadId,
+        baseReply: `Nel frattempo esiste già il cliente **${dup.name}** in anagrafica: uso quello e non creo un duplicato.`,
+        normalized: { actionType: normalized.actionType, payload: normalized.payload },
+        suggestedThreadTitle,
+      })
+      return {
+        ...res,
+        threadContextUpdate: {
+          ...(res.threadContextUpdate ?? {}),
+          pendingWorkWithMissingClient: null,
+        },
+      }
+    }
+    if (normalized.ok === false) {
+      return {
+        reply: normalized.reply,
+        mode: 'clarification',
+        threadContextUpdate: { pendingWorkWithMissingClient: null },
+        suggestedThreadTitle,
+      }
+    }
+    return {
+      reply:
+        'Non sono riuscito a collegare il lavoro al cliente trovato in anagrafica. Riprova con il nome del cliente o un nuovo nome.',
+      mode: 'clarification',
+      threadContextUpdate: { pendingWorkWithMissingClient: null },
+      suggestedThreadTitle,
+    }
+  }
+
+  const flow: CreateClientFlowState = {
+    status: 'awaiting_details',
+    draft: {
+      name: effectiveName,
+      contactName: extracted.contactName,
+      email: extracted.email,
+      phone: extracted.phone,
+      notes: extracted.notes,
+    },
+    promptedForOptional: false,
+  }
+
+  const inner = await handleCreateClientFlowTurn({
+    user,
+    threadId,
+    userMessage,
+    flow,
+    suggestedThreadTitle,
+    pendingWorkAfterClient: pending.pendingWorkDraft,
+    clearPendingMissingClient: true,
+  })
+
+  const prefix = `Perfetto, creo prima il cliente **${effectiveName}** e poi proseguo con il lavoro.\n\n`
+  return {
+    ...inner,
+    reply: prefix + inner.reply,
+    threadContextUpdate: {
+      ...(inner.threadContextUpdate ?? {}),
+      pendingWorkWithMissingClient: null,
+    },
+  }
 }
 
 async function buildNeedsConfirmationResponse(params: {
@@ -1095,6 +1374,30 @@ export async function processAssistantMessage(params: {
     })
   }
 
+  if (canWrite(user) && threadCtx.pendingWorkCompletion) {
+    return handlePendingWorkCompletionTurn({
+      user,
+      threadId,
+      userMessage,
+      state: threadCtx.pendingWorkCompletion,
+      suggestedThreadTitle,
+    })
+  }
+
+  if (
+    canWrite(user) &&
+    threadCtx.pendingWorkWithMissingClient?.status === 'awaiting_missing_client_confirmation'
+  ) {
+    return handlePendingMissingClientTurn({
+      user,
+      threadId,
+      userMessage,
+      pending: threadCtx.pendingWorkWithMissingClient,
+      threadCtx,
+      suggestedThreadTitle,
+    })
+  }
+
   if (canWrite(user)) {
     if (threadCtx.createClientFlow?.status === 'awaiting_details') {
       return handleCreateClientFlowTurn({
@@ -1173,6 +1476,21 @@ export async function processAssistantMessage(params: {
       if (!normalized.ok) {
         return { reply: normalized.reply, mode: 'clarification', suggestedThreadTitle }
       }
+      if (normalized.ok === 'missing_client') {
+        return {
+          reply: `Non ho trovato il cliente '${normalized.missingClientName}'. Vuoi che lo crei prima di creare il lavoro?`,
+          mode: 'clarification',
+          threadContextUpdate: {
+            pendingWorkWithMissingClient: {
+              pendingIntent: 'create_work',
+              status: 'awaiting_missing_client_confirmation',
+              missingClientName: normalized.missingClientName,
+              pendingWorkDraft: normalized.pendingWorkDraft,
+            },
+          },
+          suggestedThreadTitle,
+        }
+      }
       return buildNeedsConfirmationResponse({
         user,
         threadId,
@@ -1228,6 +1546,21 @@ export async function processAssistantMessage(params: {
     if (!normalized.ok) {
       return { reply: normalized.reply, mode: 'clarification', suggestedThreadTitle }
     }
+    if (normalized.ok === 'missing_client') {
+      return {
+        reply: `Non ho trovato il cliente '${normalized.missingClientName}'. Vuoi che lo crei prima di creare il lavoro?`,
+        mode: 'clarification',
+        threadContextUpdate: {
+          pendingWorkWithMissingClient: {
+            pendingIntent: 'create_work',
+            status: 'awaiting_missing_client_confirmation',
+            missingClientName: normalized.missingClientName,
+            pendingWorkDraft: normalized.pendingWorkDraft,
+          },
+        },
+        suggestedThreadTitle,
+      }
+    }
 
     return buildNeedsConfirmationResponse({
       user,
@@ -1255,6 +1588,9 @@ export async function confirmPendingAction(params: {
   if (!canWrite(user)) {
     return { reply: 'Non hai permessi per confermare azioni di scrittura.', mode: 'clarification' }
   }
+
+  const ctxBeforeConfirm = await loadThreadAssistantContext(threadId)
+  const workDraftAfterClient = ctxBeforeConfirm.pendingWorkAfterClient ?? null
 
   const rows = await prisma.chatMessage.findMany({
     where: { threadId, role: 'assistant' },
@@ -1285,9 +1621,97 @@ export async function confirmPendingAction(params: {
     data: { metadata: { mode: 'answer' } },
   })
 
-  const threadContextUpdate = result.success
+  const basePatch = result.success
     ? await buildThreadContextAfterConfirmedAction(actionType, payload, result)
     : null
+
+  if (
+    result.success &&
+    actionType === 'create_client' &&
+    workDraftAfterClient &&
+    result.entityId
+  ) {
+    const row = await prisma.client.findUnique({
+      where: { id: result.entityId },
+      select: { id: true, name: true },
+    })
+    if (row) {
+      const built = await buildCreateWorkPayloadFromResolvedClient(row, workDraftAfterClient)
+      const okLine = `Cliente **${row.name}** creato con successo.`
+
+      if (built.ok === true) {
+        const workRes = await buildNeedsConfirmationResponse({
+          user,
+          threadId,
+          baseReply: okLine,
+          normalized: { actionType: 'create_work', payload: built.payload },
+          suggestedThreadTitle: null,
+        })
+        return {
+          reply: workRes.reply,
+          mode: 'needs_confirmation',
+          result,
+          pendingConfirmationId: workRes.pendingConfirmationId,
+          proposedAction: workRes.proposedAction,
+          confirmationMeta: workRes.confirmationMeta,
+          threadContextUpdate: {
+            ...(basePatch ?? {}),
+            ...(workRes.threadContextUpdate ?? {}),
+            pendingWorkAfterClient: null,
+            pendingWorkWithMissingClient: null,
+          },
+        }
+      }
+
+      if (built.ok === 'need_category') {
+        return {
+          reply: `${okLine}\n\nOra mi serve confermare la categoria o la deadline del lavoro.`,
+          mode: 'clarification',
+          result,
+          threadContextUpdate: {
+            ...(basePatch ?? {}),
+            pendingWorkAfterClient: null,
+            pendingWorkWithMissingClient: null,
+            pendingWorkCompletion: {
+              reason: 'category',
+              clientId: row.id,
+              clientName: row.name,
+              baseDraft: workDraftAfterClient,
+            },
+          },
+        }
+      }
+
+      if (built.ok === 'need_deadline') {
+        return {
+          reply: `${okLine}\n\n${built.reply}`,
+          mode: 'clarification',
+          result,
+          threadContextUpdate: {
+            ...(basePatch ?? {}),
+            pendingWorkAfterClient: null,
+            pendingWorkWithMissingClient: null,
+            pendingWorkCompletion: {
+              reason: 'deadline',
+              clientId: row.id,
+              clientName: row.name,
+              baseDraft: workDraftAfterClient,
+            },
+          },
+        }
+      }
+
+      return {
+        reply: `${okLine}\n\nNon sono riuscito a preparare il lavoro: ${built.reply}`,
+        mode: 'action_result',
+        result,
+        threadContextUpdate: {
+          ...(basePatch ?? {}),
+          pendingWorkAfterClient: null,
+        },
+      }
+    }
+  }
 
   const replyBase = result.success
     ? (result.summary ?? 'Operazione completata.')
@@ -1297,7 +1721,10 @@ export async function confirmPendingAction(params: {
     reply: replyBase,
     mode: 'action_result',
     result,
-    threadContextUpdate,
+    threadContextUpdate:
+      result.success && actionType === 'create_client'
+        ? { ...(basePatch ?? {}), pendingWorkAfterClient: null }
+        : basePatch,
   }
 }
 
@@ -1346,9 +1773,19 @@ export async function cancelPendingAssistantAction(params: {
     status: 'failed',
   })
 
+  const clearChain =
+    actionType === 'create_client'
+      ? {
+          lastProposed: null,
+          pendingWorkAfterClient: null,
+          pendingWorkWithMissingClient: null,
+          pendingWorkCompletion: null,
+        }
+      : { lastProposed: null }
+
   return {
     reply: 'Ok, ho annullato l’azione in sospeso.',
     mode: 'answer',
-    threadContextUpdate: { lastProposed: null },
+    threadContextUpdate: clearChain,
   }
 }
