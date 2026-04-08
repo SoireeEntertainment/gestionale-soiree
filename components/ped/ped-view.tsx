@@ -104,6 +104,19 @@ export function PedView({
   weekStart: string
 }) {
   const router = useRouter()
+  const pedRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const schedulePedDataRefresh = useCallback(() => {
+    if (pedRefreshTimerRef.current) clearTimeout(pedRefreshTimerRef.current)
+    pedRefreshTimerRef.current = setTimeout(() => {
+      pedRefreshTimerRef.current = null
+      router.refresh()
+    }, 160)
+  }, [router])
+  useEffect(() => {
+    return () => {
+      if (pedRefreshTimerRef.current) clearTimeout(pedRefreshTimerRef.current)
+    }
+  }, [])
   const searchParams = useSearchParams()
   useEffect(() => {
     if (!searchParams.get('week') && weekStart) {
@@ -219,12 +232,12 @@ export function PedView({
     if (item) setUndoEntry({ type: 'toggleDone', itemId: id, previousStatus: item.status, previousLabel: getEffectiveLabel(item) })
     const result = await togglePedItemDone(id)
     if (result.ok) {
-      router.refresh()
+      schedulePedDataRefresh()
     } else {
       if (item) setUndoEntry(null)
       alert(result.error ?? 'Errore')
     }
-  }, [itemsWithDateString])
+  }, [itemsWithDateString, schedulePedDataRefresh])
 
   const handleMoveItem = useCallback(async (itemId: string, targetDate: string, targetIsExtra: boolean) => {
     const item = itemsWithDateString.find((i) => i.id === itemId)
@@ -242,22 +255,22 @@ export function PedView({
     )
     try {
       await updatePedItem(itemId, { date: targetDate, isExtra: targetIsExtra })
-      router.refresh()
+      schedulePedDataRefresh()
     } catch (e) {
       setItems(previousItems)
       setUndoEntry(null)
       showToast(e instanceof Error ? e.message : 'Errore durante lo spostamento', 'error')
     }
-  }, [itemsWithDateString, items])
+  }, [itemsWithDateString, items, schedulePedDataRefresh])
 
   const handleDuplicateItem = useCallback(async (itemId: string, targetDate: string, targetIsExtra: boolean) => {
     try {
       await duplicatePedItem(itemId, targetDate, targetIsExtra)
-      router.refresh()
+      schedulePedDataRefresh()
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Errore')
     }
-  }, [])
+  }, [schedulePedDataRefresh])
 
   const handleDeleteItem = useCallback(async (itemId: string) => {
     const item = itemsWithDateString.find((i) => i.id === itemId)
@@ -283,12 +296,12 @@ export function PedView({
     }
     try {
       await deletePedItem(itemId)
-      router.refresh()
+      schedulePedDataRefresh()
     } catch (e) {
       setUndoEntry(null)
       alert(e instanceof Error ? e.message : 'Errore')
     }
-  }, [itemsWithDateString])
+  }, [itemsWithDateString, schedulePedDataRefresh])
 
   const getCurrentOrderForDay = useCallback((dateKey: string, isExtra: boolean): string[] => {
     if (isExtra) {
@@ -302,12 +315,12 @@ export function PedView({
     setUndoEntry({ type: 'reorder', dateKey, isExtra, orderedItemIds: previousOrder })
     try {
       await reorderPedItemsInDay(dateKey, isExtra, orderedItemIds)
-      router.refresh()
+      schedulePedDataRefresh()
     } catch (e) {
       setUndoEntry(null)
       alert(e instanceof Error ? e.message : 'Errore')
     }
-  }, [getCurrentOrderForDay])
+  }, [getCurrentOrderForDay, schedulePedDataRefresh])
 
   const handleCloseModal = useCallback(() => {
     setModalOpen(false)
@@ -319,20 +332,20 @@ export function PedView({
   const handleSetLabel = useCallback(async (id: string, label: string) => {
     const result = await setPedItemLabel(id, label)
     if (result.ok) {
-      router.refresh()
+      schedulePedDataRefresh()
     } else {
       alert(result.error ?? 'Errore')
     }
-  }, [])
+  }, [schedulePedDataRefresh])
 
   const handleUpdateTitle = useCallback(async (id: string, title: string) => {
     try {
       await updatePedItem(id, { title: title.trim() })
-      router.refresh()
+      schedulePedDataRefresh()
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Errore')
     }
-  }, [])
+  }, [schedulePedDataRefresh])
 
   const handleMoveItems = useCallback(async (itemIds: string[], targetDate: string, targetIsExtra: boolean) => {
     const previousItems = items
@@ -346,42 +359,42 @@ export function PedView({
         showToast(error, 'error')
         return
       }
-      if (applied > 0) router.refresh()
+      if (applied > 0) schedulePedDataRefresh()
     } catch (e) {
       setItems(previousItems)
       showToast(e instanceof Error ? e.message : 'Errore durante lo spostamento', 'error')
     }
-  }, [items])
+  }, [items, schedulePedDataRefresh])
 
   const handleBulkSetLabel = useCallback(async (ids: string[], label: string) => {
     try {
       const { applied, error } = await bulkSetPedItemLabel(ids, label)
       if (error) alert(error)
-      else if (applied > 0) router.refresh()
+      else if (applied > 0) schedulePedDataRefresh()
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Errore')
     }
-  }, [])
+  }, [schedulePedDataRefresh])
 
   const handleBulkToggleDone = useCallback(async (ids: string[], done: boolean) => {
     try {
       const { applied, error } = await bulkTogglePedItemDone(ids, done)
       if (error) alert(error)
-      else if (applied > 0) router.refresh()
+      else if (applied > 0) schedulePedDataRefresh()
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Errore')
     }
-  }, [])
+  }, [schedulePedDataRefresh])
 
   const handleBulkDelete = useCallback(async (ids: string[]) => {
     try {
       const { applied, error } = await bulkDeletePedItems(ids)
       if (error) alert(error)
-      else if (applied > 0) router.refresh()
+      else if (applied > 0) schedulePedDataRefresh()
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Errore')
     }
-  }, [])
+  }, [schedulePedDataRefresh])
 
   const [filling, setFilling] = useState(false)
   const [emptying, setEmptying] = useState(false)
@@ -389,7 +402,7 @@ export function PedView({
     setFilling(true)
     try {
       await fillPedMonth(year, month)
-      router.refresh()
+      schedulePedDataRefresh()
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Errore')
     } finally {
@@ -401,7 +414,7 @@ export function PedView({
     setEmptying(true)
     try {
       await emptyPedMonth(year, month)
-      router.refresh()
+      schedulePedDataRefresh()
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Errore')
     } finally {
@@ -429,7 +442,7 @@ export function PedView({
           break
       }
       setUndoEntry(null)
-      router.refresh()
+      schedulePedDataRefresh()
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Errore')
     } finally {
@@ -706,6 +719,7 @@ export function PedView({
           readOnly={isViewingOtherUser}
           year={year}
           month={month}
+          onDataMutated={schedulePedDataRefresh}
         />
       </div>
 
@@ -719,6 +733,7 @@ export function PedView({
         works={works}
         users={users}
         currentUserId={currentUserId}
+        onSuccess={schedulePedDataRefresh}
       />
     </div>
   )

@@ -20,6 +20,7 @@ export function PedClientSettings({
   readOnly = false,
   year,
   month,
+  onDataMutated,
 }: {
   settings: Setting[]
   clients: Client[]
@@ -28,8 +29,14 @@ export function PedClientSettings({
   /** Mese visualizzato nel PED (per “Riempi il mese attuale”). */
   year?: number
   month?: number
+  /** Se passato (es. refresh debounced dal parent), evita refresh RSC sovrapposti. */
+  onDataMutated?: () => void
 }) {
   const router = useRouter()
+  const afterMutate = useCallback(() => {
+    if (onDataMutated) onDataMutated()
+    else router.refresh()
+  }, [onDataMutated, router])
   const [fillingClientId, setFillingClientId] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
   const [selectedClientId, setSelectedClientId] = useState('')
@@ -50,12 +57,12 @@ export function PedClientSettings({
           delete next[clientId]
           return next
         })
-        router.refresh()
+        afterMutate()
       } catch (e) {
         alert(e instanceof Error ? e.message : 'Errore')
       }
     },
-    [router]
+    [afterMutate]
   )
 
   useEffect(() => {
@@ -71,7 +78,7 @@ export function PedClientSettings({
       setSelectedClientId('')
       setContentsPerWeek(0)
       setAdding(false)
-      router.refresh()
+      afterMutate()
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Errore')
     }
@@ -105,7 +112,7 @@ export function PedClientSettings({
     if (!confirm('Rimuovere questo cliente dal PED?')) return
     try {
       await removePedClientSetting(clientId)
-      router.refresh()
+      afterMutate()
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Errore')
     }
@@ -174,7 +181,7 @@ export function PedClientSettings({
                               if (next.length === 0) return
                               try {
                                 await upsertPedClientSetting(s.clientId, s.contentsPerWeek, next)
-                                router.refresh()
+                                afterMutate()
                               } catch (e) {
                                 alert(e instanceof Error ? e.message : 'Errore')
                               }
@@ -207,7 +214,7 @@ export function PedClientSettings({
                           } else {
                             showToast('Nessuna nuova task: le date previste sono già piene.', 'success')
                           }
-                          router.refresh()
+                          afterMutate()
                         } catch (e) {
                           showToast(e instanceof Error ? e.message : 'Errore', 'error')
                         } finally {

@@ -19,6 +19,31 @@ function isUuid(s: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)
 }
 
+const CLERK_AUTH_RETRY_MS = 75
+
+async function readClerkUserId(): Promise<string | null> {
+  const { auth } = await import('@clerk/nextjs/server')
+  const { userId } = await auth()
+  return userId ?? null
+}
+
+/** Un secondo tentativo dopo breve attesa riduce falsi negativi con richieste RSC/server action ravvicinate. */
+async function getClerkAuthUserIdWithRetry(): Promise<string | null> {
+  try {
+    const first = await readClerkUserId()
+    if (first) return first
+  } catch (e) {
+    console.warn('[getAuthUserId] Clerk auth errore, retry', e)
+  }
+  await new Promise((r) => setTimeout(r, CLERK_AUTH_RETRY_MS))
+  try {
+    return await readClerkUserId()
+  } catch (e2) {
+    console.error('[getAuthUserId] Clerk auth retry fallito', e2)
+    return null
+  }
+}
+
 /**
  * Restituisce l'id Clerk (o mock in dev).
  * In dev, se è presente il cookie dev_user_id, restituisce dev-user-<id> per quel utente.
@@ -39,9 +64,7 @@ export async function getAuthUserId(): Promise<string | null> {
       return null
     }
 
-    const { auth } = await import('@clerk/nextjs/server')
-    const { userId } = await auth()
-    return userId ?? null
+    return await getClerkAuthUserIdWithRetry()
   } catch (err) {
     console.error('[getAuthUserId]', err)
     return null

@@ -163,7 +163,8 @@ export function PedItemModal({
         setClientId(newClient.id)
         setClientSearch(newClient.name)
         setClientDropdownOpen(false)
-        router.refresh()
+        if (onSuccess) onSuccess()
+        else router.refresh()
       }
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Errore nella creazione del cliente')
