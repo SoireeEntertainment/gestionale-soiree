@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
 import { Work, Category, Client, User } from '@prisma/client'
 import { format } from 'date-fns'
@@ -27,10 +28,12 @@ const statusLabels: Record<string, string> = {
 }
 
 export function ClientWorksTab({ clientId, works, clients, categories, users }: ClientWorksTabProps) {
+  const [isCreateOpen, setIsCreateOpen] = useState(false)
+
   return (
     <div>
       <div className="flex justify-end mb-4">
-        <Dialog>
+        <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
           <DialogTrigger asChild>
             <Button>+ Crea Lavoro</Button>
           </DialogTrigger>
@@ -38,7 +41,13 @@ export function ClientWorksTab({ clientId, works, clients, categories, users }: 
             <DialogHeader>
               <DialogTitle>Crea Nuovo Lavoro</DialogTitle>
             </DialogHeader>
-            <WorkForm clientId={clientId} clients={clients} categories={categories} users={users} />
+            <WorkForm
+              clientId={clientId}
+              clients={clients}
+              categories={categories}
+              users={users}
+              onSuccess={() => setIsCreateOpen(false)}
+            />
           </DialogContent>
         </Dialog>
       </div>

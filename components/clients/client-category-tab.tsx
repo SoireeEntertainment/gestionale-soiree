@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Work, Category, Client, ClientCategory, User } from '@prisma/client'
@@ -53,6 +54,8 @@ export function ClientCategoryTab({
   isSocialAutoFromPed = false,
 }: ClientCategoryTabProps) {
   const router = useRouter()
+  const [isCreateOpen, setIsCreateOpen] = useState(false)
+
   const handleStatusChange = async (newStatus: string) => {
     if (!newStatus) return
     try {
@@ -113,7 +116,7 @@ export function ClientCategoryTab({
       <div>
         {canWrite && (
         <div className="flex justify-end mb-4">
-          <Dialog>
+          <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
             <DialogTrigger asChild>
               <Button>+ Crea Lavoro</Button>
             </DialogTrigger>
@@ -127,6 +130,7 @@ export function ClientCategoryTab({
                 clients={clients}
                 categories={categories}
                 users={users}
+                onSuccess={() => setIsCreateOpen(false)}
               />
             </DialogContent>
           </Dialog>

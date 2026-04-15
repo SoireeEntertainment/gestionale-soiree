@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { Client, Category, Work, User } from '@prisma/client'
@@ -35,6 +36,7 @@ const statusLabels: Record<string, string> = {
 export function WorksList({ works, clients, categories, users, filters }: WorksListProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const [isCreateOpen, setIsCreateOpen] = useState(false)
 
   const updateFilter = (key: string, value: string) => {
     const params = new URLSearchParams(searchParams.toString())
@@ -120,7 +122,7 @@ export function WorksList({ works, clients, categories, users, filters }: WorksL
       </div>
 
       <div className="flex justify-end mb-4">
-        <Dialog>
+        <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
           <DialogTrigger asChild>
             <Button>+ Nuovo Lavoro</Button>
           </DialogTrigger>
@@ -128,7 +130,12 @@ export function WorksList({ works, clients, categories, users, filters }: WorksL
             <DialogHeader>
               <DialogTitle>Nuovo Lavoro</DialogTitle>
             </DialogHeader>
-            <WorkForm clients={clients} categories={categories} users={users} />
+            <WorkForm
+              clients={clients}
+              categories={categories}
+              users={users}
+              onSuccess={() => setIsCreateOpen(false)}
+            />
           </DialogContent>
         </Dialog>
       </div>

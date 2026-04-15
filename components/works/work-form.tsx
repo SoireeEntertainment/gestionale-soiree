@@ -7,6 +7,7 @@ import { createWork, updateWork } from '@/app/actions/works'
 import { createClient } from '@/app/actions/clients'
 import { Button } from '@/components/ui/button'
 import { UserSelect } from '@/components/ui/user-select'
+import { showToast } from '@/lib/toast'
 
 interface WorkFormProps {
   work?: Work & { client: Client; category: Category; assignedTo?: User | null }
@@ -31,7 +32,7 @@ export function WorkForm({ work, clients, categories, users, clientId: initialCl
     setClientOptions(clients)
   }, [clients])
 
-  const [formData, setFormData] = useState({
+  const buildInitialFormData = () => ({
     title: work?.title || '',
     description: work?.description || '',
     clientId: work?.clientId || initialClientId || '',
@@ -43,6 +44,7 @@ export function WorkForm({ work, clients, categories, users, clientId: initialCl
       : '',
     assignedToUserId: work?.assignedToUserId || null,
   })
+  const [formData, setFormData] = useState(buildInitialFormData)
 
   /** Solo creazione lavoro senza cliente già fissato (es. /works), non dalla scheda cliente */
   const canQuickCreateClient = !work && !initialClientId
@@ -65,8 +67,9 @@ export function WorkForm({ work, clients, categories, users, clientId: initialCl
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (loading) return
     if (canQuickCreateClient && !formData.clientId) {
-      alert('Seleziona un cliente dall’elenco o creane uno nuovo con il nome che hai digitato.')
+      showToast('Seleziona un cliente dall’elenco o creane uno nuovo con il nome che hai digitato.', 'error')
       return
     }
     setLoading(true)
@@ -80,14 +83,21 @@ export function WorkForm({ work, clients, categories, users, clientId: initialCl
 
       if (work) {
         await updateWork(work.id, data)
+        showToast('Lavoro aggiornato con successo', 'success')
       } else {
         await createWork(data)
+        showToast('Lavoro creato con successo', 'success')
+        setFormData(buildInitialFormData())
+        setClientSearch('')
+        setClientDropdownOpen(false)
       }
       router.refresh()
       onSuccess?.()
     } catch (error) {
-      console.error('Error:', error)
-      alert('Errore nel salvataggio')
+      const msg = error instanceof Error
+        ? error.message
+        : (work ? 'Errore durante il salvataggio del lavoro' : 'Errore durante la creazione del lavoro')
+      showToast(msg, 'error')
     } finally {
       setLoading(false)
     }
@@ -96,7 +106,7 @@ export function WorkForm({ work, clients, categories, users, clientId: initialCl
   const handleCreateClientFromSearch = async () => {
     const name = clientSearch.trim()
     if (!name) {
-      alert('Inserisci il nome del nuovo cliente')
+      showToast('Inserisci il nome del nuovo cliente', 'error')
       return
     }
     setCreatingClient(true)
@@ -110,7 +120,7 @@ export function WorkForm({ work, clients, categories, users, clientId: initialCl
         router.refresh()
       }
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Errore nella creazione del cliente')
+      showToast(e instanceof Error ? e.message : 'Errore nella creazione del cliente', 'error')
     } finally {
       setCreatingClient(false)
     }
@@ -318,7 +328,7 @@ export function WorkForm({ work, clients, categories, users, clientId: initialCl
           Annulla
         </Button>
         <Button type="submit" disabled={loading}>
-          {loading ? 'Salvataggio...' : work ? 'Salva Modifiche' : 'Crea Lavoro'}
+          {loading ? (work ? 'Salvataggio...' : 'Creazione...') : work ? 'Salva Modifiche' : 'Crea Lavoro'}
         </Button>
       </div>
     </form>
