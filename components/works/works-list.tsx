@@ -20,6 +20,7 @@ interface WorksListProps {
     categoryId?: string
     status?: string
     deadlineFilter?: string
+    assignedUserId?: string
   }
 }
 
@@ -52,7 +53,7 @@ export function WorksList({ works, clients, categories, users, filters }: WorksL
     <div>
       {/* Filtri */}
       <div className="bg-dark border border-accent/20 rounded-lg p-4 mb-4">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <div>
             <label className="block text-sm font-medium text-white mb-1">
               Cliente
@@ -116,6 +117,23 @@ export function WorksList({ works, clients, categories, users, filters }: WorksL
               <option value="TUTTI">Tutti</option>
               <option value="SCADUTI">Scaduti</option>
               <option value="IN_SCADENZA_7_GIORNI">In scadenza (7 giorni)</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-white mb-1">
+              Assegnato a
+            </label>
+            <select
+              value={filters.assignedUserId || ''}
+              onChange={(e) => updateFilter('assignedUserId', e.target.value)}
+              className="w-full px-3 py-2 bg-dark border border-accent/20 rounded-md text-white text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+            >
+              <option value="">Tutti</option>
+              {users.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {user.name}
+                </option>
+              ))}
             </select>
           </div>
         </div>

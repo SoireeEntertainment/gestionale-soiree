@@ -6,7 +6,7 @@ import { getUsers } from '@/lib/users'
 import { WorksList } from '@/components/works/works-list'
 
 export default async function WorksPage(props: {
-  searchParams: Promise<{ clientId?: string; categoryId?: string; status?: string; deadlineFilter?: string }>
+  searchParams: Promise<{ clientId?: string; categoryId?: string; status?: string; deadlineFilter?: string; assignedUserId?: string }>
 }) {
   const user = await requireAuth()
   if (user.role === 'AGENTE') redirect('/clients')
@@ -18,6 +18,7 @@ export default async function WorksPage(props: {
       categoryId: searchParams.categoryId,
       status: searchParams.status,
       deadlineFilter: searchParams.deadlineFilter as any,
+      assignedUserId: searchParams.assignedUserId,
     }),
     prisma.client.findMany({ orderBy: { name: 'asc' } }),
     prisma.category.findMany({ orderBy: { name: 'asc' } }),

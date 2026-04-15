@@ -184,6 +184,7 @@ export async function getWorks(filters?: {
   categoryId?: string
   status?: string
   deadlineFilter?: 'SCADUTI' | 'IN_SCADENZA_7_GIORNI' | 'TUTTI'
+  assignedUserId?: string
 }) {
   const user = await getCurrentUser()
   if (!user) throw new Error('Non autorizzato')
@@ -203,6 +204,13 @@ export async function getWorks(filters?: {
 
   if (filters?.status) {
     where.status = filters.status
+  }
+
+  if (filters?.assignedUserId) {
+    where.OR = [
+      { assignedToUserId: filters.assignedUserId },
+      { assignees: { some: { userId: filters.assignedUserId } } },
+    ]
   }
 
   if (filters?.deadlineFilter === 'SCADUTI') {
