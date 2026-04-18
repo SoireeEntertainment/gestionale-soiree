@@ -7,6 +7,7 @@ import { Work, Client, Category } from '@prisma/client'
 import { format, startOfDay, isSameDay, isPast, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths, isSameMonth } from 'date-fns'
 import { it } from 'date-fns/locale'
 import { showToast } from '@/lib/toast'
+import { WorkStatusBadge } from '@/components/works/work-status-badge'
 
 type CalendarEvent = {
   id: string
@@ -24,16 +25,6 @@ interface CalendarViewProps {
   initialFrom: string
   initialTo: string
   isCalendarAdmin: boolean
-}
-
-const statusLabels: Record<string, string> = {
-  TODO: 'Da Fare',
-  IN_PROGRESS: 'In Corso',
-  IN_REVIEW: 'In Revisione',
-  WAITING_CLIENT: 'Attesa Cliente',
-  DONE: 'Completato',
-  PAUSED: 'In Pausa',
-  CANCELED: 'Annullato',
 }
 
 const MAX_EVENTS_PER_CELL = 3
@@ -385,9 +376,7 @@ export function CalendarView({
                                 {work.client.name} • {work.category.name}
                               </div>
                             </div>
-                            <span className="px-2 py-1 text-xs rounded bg-accent/20 text-accent">
-                              {statusLabels[work.status] || work.status}
-                            </span>
+                            <WorkStatusBadge status={work.status} />
                           </div>
                         </Link>
                       )

@@ -11,18 +11,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { updateWork } from '@/app/actions/works'
 import { createWorkComment } from '@/app/actions/work-comments'
 import { WorkStepsSection } from './work-steps-section'
+import { WorkStatusBadge } from '@/components/works/work-status-badge'
+import { WORK_STATUS_META } from '@/lib/work-status'
 
 type WorkWithRelations = Work & { client: Client; category: Category }
-
-const statusLabels: Record<string, string> = {
-  TODO: 'Da Fare',
-  IN_PROGRESS: 'In Corso',
-  IN_REVIEW: 'In Revisione',
-  WAITING_CLIENT: 'Attesa Cliente',
-  DONE: 'Completato',
-  PAUSED: 'In Pausa',
-  CANCELED: 'Annullato',
-}
 
 const priorityLabels: Record<string, string> = {
   LOW: 'Bassa',
@@ -110,8 +102,8 @@ export function MyWorksActive({ works: initialWorks, categories, canWrite }: MyW
           style={{ backgroundColor: 'var(--dark)', color: '#fff', border: '1px solid rgba(16,249,199,0.2)', borderRadius: '6px', padding: '8px 12px' }}
         >
           <option value="">Stato: tutti</option>
-          {Object.entries(statusLabels).filter(([k]) => !['DONE', 'CANCELED'].includes(k)).map(([v, l]) => (
-            <option key={v} value={v}>{l}</option>
+          {Object.entries(WORK_STATUS_META).filter(([k]) => !['DONE', 'CANCELED'].includes(k)).map(([v, meta]) => (
+            <option key={v} value={v}>{meta.label}</option>
           ))}
         </select>
         <select
@@ -168,14 +160,12 @@ export function MyWorksActive({ works: initialWorks, categories, canWrite }: MyW
                         className="px-2 py-1 bg-dark border border-accent/20 rounded text-white text-sm"
                         style={{ backgroundColor: 'var(--dark)', color: '#fff', border: '1px solid rgba(16,249,199,0.2)', borderRadius: '4px', padding: '4px 8px', fontSize: '13px' }}
                       >
-                        {Object.entries(statusLabels).filter(([k]) => !['DONE', 'CANCELED'].includes(k)).map(([v, l]) => (
-                          <option key={v} value={v}>{l}</option>
+                        {Object.entries(WORK_STATUS_META).filter(([k]) => !['DONE', 'CANCELED'].includes(k)).map(([v, meta]) => (
+                          <option key={v} value={v}>{meta.label}</option>
                         ))}
                       </select>
                     ) : (
-                      <span className="px-2 py-1 text-xs rounded bg-accent/20 text-accent">
-                        {statusLabels[w.status] ?? w.status}
-                      </span>
+                      <WorkStatusBadge status={w.status} />
                     )}
                   </td>
                   <td className="px-4 py-3 text-white/70 text-sm">

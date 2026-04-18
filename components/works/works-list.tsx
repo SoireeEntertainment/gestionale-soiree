@@ -9,6 +9,8 @@ import { it } from 'date-fns/locale'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { WorkForm } from './work-form'
+import { WorkStatusBadge } from './work-status-badge'
+import { WORK_STATUS_META } from '@/lib/work-status'
 
 interface WorksListProps {
   works: (Work & { client: Client; category: Category; assignedTo?: User | null })[]
@@ -22,16 +24,6 @@ interface WorksListProps {
     deadlineFilter?: string
     assignedUserId?: string
   }
-}
-
-const statusLabels: Record<string, string> = {
-  TODO: 'Da Fare',
-  IN_PROGRESS: 'In Corso',
-  IN_REVIEW: 'In Revisione',
-  WAITING_CLIENT: 'Attesa Cliente',
-  DONE: 'Completato',
-  PAUSED: 'In Pausa',
-  CANCELED: 'Annullato',
 }
 
 export function WorksList({ works, clients, categories, users, filters }: WorksListProps) {
@@ -213,9 +205,9 @@ export function WorksList({ works, clients, categories, users, filters }: WorksL
               className="w-full px-3 py-2 bg-dark border border-accent/20 rounded-md text-white text-sm focus:outline-none focus:ring-2 focus:ring-accent"
             >
               <option value="">Tutti</option>
-              {Object.entries(statusLabels).map(([value, label]) => (
+              {Object.entries(WORK_STATUS_META).map(([value, meta]) => (
                 <option key={value} value={value}>
-                  {label}
+                  {meta.label}
                 </option>
               ))}
             </select>
@@ -309,9 +301,7 @@ export function WorksList({ works, clients, categories, users, filters }: WorksL
                   <td className="px-6 py-4 text-white/70">{work.client.name}</td>
                   <td className="px-6 py-4 text-white/70">{work.category.name}</td>
                   <td className="px-6 py-4">
-                    <span className="px-2 py-1 text-xs rounded bg-accent/20 text-accent">
-                      {statusLabels[work.status] || work.status}
-                    </span>
+                    <WorkStatusBadge status={work.status} />
                   </td>
                   <td className="px-6 py-4">
                     {work.deadline ? (

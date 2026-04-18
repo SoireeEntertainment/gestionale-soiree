@@ -6,13 +6,9 @@ import { Work, Client, Category } from '@prisma/client'
 import { format } from 'date-fns'
 import { it } from 'date-fns/locale'
 import { Button } from '@/components/ui/button'
+import { WorkStatusBadge } from '@/components/works/work-status-badge'
 
 type WorkWithRelations = Work & { client: Client; category: Category }
-
-const statusLabels: Record<string, string> = {
-  DONE: 'Completato',
-  CANCELED: 'Annullato',
-}
 
 type MyWorksArchiveProps = {
   works: WorkWithRelations[]
@@ -79,9 +75,7 @@ export function MyWorksArchive({ works, clients, categories }: MyWorksArchivePro
                   <div className="text-white/60 text-sm">{w.client.name} · {w.category.name}</div>
                 </td>
                 <td className="px-4 py-3">
-                  <span className="px-2 py-1 text-xs rounded bg-white/10 text-white/80">
-                    {statusLabels[w.status] ?? w.status}
-                  </span>
+                  <WorkStatusBadge status={w.status} />
                 </td>
                 <td className="px-4 py-3 text-white/70 text-sm">
                   {format(new Date(w.updatedAt), 'dd MMM yyyy', { locale: it })}

@@ -8,6 +8,7 @@ import { createClient } from '@/app/actions/clients'
 import { Button } from '@/components/ui/button'
 import { UserSelect } from '@/components/ui/user-select'
 import { showToast } from '@/lib/toast'
+import { WORK_STATUS_META } from '@/lib/work-status'
 
 interface WorkFormProps {
   work?: Work & { client: Client; category: Category; assignedTo?: User | null }
@@ -270,13 +271,11 @@ export function WorkForm({ work, clients, categories, users, clientId: initialCl
             onChange={(e) => setFormData({ ...formData, status: e.target.value })}
             className="w-full px-3 py-2 bg-dark border border-accent/20 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-accent"
           >
-            <option value="TODO">Da Fare</option>
-            <option value="IN_PROGRESS">In Corso</option>
-            <option value="IN_REVIEW">In Revisione</option>
-            <option value="WAITING_CLIENT">Attesa Cliente</option>
-            <option value="DONE">Completato</option>
-            <option value="PAUSED">In Pausa</option>
-            <option value="CANCELED">Annullato</option>
+            {Object.entries(WORK_STATUS_META).map(([value, meta]) => (
+              <option key={value} value={value}>
+                {meta.label}
+              </option>
+            ))}
           </select>
         </div>
 

@@ -10,6 +10,7 @@ import { upsertClientCategory } from '@/app/actions/client-categories'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { WorkForm } from '@/components/works/work-form'
+import { WorkStatusBadge } from '@/components/works/work-status-badge'
 
 const clientCategoryStatusLabels: Record<string, string> = {
   NOT_ACTIVE: 'Non Attivo',
@@ -17,16 +18,6 @@ const clientCategoryStatusLabels: Record<string, string> = {
   IN_PROGRESS: 'In Corso',
   ON_HOLD: 'In Attesa',
   COMPLETED: 'Completato',
-}
-
-const workStatusLabels: Record<string, string> = {
-  TODO: 'Da Fare',
-  IN_PROGRESS: 'In Corso',
-  IN_REVIEW: 'In Revisione',
-  WAITING_CLIENT: 'Attesa Cliente',
-  DONE: 'Completato',
-  PAUSED: 'In Pausa',
-  CANCELED: 'Annullato',
 }
 
 interface ClientCategoryTabProps {
@@ -160,9 +151,7 @@ export function ClientCategoryTab({
                 <tr key={work.id} className="hover:bg-white/5">
                   <td className="px-6 py-4 text-white">{work.title}</td>
                   <td className="px-6 py-4">
-                    <span className="px-2 py-1 text-xs rounded bg-accent/20 text-accent">
-                      {workStatusLabels[work.status] || work.status}
-                    </span>
+                    <WorkStatusBadge status={work.status} />
                   </td>
                   <td className="px-6 py-4 text-white/70">
                     {work.deadline

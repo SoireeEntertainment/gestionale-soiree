@@ -10,22 +10,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { WorkForm } from './work-form'
 import { deleteWork } from '@/app/actions/works'
 import { useRouter } from 'next/navigation'
+import { WorkStatusBadge } from './work-status-badge'
 
 interface WorkDetailProps {
   work: Work & { client: Client; category: Category; assignedTo?: User | null }
   clients: Client[]
   categories: Category[]
   users: User[]
-}
-
-const statusLabels: Record<string, string> = {
-  TODO: 'Da Fare',
-  IN_PROGRESS: 'In Corso',
-  IN_REVIEW: 'In Revisione',
-  WAITING_CLIENT: 'Attesa Cliente',
-  DONE: 'Completato',
-  PAUSED: 'In Pausa',
-  CANCELED: 'Annullato',
 }
 
 const priorityLabels: Record<string, string> = {
@@ -108,9 +99,7 @@ export function WorkDetail({ work, clients, categories, users }: WorkDetailProps
             </div>
             <div>
               <div className="text-sm text-white/50 mb-1">Stato</div>
-              <span className="px-2 py-1 text-sm rounded bg-accent/20 text-accent">
-                {statusLabels[work.status] || work.status}
-              </span>
+              <WorkStatusBadge status={work.status} className="text-sm" />
             </div>
             {work.priority && (
               <div>

@@ -1,18 +1,12 @@
 'use client'
 
+import { getWorkStatusMeta } from '@/lib/work-status'
+
 type WeeklyLoadProps = {
   total: number
   byStatus: Record<string, number>
   /** Se fornito, mostra "X carico settimanale di cui Y task e Z lavori" (settimana ISO). */
   weeklyLoadSummary?: { total: number; taskCount: number; workCount: number }
-}
-
-const statusLabels: Record<string, string> = {
-  TODO: 'Da fare',
-  IN_PROGRESS: 'In corso',
-  IN_REVIEW: 'In revisione',
-  WAITING_CLIENT: 'Attesa cliente',
-  PAUSED: 'In pausa',
 }
 
 export function WeeklyLoad({ total, byStatus, weeklyLoadSummary }: WeeklyLoadProps) {
@@ -29,7 +23,7 @@ export function WeeklyLoad({ total, byStatus, weeklyLoadSummary }: WeeklyLoadPro
           <p className="text-white/50 text-xs mb-2">Lavori per stato</p>
           {Object.entries(byStatus).map(([status, count]) => (
             <div key={status} className="flex justify-between text-sm">
-              <span className="text-white/70">{statusLabels[status] ?? status}</span>
+              <span className="text-white/70">{getWorkStatusMeta(status).label}</span>
               <span className="text-white font-medium">{count}</span>
             </div>
           ))}

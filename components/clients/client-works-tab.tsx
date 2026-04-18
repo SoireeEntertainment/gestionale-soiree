@@ -8,6 +8,7 @@ import { it } from 'date-fns/locale'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { WorkForm } from '@/components/works/work-form'
+import { WorkStatusBadge } from '@/components/works/work-status-badge'
 
 interface ClientWorksTabProps {
   clientId: string
@@ -15,16 +16,6 @@ interface ClientWorksTabProps {
   clients: Client[]
   categories: Category[]
   users: User[]
-}
-
-const statusLabels: Record<string, string> = {
-  TODO: 'Da Fare',
-  IN_PROGRESS: 'In Corso',
-  IN_REVIEW: 'In Revisione',
-  WAITING_CLIENT: 'Attesa Cliente',
-  DONE: 'Completato',
-  PAUSED: 'In Pausa',
-  CANCELED: 'Annullato',
 }
 
 export function ClientWorksTab({ clientId, works, clients, categories, users }: ClientWorksTabProps) {
@@ -79,9 +70,7 @@ export function ClientWorksTab({ clientId, works, clients, categories, users }: 
                 <td className="px-6 py-4 text-white">{work.title}</td>
                 <td className="px-6 py-4 text-white/70">{work.category.name}</td>
                 <td className="px-6 py-4">
-                  <span className="px-2 py-1 text-xs rounded bg-accent/20 text-accent">
-                    {statusLabels[work.status] || work.status}
-                  </span>
+                  <WorkStatusBadge status={work.status} />
                 </td>
                 <td className="px-6 py-4 text-white/70">
                   {work.deadline

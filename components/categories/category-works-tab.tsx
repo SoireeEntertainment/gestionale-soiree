@@ -4,20 +4,11 @@ import Link from 'next/link'
 import { Work, Client } from '@prisma/client'
 import { format } from 'date-fns'
 import { it } from 'date-fns/locale'
+import { WorkStatusBadge } from '@/components/works/work-status-badge'
 
 interface CategoryWorksTabProps {
   categoryId: string
   works: (Work & { client: Client })[]
-}
-
-const statusLabels: Record<string, string> = {
-  TODO: 'Da Fare',
-  IN_PROGRESS: 'In Corso',
-  IN_REVIEW: 'In Revisione',
-  WAITING_CLIENT: 'Attesa Cliente',
-  DONE: 'Completato',
-  PAUSED: 'In Pausa',
-  CANCELED: 'Annullato',
 }
 
 export function CategoryWorksTab({ works }: CategoryWorksTabProps) {
@@ -49,9 +40,7 @@ export function CategoryWorksTab({ works }: CategoryWorksTabProps) {
               <td className="px-6 py-4 text-white">{work.title}</td>
               <td className="px-6 py-4 text-white/70">{work.client.name}</td>
               <td className="px-6 py-4">
-                <span className="px-2 py-1 text-xs rounded bg-accent/20 text-accent">
-                  {statusLabels[work.status] || work.status}
-                </span>
+                <WorkStatusBadge status={work.status} />
               </td>
               <td className="px-6 py-4 text-white/70">
                 {work.deadline
