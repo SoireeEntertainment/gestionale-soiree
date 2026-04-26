@@ -83,6 +83,11 @@ export function WorksList({ works, clients, categories, users, filters }: WorksL
     setClientDropdownOpen(false)
   }
 
+  const returnToWorks = useMemo(() => {
+    const qs = searchParams.toString()
+    return qs ? `/works?${qs}` : '/works'
+  }, [searchParams])
+
   return (
     <div>
       {/* Filtri */}
@@ -318,7 +323,7 @@ export function WorksList({ works, clients, categories, users, filters }: WorksL
                   </td>
                   <td className="px-6 py-4 text-right">
                     <Link
-                      href={`/works/${work.id}`}
+                      href={`/works/${work.id}?returnTo=${encodeURIComponent(returnToWorks)}`}
                       className="text-accent hover:underline text-sm"
                     >
                       Dettagli

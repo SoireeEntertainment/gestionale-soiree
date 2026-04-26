@@ -7,11 +7,18 @@ import { WorkDetail } from '@/components/works/work-detail'
 
 export default async function WorkDetailPage(props: {
   params: Promise<{ id: string }>
+  searchParams: Promise<{ returnTo?: string }>
 }) {
   const user = await requireAuth()
   if (user.role === 'AGENTE') redirect('/clients')
 
   const { id } = await props.params
+  const searchParams = await props.searchParams
+  const returnToRaw = searchParams.returnTo
+  const returnTo =
+    returnToRaw && returnToRaw.startsWith('/works')
+      ? returnToRaw
+      : '/works'
   const [work, clients, categories, users] = await Promise.all([
     getWork(id),
     prisma.client.findMany({ orderBy: { name: 'asc' } }),
@@ -21,6 +28,6 @@ export default async function WorkDetailPage(props: {
 
   if (!work) redirect('/works')
 
-  return <WorkDetail work={work} clients={clients} categories={categories} users={users} />
+  return <WorkDetail work={work} clients={clients} categories={categories} users={users} returnTo={returnTo} />
 }
 

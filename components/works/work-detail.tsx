@@ -17,6 +17,7 @@ interface WorkDetailProps {
   clients: Client[]
   categories: Category[]
   users: User[]
+  returnTo?: string
 }
 
 const priorityLabels: Record<string, string> = {
@@ -25,7 +26,7 @@ const priorityLabels: Record<string, string> = {
   HIGH: 'Alta',
 }
 
-export function WorkDetail({ work, clients, categories, users }: WorkDetailProps) {
+export function WorkDetail({ work, clients, categories, users, returnTo = '/works' }: WorkDetailProps) {
   const router = useRouter()
   const [isEditOpen, setIsEditOpen] = useState(false)
 
@@ -34,7 +35,7 @@ export function WorkDetail({ work, clients, categories, users }: WorkDetailProps
 
     try {
       await deleteWork(work.id)
-      router.push('/works')
+      router.push(returnTo)
     } catch (error) {
       console.error('Error:', error)
       alert('Errore nell\'eliminazione')
@@ -48,7 +49,7 @@ export function WorkDetail({ work, clients, categories, users }: WorkDetailProps
       <div className="w-[90vw] max-w-[90vw] mx-auto">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <Link href="/works" className="text-accent hover:underline mb-2 inline-block">
+            <Link href={returnTo} className="text-accent hover:underline mb-2 inline-block">
               ← Torna ai lavori
             </Link>
             <h1 className="text-3xl font-bold text-white">{work.title}</h1>
