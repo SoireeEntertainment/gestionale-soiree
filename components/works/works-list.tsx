@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { WorkForm } from './work-form'
 import { WorkStatusBadge } from './work-status-badge'
 import { WORK_STATUS_META } from '@/lib/work-status'
+import { sortWorksByColumn, sortWorksDefault, type WorkSortBy, type WorkSortDirection } from '@/lib/work-sorting'
 
 interface WorksListProps {
   works: (Work & { client: Client; category: Category; assignedTo?: User | null })[]
@@ -30,6 +31,8 @@ export function WorksList({ works, clients, categories, users, filters }: WorksL
   const router = useRouter()
   const searchParams = useSearchParams()
   const [isCreateOpen, setIsCreateOpen] = useState(false)
+  const [sortBy, setSortBy] = useState<WorkSortBy | null>(null)
+  const [sortDirection, setSortDirection] = useState<WorkSortDirection | null>(null)
   const [clientDropdownOpen, setClientDropdownOpen] = useState(false)
   const [clientSearch, setClientSearch] = useState('')
   const [clientHighlightedIndex, setClientHighlightedIndex] = useState(0)
@@ -87,6 +90,36 @@ export function WorksList({ works, clients, categories, users, filters }: WorksL
     const qs = searchParams.toString()
     return qs ? `/works?${qs}` : '/works'
   }, [searchParams])
+
+  useEffect(() => {
+    // Cambio filtri => reset sort manuale e ritorno al default operativo.
+    setSortBy(null)
+    setSortDirection(null)
+  }, [filters.clientId, filters.categoryId, filters.status, filters.deadlineFilter, filters.assignedUserId])
+
+  const sortedWorks = useMemo(() => {
+    if (sortBy && sortDirection) return sortWorksByColumn(works, sortBy, sortDirection)
+    return sortWorksDefault(works)
+  }, [works, sortBy, sortDirection])
+
+  const toggleSort = (column: WorkSortBy) => {
+    if (sortBy !== column) {
+      setSortBy(column)
+      setSortDirection('asc')
+      return
+    }
+    setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'))
+  }
+
+  const sortIndicator = (column: WorkSortBy) => {
+    if (sortBy !== column || !sortDirection) return '↕'
+    return sortDirection === 'asc' ? '↑' : '↓'
+  }
+
+  const ariaSort = (column: WorkSortBy): 'none' | 'ascending' | 'descending' => {
+    if (sortBy !== column || !sortDirection) return 'none'
+    return sortDirection === 'asc' ? 'ascending' : 'descending'
+  }
 
   return (
     <div>
@@ -274,23 +307,35 @@ export function WorksList({ works, clients, categories, users, filters }: WorksL
         <table className="w-full">
           <thead className="bg-accent/10">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-accent uppercase">
-                Titolo
+              <th className="px-6 py-3 text-left text-xs font-medium text-accent uppercase" aria-sort={ariaSort('title')}>
+                <button type="button" onClick={() => toggleSort('title')} className="inline-flex items-center gap-1 hover:text-white transition-colors">
+                  Titolo <span className="text-[10px]">{sortIndicator('title')}</span>
+                </button>
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-accent uppercase">
-                Cliente
+              <th className="px-6 py-3 text-left text-xs font-medium text-accent uppercase" aria-sort={ariaSort('client')}>
+                <button type="button" onClick={() => toggleSort('client')} className="inline-flex items-center gap-1 hover:text-white transition-colors">
+                  Cliente <span className="text-[10px]">{sortIndicator('client')}</span>
+                </button>
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-accent uppercase">
-                Categoria
+              <th className="px-6 py-3 text-left text-xs font-medium text-accent uppercase" aria-sort={ariaSort('category')}>
+                <button type="button" onClick={() => toggleSort('category')} className="inline-flex items-center gap-1 hover:text-white transition-colors">
+                  Categoria <span className="text-[10px]">{sortIndicator('category')}</span>
+                </button>
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-accent uppercase">
-                Stato
+              <th className="px-6 py-3 text-left text-xs font-medium text-accent uppercase" aria-sort={ariaSort('status')}>
+                <button type="button" onClick={() => toggleSort('status')} className="inline-flex items-center gap-1 hover:text-white transition-colors">
+                  Stato <span className="text-[10px]">{sortIndicator('status')}</span>
+                </button>
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-accent uppercase">
-                Scadenza
+              <th className="px-6 py-3 text-left text-xs font-medium text-accent uppercase" aria-sort={ariaSort('deadline')}>
+                <button type="button" onClick={() => toggleSort('deadline')} className="inline-flex items-center gap-1 hover:text-white transition-colors">
+                  Scadenza <span className="text-[10px]">{sortIndicator('deadline')}</span>
+                </button>
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-accent uppercase">
-                Assegnato a
+              <th className="px-6 py-3 text-left text-xs font-medium text-accent uppercase" aria-sort={ariaSort('assignedTo')}>
+                <button type="button" onClick={() => toggleSort('assignedTo')} className="inline-flex items-center gap-1 hover:text-white transition-colors">
+                  Assegnato a <span className="text-[10px]">{sortIndicator('assignedTo')}</span>
+                </button>
               </th>
               <th className="px-6 py-3 text-right text-xs font-medium text-accent uppercase">
                 Azioni
@@ -298,7 +343,7 @@ export function WorksList({ works, clients, categories, users, filters }: WorksL
             </tr>
           </thead>
           <tbody className="divide-y divide-white/10">
-            {works.map((work) => {
+            {sortedWorks.map((work) => {
               const isExpired = work.deadline && new Date(work.deadline) < new Date() && work.status !== 'DONE'
               return (
                 <tr key={work.id} className="hover:bg-white/5">
@@ -334,7 +379,7 @@ export function WorksList({ works, clients, categories, users, filters }: WorksL
             })}
           </tbody>
         </table>
-        {works.length === 0 && (
+        {sortedWorks.length === 0 && (
           <div className="p-12 text-center text-white/50">
             Nessun lavoro trovato
           </div>
