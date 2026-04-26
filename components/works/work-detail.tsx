@@ -124,12 +124,14 @@ export function WorkDetail({ work, clients, categories, users, returnTo = '/work
               </div>
             )}
           </div>
-          {work.description && (
-            <div>
-              <div className="text-sm text-white/50 mb-1">Descrizione</div>
-              <div className="text-white">{work.description}</div>
-            </div>
-          )}
+          <div>
+            <div className="text-sm text-white/50 mb-1">Descrizione</div>
+            {work.description ? (
+              <div className="text-white whitespace-pre-wrap break-words leading-relaxed">{work.description}</div>
+            ) : (
+              <span className="text-white/50">Nessuna descrizione</span>
+            )}
+          </div>
         </div>
       </div>
     </div>
