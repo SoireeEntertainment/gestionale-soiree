@@ -6,6 +6,83 @@ import { getCurrentUser, canWrite } from '@/lib/auth-dev'
 import { prisma } from '@/lib/prisma'
 import { workSchema } from '@/lib/validations'
 import { parseDeadlineFromInput } from '@/lib/date-utils'
+import { sendWorkAssignedEmail } from '@/lib/work-assignment-email'
+
+function uniqueIds(ids: Array<string | null | undefined>): string[] {
+  return [...new Set(ids.filter((id): id is string => typeof id === 'string' && id.trim().length > 0))]
+}
+
+async function getCurrentAssigneeIdsForWork(workId: string): Promise<string[]> {
+  const row = await prisma.work.findUnique({
+    where: { id: workId },
+    select: {
+      assignedToUserId: true,
+      assignees: { select: { userId: true } },
+    },
+  })
+  if (!row) return []
+  return uniqueIds([row.assignedToUserId, ...row.assignees.map((a) => a.userId)])
+}
+
+async function notifyUsersAssignedToWork(workId: string, assigneeUserIds: string[]): Promise<void> {
+  const uniqueAssignees = uniqueIds(assigneeUserIds)
+  if (uniqueAssignees.length === 0) return
+
+  const [work, users] = await Promise.all([
+    prisma.work.findUnique({
+      where: { id: workId },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        status: true,
+        priority: true,
+        deadline: true,
+        client: { select: { name: true } },
+        category: { select: { name: true } },
+      },
+    }),
+    prisma.user.findMany({
+      where: { id: { in: uniqueAssignees }, isActive: true },
+      select: { id: true, name: true, email: true },
+    }),
+  ])
+  if (!work) return
+
+  const recipients = users.filter((u) => !!u.email?.trim())
+  if (recipients.length === 0) return
+
+  const results = await Promise.allSettled(
+    recipients.map((u) =>
+      sendWorkAssignedEmail({
+        user: { id: u.id, name: u.name, email: u.email },
+        work,
+      })
+    )
+  )
+
+  results.forEach((result, i) => {
+    const recipient = recipients[i]
+    if (result.status === 'fulfilled') {
+      console.info('[work-assignment-email] sent', {
+        workId: work.id,
+        userId: recipient.id,
+        email: recipient.email,
+        status: 'sent',
+        createdAt: new Date().toISOString(),
+      })
+    } else {
+      console.error('[work-assignment-email] failed', {
+        workId: work.id,
+        userId: recipient.id,
+        email: recipient.email,
+        status: 'failed',
+        createdAt: new Date().toISOString(),
+        error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+      })
+    }
+  })
+}
 
 export async function createWork(data: unknown) {
   const user = await getCurrentUser()
@@ -40,6 +117,13 @@ export async function createWork(data: unknown) {
         data: { assignedToUserId: list[0] },
       })
     }
+  }
+
+  // Non blocca la creazione: eventuali errori email vengono solo loggati.
+  try {
+    if (list.length > 0) await notifyUsersAssignedToWork(work.id, list)
+  } catch (emailErr) {
+    console.error('[createWork] notification error', { workId: work.id, error: emailErr })
   }
 
   revalidatePath('/works')
@@ -120,6 +204,8 @@ export async function updateWork(id: string, data: unknown) {
   const deadlineDate = parseDeadlineFromInput(validated.deadline ?? undefined)
   const { assigneeUserIds, ...workFields } = validated
 
+  const previousAssigneeIds = await getCurrentAssigneeIdsForWork(id)
+
   const work = await prisma.work.update({
     where: { id },
     data: {
@@ -134,6 +220,17 @@ export async function updateWork(id: string, data: unknown) {
 
   if (assigneeUserIds !== undefined) {
     await syncWorkAssignees(id, assigneeUserIds)
+  }
+
+  try {
+    const currentAssigneeIds = await getCurrentAssigneeIdsForWork(id)
+    const previousSet = new Set(previousAssigneeIds)
+    const newlyAdded = currentAssigneeIds.filter((uid) => !previousSet.has(uid))
+    if (newlyAdded.length > 0) {
+      await notifyUsersAssignedToWork(id, newlyAdded)
+    }
+  } catch (emailErr) {
+    console.error('[updateWork] notification error', { workId: id, error: emailErr })
   }
 
   revalidatePath('/works')
