@@ -9,9 +9,77 @@ import { toDateString, getISOWeekStart, getTenContentsPerMonthTargetDates } from
 import { getEffectiveLabel, PED_LABEL_ORDER, DEFAULT_LABEL, DONE_LABEL, PED_LABELS, type PedLabel } from '@/lib/pedLabels'
 import { pedClientSettingSchema, pedItemCreateSchema, pedItemUpdateSchema, pedItemSetLabelSchema } from '@/lib/validations'
 
+export type WorkDeadlineForPed = {
+  id: string
+  title: string
+  description?: string | null
+  status: string
+  priority?: string | null
+  date: string
+  deadline: string
+  clientId: string
+  categoryId: string
+  assignedToUserId?: string | null
+  assigneeUserIds: string[]
+  client: { id: string; name: string }
+  category: { id: string; name: string }
+}
+
 async function getOwnerId(): Promise<string | null> {
   const user = await getCurrentUser()
   return user?.id ?? null
+}
+
+export async function getAssignedWorkDeadlinesForPed(
+  userId: string,
+  rangeStart: Date,
+  rangeEnd: Date
+): Promise<WorkDeadlineForPed[]> {
+  const rows = await prisma.work.findMany({
+    where: {
+      deadline: { gte: rangeStart, lte: rangeEnd },
+      OR: [
+        { assignedToUserId: userId },
+        { assignees: { some: { userId } } },
+      ],
+    },
+    select: {
+      id: true,
+      title: true,
+      description: true,
+      status: true,
+      priority: true,
+      deadline: true,
+      clientId: true,
+      categoryId: true,
+      assignedToUserId: true,
+      client: { select: { id: true, name: true } },
+      category: { select: { id: true, name: true } },
+      assignees: { select: { userId: true } },
+    },
+    orderBy: [
+      { deadline: 'asc' },
+      { createdAt: 'desc' },
+    ],
+  })
+
+  return rows
+    .filter((w) => !!w.deadline)
+    .map((w) => ({
+      id: w.id,
+      title: w.title,
+      description: w.description ?? null,
+      status: w.status,
+      priority: w.priority ?? null,
+      date: w.deadline!.toISOString().slice(0, 10),
+      deadline: w.deadline!.toISOString(),
+      clientId: w.clientId,
+      categoryId: w.categoryId,
+      assignedToUserId: w.assignedToUserId ?? null,
+      assigneeUserIds: w.assignees.map((a) => a.userId),
+      client: w.client,
+      category: w.category,
+    }))
 }
 
 /** Per "Guarda PED di...": se fornito, usa questo userId come owner (solo lettura dati). Richiede utente loggato. */
@@ -59,7 +127,8 @@ export async function getPedMonth(year: number, month: number, viewAsUserId?: st
   })
 
   const itemWhere = { OR: [{ ownerId }, { assignedToUserId: ownerId }] }
-  const allItemsRaw = await prisma.pedItem.findMany({
+  const [allItemsRaw, assignedWorkDeadlines] = await Promise.all([
+    prisma.pedItem.findMany({
     where: itemWhere,
     select: {
       id: true,
@@ -84,7 +153,9 @@ export async function getPedMonth(year: number, month: number, viewAsUserId?: st
       work: { select: { id: true, title: true } },
       assignedTo: { select: { id: true, name: true } },
     },
-  })
+    }),
+    getAssignedWorkDeadlinesForPed(ownerId, startDate, endDate),
+  ])
   const allItems = allItemsRaw
 
   const orderRows = await prisma.pedItem.findMany({
@@ -158,6 +229,7 @@ export async function getPedMonth(year: number, month: number, viewAsUserId?: st
   return {
     pedClientSettings: settingsSorted.map((s) => ({ ...s, platforms: (s as { platforms?: string[] }).platforms ?? ['INSTAGRAM'] })),
     pedItems: items.map((i) => ({ ...i, platforms: (i as { platforms?: string[] }).platforms ?? ['INSTAGRAM'] })),
+    assignedWorkDeadlines,
     computedStats: {
       dailyStats,
       weeklyStats,

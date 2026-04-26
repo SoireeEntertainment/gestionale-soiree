@@ -3,6 +3,7 @@
 import { useMemo, useState, useEffect, useRef, useCallback, memo, startTransition } from 'react'
 import { PED_ITEM_TYPE_LABELS, PED_DELEGATED_STYLE, toDateString, getCurrentWeekStartString } from '@/lib/ped-utils'
 import { getItemLabelStyle, PED_LABELS, PED_LABEL_CONFIG } from '@/lib/pedLabels'
+import { getWorkStatusMeta } from '@/lib/work-status'
 
 const STORAGE_KEY_COLUMNS = 'ped-calendar-column-widths'
 const DEFAULT_COL_WIDTH = 160
@@ -48,6 +49,22 @@ type DayCell = {
   remainingCount: number
   total: number
   done: number
+}
+
+type WorkDeadlineItem = {
+  id: string
+  title: string
+  description?: string | null
+  status: string
+  priority?: string | null
+  date: string
+  deadline: string
+  clientId: string
+  categoryId: string
+  assignedToUserId?: string | null
+  assigneeUserIds: string[]
+  client: { id: string; name: string }
+  category: { id: string; name: string }
 }
 
 const WEEKDAY_LABELS = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Extra']
@@ -115,6 +132,7 @@ function PedCalendarInner({
   year,
   month,
   items,
+  workDeadlines = [],
   dailyStats,
   currentUserId,
   viewAsUserId = null,
@@ -135,12 +153,15 @@ function PedCalendarInner({
   onReorderInDay,
   onSelectDay,
   onUpdateTitle,
+  onOpenWork,
+  onWorkContextMenu,
   filterClientId,
   filterType,
 }: {
   year: number
   month: number
   items: PedItem[]
+  workDeadlines?: WorkDeadlineItem[]
   dailyStats: Record<string, { total: number; done: number; remainingPct: number; remainingCount?: number }>
   currentUserId: string
   /** Quando si visualizza il PED di un altro utente, lo stile "delegated" è calcolato rispetto a lui (i suoi colori). */
@@ -163,6 +184,8 @@ function PedCalendarInner({
   onReorderInDay: (dateKey: string, isExtra: boolean, orderedItemIds: string[]) => void | Promise<void>
   onSelectDay?: (dateKey: string) => void
   onUpdateTitle?: (id: string, title: string) => void | Promise<void>
+  onOpenWork?: (work: WorkDeadlineItem) => void
+  onWorkContextMenu?: (x: number, y: number, work: WorkDeadlineItem) => void
   filterClientId: string
   filterType: string
 }) {
@@ -517,6 +540,35 @@ function PedCalendarInner({
     return map
   }, [items, filterClientId, filterType])
 
+  const workDeadlinesByDay = useMemo(() => {
+    const map: Record<string, WorkDeadlineItem[]> = {}
+    for (const work of workDeadlines) {
+      const dateKey = work.date.slice(0, 10)
+      const d = new Date(dateKey + 'T00:00:00.000Z')
+      const day = d.getUTCDay()
+      if (day === 0 || day === 6) continue
+      if (filterClientId && work.clientId !== filterClientId) continue
+      if (!map[dateKey]) map[dateKey] = []
+      map[dateKey].push(work)
+    }
+    return map
+  }, [workDeadlines, filterClientId])
+
+  const weekendWorkDeadlinesByWeek = useMemo(() => {
+    const map: Record<string, WorkDeadlineItem[]> = {}
+    for (const work of workDeadlines) {
+      const dateKey = work.date.slice(0, 10)
+      const d = new Date(dateKey + 'T00:00:00.000Z')
+      const day = d.getUTCDay()
+      if (day !== 0 && day !== 6) continue
+      if (filterClientId && work.clientId !== filterClientId) continue
+      const weekStart = getISOWeekStartKey(dateKey)
+      if (!map[weekStart]) map[weekStart] = []
+      map[weekStart].push(work)
+    }
+    return map
+  }, [workDeadlines, filterClientId])
+
   const extraItemsByWeek = useMemo(() => {
     const byWeek: Record<string, { weekend: PedItem[]; extra: PedItem[] }> = {}
     for (const item of items) {
@@ -619,6 +671,7 @@ function PedCalendarInner({
           {cells.map((week, wi) => {
             const weekStartKey = getISOWeekStartKey(week[0].dateKey)
             const extraItems = extraItemsByWeek[weekStartKey] ?? []
+            const weekendWorks = weekendWorkDeadlinesByWeek[weekStartKey] ?? []
             const isCurrentWeek = weekStartKey === currentWeekStart
             return (
               <tr
@@ -673,6 +726,35 @@ function PedCalendarInner({
                       </p>
                     )}
                     <ul className="space-y-1.5">
+                      {(workDeadlinesByDay[cell.dateKey] ?? []).map((work) => {
+                        const statusMeta = getWorkStatusMeta(work.status)
+                        return (
+                          <li
+                            key={`work-${work.id}`}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              onOpenWork?.(work)
+                            }}
+                            onContextMenu={(e) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              onWorkContextMenu?.(e.clientX, e.clientY, work)
+                            }}
+                            className="text-xs rounded px-2 py-1.5 border bg-cyan-500/15 border-cyan-500/40 text-cyan-200 cursor-pointer hover:bg-cyan-500/20"
+                          >
+                            <div className="flex items-center gap-1.5 mb-0.5">
+                              <span className="inline-flex items-center rounded-full border border-cyan-400/50 bg-cyan-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-cyan-100">
+                                Lavoro
+                              </span>
+                              <span className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] ${statusMeta.badgeClassName}`}>
+                                {statusMeta.label}
+                              </span>
+                            </div>
+                            <div className="font-medium truncate">{work.title}</div>
+                            <div className="text-[10px] text-cyan-100/80 truncate">{work.client.name}</div>
+                          </li>
+                        )
+                      })}
                       {cell.items.map((item, index) => {
                         const isDelegated = showAsDelegated(item)
                         const labelStyle = getItemLabelStyle(item)
@@ -785,6 +867,36 @@ function PedCalendarInner({
                     )}
                   </div>
                   <ul className="space-y-1.5">
+                    {weekendWorks.map((work) => {
+                      const statusMeta = getWorkStatusMeta(work.status)
+                      const dayLabel = new Date(work.date + 'T00:00:00.000Z').toLocaleDateString('it-IT', { weekday: 'short', day: '2-digit' })
+                      return (
+                        <li
+                          key={`work-${work.id}`}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onOpenWork?.(work)
+                          }}
+                          onContextMenu={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            onWorkContextMenu?.(e.clientX, e.clientY, work)
+                          }}
+                          className="text-xs rounded px-2 py-1.5 border bg-cyan-500/15 border-cyan-500/40 text-cyan-200 cursor-pointer hover:bg-cyan-500/20"
+                        >
+                          <div className="flex items-center gap-1.5 mb-0.5">
+                            <span className="inline-flex items-center rounded-full border border-cyan-400/50 bg-cyan-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-cyan-100">
+                              Lavoro
+                            </span>
+                            <span className="text-[10px] text-cyan-100/75">{dayLabel}</span>
+                          </div>
+                          <div className="font-medium truncate">{work.title}</div>
+                          <div className={`inline-flex mt-1 items-center rounded-full border px-1.5 py-0.5 text-[10px] ${statusMeta.badgeClassName}`}>
+                            {statusMeta.label}
+                          </div>
+                        </li>
+                      )
+                    })}
                     {extraItems.map((item, index) => {
                       const isDelegated = showAsDelegated(item)
                       const labelStyle = getItemLabelStyle(item)

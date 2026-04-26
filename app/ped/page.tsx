@@ -95,6 +95,7 @@ export default async function PedPage(props: {
       ...item,
       date: typeof item.date === 'string' ? item.date : (item.date as Date).toISOString?.()?.slice(0, 10) ?? '',
     })),
+    assignedWorkDeadlines: pedData?.assignedWorkDeadlines ?? [],
     computedStats,
   }
 

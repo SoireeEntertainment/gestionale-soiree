@@ -1,6 +1,7 @@
 'use server'
 
 import { revalidatePath, unstable_cache } from 'next/cache'
+import { z } from 'zod'
 import { getCurrentUser, canWrite } from '@/lib/auth-dev'
 import { prisma } from '@/lib/prisma'
 import { workSchema } from '@/lib/validations'
@@ -162,6 +163,83 @@ export async function deleteWork(id: string) {
     revalidatePath(`/clients/${work.clientId}`)
   }
   return { success: true }
+}
+
+const workStatusSchema = z.enum(['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'WAITING_CLIENT', 'DONE', 'PAUSED', 'CANCELED'])
+
+const updateWorkFromPedSchema = z.object({
+  title: z.string().min(1).optional(),
+  description: z.string().nullable().optional(),
+  status: workStatusSchema.optional(),
+  priority: z.enum(['LOW', 'MEDIUM', 'HIGH']).nullable().optional(),
+  deadline: z.string().nullable().optional(), // YYYY-MM-DD or null/empty to remove deadline
+  assignedToUserId: z.string().nullable().optional(),
+  assigneeUserIds: z.array(z.string().min(1)).optional(),
+})
+
+export async function updateWorkStatus(workId: string, status: z.infer<typeof workStatusSchema>) {
+  const user = await getCurrentUser()
+  if (!user || !canWrite(user)) throw new Error('Non autorizzato')
+  const parsedStatus = workStatusSchema.parse(status)
+
+  const updated = await prisma.work.update({
+    where: { id: workId },
+    data: { status: parsedStatus },
+    select: { id: true, clientId: true },
+  })
+
+  revalidatePath('/works')
+  revalidatePath('/calendar')
+  revalidatePath('/ped')
+  revalidatePath('/profilo')
+  revalidatePath(`/works/${updated.id}`)
+  revalidatePath(`/clients/${updated.clientId}`)
+  return { success: true }
+}
+
+/** Aggiornamento parziale lavoro da contesti calendario/PED. */
+export async function updateWorkFromPed(workId: string, payload: unknown) {
+  const user = await getCurrentUser()
+  if (!user || !canWrite(user)) throw new Error('Non autorizzato')
+  const parsed = updateWorkFromPedSchema.parse(payload)
+
+  const current = await prisma.work.findUnique({
+    where: { id: workId },
+    select: {
+      id: true,
+      title: true,
+      description: true,
+      clientId: true,
+      categoryId: true,
+      status: true,
+      priority: true,
+      deadline: true,
+      assignedToUserId: true,
+      assignees: { select: { userId: true } },
+    },
+  })
+  if (!current) throw new Error('Lavoro non trovato')
+
+  const mergedDeadline = parsed.deadline !== undefined
+    ? (parsed.deadline ?? '')
+    : (current.deadline ? current.deadline.toISOString().slice(0, 10) : '')
+
+  const result = await updateWork(workId, {
+    title: parsed.title ?? current.title,
+    description: parsed.description !== undefined ? (parsed.description ?? '') : (current.description ?? ''),
+    clientId: current.clientId,
+    categoryId: current.categoryId,
+    status: parsed.status ?? current.status,
+    priority: parsed.priority !== undefined ? (parsed.priority ?? undefined) : (current.priority ?? undefined),
+    deadline: mergedDeadline,
+    assignedToUserId:
+      parsed.assignedToUserId !== undefined ? parsed.assignedToUserId : (current.assignedToUserId ?? null),
+    assigneeUserIds:
+      parsed.assigneeUserIds !== undefined ? parsed.assigneeUserIds : current.assignees.map((a) => a.userId),
+  })
+
+  revalidatePath('/ped')
+  return result
 }
 
 export async function getWork(id: string) {

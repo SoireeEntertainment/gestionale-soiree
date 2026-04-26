@@ -3,14 +3,18 @@
 import { useState, useMemo, useRef, useEffect, useCallback, startTransition } from 'react'
 import dynamic from 'next/dynamic'
 import { useRouter, useSearchParams } from 'next/navigation'
+import Link from 'next/link'
 import { PedMonthNav } from './ped-month-nav'
 import { PedClientSettings } from './ped-client-settings'
 import { PedStats } from './ped-stats'
 import { togglePedItemDone, updatePedItem, duplicatePedItem, deletePedItem, reorderPedItemsInDay, setPedItemLabel, fillPedMonth, emptyPedMonth, createPedItem, bulkMovePedItems, bulkSetPedItemLabel, bulkTogglePedItemDone, bulkDeletePedItems, getPedClientMetrics } from '@/app/actions/ped'
+import { updateWorkStatus, updateWorkFromPed } from '@/app/actions/works'
 import { Button } from '@/components/ui/button'
 import { PED_ITEM_TYPE_LABELS, getISOWeekStart, toDateString } from '@/lib/ped-utils'
 import { getEffectiveLabel } from '@/lib/pedLabels'
+import { WORK_STATUS_META, normalizeWorkStatus, getWorkStatusMeta } from '@/lib/work-status'
 import { showToast } from '@/lib/toast'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
 const PedCalendar = dynamic(
   () => import('./ped-calendar').then((m) => ({ default: m.PedCalendar })),
@@ -60,10 +64,26 @@ type ComputedStats = {
 type InitialData = {
   pedClientSettings: PedClientSetting[]
   pedItems: PedItem[]
+  assignedWorkDeadlines: WorkDeadlineItem[]
   computedStats: ComputedStats
 }
 
 type User = { id: string; name: string }
+type WorkDeadlineItem = {
+  id: string
+  title: string
+  description?: string | null
+  status: string
+  priority?: string | null
+  date: string
+  deadline: string
+  clientId: string
+  categoryId: string
+  assignedToUserId?: string | null
+  assigneeUserIds: string[]
+  client: { id: string; name: string }
+  category: { id: string; name: string }
+}
 
 function pedPageUrl(year: number, month: number, userId?: string | null, weekStart?: string): string {
   const params = new URLSearchParams()
@@ -140,6 +160,17 @@ export function PedView({
   } | null>(null)
   const [clientMetricsLoading, setClientMetricsLoading] = useState(false)
   const [selectedDateKey, setSelectedDateKey] = useState<string | null>(null)
+  const [selectedWork, setSelectedWork] = useState<WorkDeadlineItem | null>(null)
+  const [workEditDraft, setWorkEditDraft] = useState<{
+    title: string
+    description: string
+    status: string
+    priority: '' | 'LOW' | 'MEDIUM' | 'HIGH'
+    deadline: string
+    assignedToUserId: string
+  } | null>(null)
+  const [workSaving, setWorkSaving] = useState(false)
+  const [workContextMenu, setWorkContextMenu] = useState<{ x: number; y: number; work: WorkDeadlineItem } | null>(null)
   const [undoEntry, setUndoEntry] = useState<UndoEntry | null>(null)
   const [userDropdownOpen, setUserDropdownOpen] = useState(false)
   const userDropdownRef = useRef<HTMLDivElement>(null)
@@ -196,6 +227,7 @@ export function PedView({
 
   // Lista usata per il rendering: date is derived from column (single source of truth dal DB, qui con optimistic update)
   const itemsWithDateString = items
+  const workDeadlines = initialData.assignedWorkDeadlines ?? []
 
   const handleOpenAdd = useCallback((dateKey: string) => {
     startTransition(() => {
@@ -456,6 +488,70 @@ export function PedView({
     router.push(url)
   }
 
+  useEffect(() => {
+    if (!workContextMenu) return
+    const close = () => setWorkContextMenu(null)
+    document.addEventListener('click', close)
+    document.addEventListener('contextmenu', close)
+    return () => {
+      document.removeEventListener('click', close)
+      document.removeEventListener('contextmenu', close)
+    }
+  }, [workContextMenu])
+
+  const handleWorkStatusChange = useCallback(async (workId: string, nextStatus: string) => {
+    const normalized = normalizeWorkStatus(nextStatus)
+    if (!normalized) return
+    try {
+      await updateWorkStatus(workId, normalized)
+      showToast('Stato lavoro aggiornato', 'success')
+      schedulePedDataRefresh()
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Errore aggiornamento stato lavoro', 'error')
+    }
+  }, [schedulePedDataRefresh])
+
+  useEffect(() => {
+    if (!selectedWork) {
+      setWorkEditDraft(null)
+      return
+    }
+    setWorkEditDraft({
+      title: selectedWork.title,
+      description: selectedWork.description ?? '',
+      status: normalizeWorkStatus(selectedWork.status) ?? 'TODO',
+      priority: (selectedWork.priority as 'LOW' | 'MEDIUM' | 'HIGH' | null) ?? '',
+      deadline: selectedWork.deadline ? selectedWork.deadline.slice(0, 10) : '',
+      assignedToUserId: selectedWork.assignedToUserId ?? '',
+    })
+  }, [selectedWork])
+
+  const handleSaveWorkFromPed = useCallback(async () => {
+    if (!selectedWork || !workEditDraft) return
+    if (!workEditDraft.title.trim()) {
+      showToast('Titolo obbligatorio', 'error')
+      return
+    }
+    setWorkSaving(true)
+    try {
+      await updateWorkFromPed(selectedWork.id, {
+        title: workEditDraft.title.trim(),
+        description: workEditDraft.description.trim() || null,
+        status: normalizeWorkStatus(workEditDraft.status) ?? 'TODO',
+        priority: workEditDraft.priority || null,
+        deadline: workEditDraft.deadline || null,
+        assignedToUserId: workEditDraft.assignedToUserId || null,
+      })
+      showToast('Lavoro aggiornato', 'success')
+      setSelectedWork(null)
+      schedulePedDataRefresh()
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Errore aggiornamento lavoro', 'error')
+    } finally {
+      setWorkSaving(false)
+    }
+  }, [selectedWork, workEditDraft, schedulePedDataRefresh])
+
   return (
     <div className="space-y-6">
       <PedMonthNav
@@ -677,6 +773,7 @@ export function PedView({
                 year={year}
                 month={month}
                 items={itemsWithDateString}
+                workDeadlines={workDeadlines}
                 dailyStats={initialData.computedStats.dailyStats}
                 currentUserId={currentUserId}
                 viewAsUserId={viewAsUserId}
@@ -696,6 +793,8 @@ export function PedView({
                 onReorderInDay={handleReorderInDay}
                 onSelectDay={setSelectedDateKey}
                 onUpdateTitle={handleUpdateTitle}
+                onOpenWork={(work) => setSelectedWork(work)}
+                onWorkContextMenu={(x, y, work) => setWorkContextMenu({ x, y, work })}
                 filterClientId={filterClientId}
                 filterType={filterType}
               />
@@ -735,6 +834,151 @@ export function PedView({
         currentUserId={currentUserId}
         onSuccess={schedulePedDataRefresh}
       />
+
+      {workContextMenu && (
+        <div
+          className="fixed z-50 min-w-[240px] py-1 bg-dark border border-accent/20 rounded-lg shadow-lg"
+          style={{ left: workContextMenu.x, top: workContextMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="px-2 py-1.5 text-xs font-semibold text-white/60 uppercase tracking-wide border-b border-white/10 mb-1">
+            Lavoro
+          </div>
+          {(['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'DONE'] as const).map((status) => (
+            <button
+              key={status}
+              type="button"
+              className="w-full text-left px-4 py-2 text-sm text-white hover:bg-white/10 flex items-center gap-2"
+              onClick={() => {
+                void handleWorkStatusChange(workContextMenu.work.id, status)
+                setWorkContextMenu(null)
+              }}
+            >
+              <span className={`w-2 h-2 rounded-full ${getWorkStatusMeta(status).badgeClassName.split(' ')[0]}`} />
+              {WORK_STATUS_META[status].label}
+            </button>
+          ))}
+          <div className="border-t border-white/10 my-1" />
+          <button
+            type="button"
+            className="w-full text-left px-4 py-2 text-sm text-white hover:bg-accent/10"
+            onClick={() => {
+              setSelectedWork(workContextMenu.work)
+              setWorkContextMenu(null)
+            }}
+          >
+            Modifica lavoro
+          </button>
+          <Link
+            href={`/works/${workContextMenu.work.id}`}
+            className="block w-full text-left px-4 py-2 text-sm text-white hover:bg-accent/10"
+            onClick={() => setWorkContextMenu(null)}
+          >
+            Apri lavoro
+          </Link>
+          <Link
+            href={`/clients/${workContextMenu.work.clientId}`}
+            className="block w-full text-left px-4 py-2 text-sm text-white hover:bg-accent/10"
+            onClick={() => setWorkContextMenu(null)}
+          >
+            Apri cliente
+          </Link>
+        </div>
+      )}
+
+      <Dialog open={!!selectedWork} onOpenChange={(open) => !open && setSelectedWork(null)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Dettaglio lavoro</DialogTitle>
+          </DialogHeader>
+          {selectedWork && workEditDraft && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="text-white/70">
+                  Cliente: <span className="text-white">{selectedWork.client.name}</span>
+                </div>
+                <div className="text-white/70">
+                  Categoria: <span className="text-white">{selectedWork.category.name}</span>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm text-white/70 mb-1">Titolo</label>
+                <input
+                  type="text"
+                  value={workEditDraft.title}
+                  onChange={(e) => setWorkEditDraft((d) => (d ? { ...d, title: e.target.value } : d))}
+                  className="w-full px-3 py-2 bg-dark border border-accent/20 rounded text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-white/70 mb-1">Descrizione</label>
+                <textarea
+                  value={workEditDraft.description}
+                  onChange={(e) => setWorkEditDraft((d) => (d ? { ...d, description: e.target.value } : d))}
+                  className="w-full px-3 py-2 bg-dark border border-accent/20 rounded text-white min-h-24"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-white/70 mb-1">Stato</label>
+                  <select
+                    value={workEditDraft.status}
+                    onChange={(e) => setWorkEditDraft((d) => (d ? { ...d, status: e.target.value } : d))}
+                    className="w-full px-3 py-2 bg-dark border border-accent/20 rounded text-white"
+                  >
+                    {(['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'WAITING_CLIENT', 'DONE', 'PAUSED', 'CANCELED'] as const).map((k) => (
+                      <option key={k} value={k}>{WORK_STATUS_META[k].label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm text-white/70 mb-1">Priorita</label>
+                  <select
+                    value={workEditDraft.priority}
+                    onChange={(e) => setWorkEditDraft((d) => (d ? { ...d, priority: e.target.value as any } : d))}
+                    className="w-full px-3 py-2 bg-dark border border-accent/20 rounded text-white"
+                  >
+                    <option value="">Nessuna</option>
+                    <option value="LOW">Bassa</option>
+                    <option value="MEDIUM">Media</option>
+                    <option value="HIGH">Alta</option>
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-white/70 mb-1">Deadline</label>
+                  <input
+                    type="date"
+                    value={workEditDraft.deadline}
+                    onChange={(e) => setWorkEditDraft((d) => (d ? { ...d, deadline: e.target.value } : d))}
+                    className="w-full px-3 py-2 bg-dark border border-accent/20 rounded text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-white/70 mb-1">Assegnato a</label>
+                  <select
+                    value={workEditDraft.assignedToUserId}
+                    onChange={(e) => setWorkEditDraft((d) => (d ? { ...d, assignedToUserId: e.target.value } : d))}
+                    className="w-full px-3 py-2 bg-dark border border-accent/20 rounded text-white"
+                  >
+                    <option value="">Nessuno</option>
+                    {users.map((u) => (
+                      <option key={u.id} value={u.id}>{u.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="ghost" onClick={() => setSelectedWork(null)} disabled={workSaving}>Annulla</Button>
+                <Button onClick={() => void handleSaveWorkFromPed()} disabled={workSaving}>
+                  {workSaving ? 'Salvataggio...' : 'Salva'}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
