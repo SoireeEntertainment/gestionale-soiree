@@ -12,11 +12,11 @@ export function NonAutorizzatoContent() {
     if (signingOut) return
     setSigningOut(true)
     try {
-      await signOut({ redirectUrl: '/sign-in' })
+      await signOut({ redirectUrl: '/login' })
     } catch (e) {
       console.error('[non-autorizzato] signOut failed', e)
       // Fallback hard redirect: evita loop client in caso di errore runtime.
-      window.location.href = '/sign-in'
+      window.location.href = '/login'
     } finally {
       setSigningOut(false)
     }
@@ -42,7 +42,7 @@ export function NonAutorizzatoContent() {
             {signingOut ? 'Uscita in corso…' : 'Esci e accedi con un altro account'}
           </button>
           <Link
-            href="/sign-in"
+            href="/login"
             className="px-4 py-2 rounded-md font-medium bg-accent text-dark hover:bg-accent/90 inline-block"
           >
             Torna al login

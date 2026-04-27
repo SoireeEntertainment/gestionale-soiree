@@ -20,6 +20,65 @@ function isUuid(s: string): boolean {
 }
 
 const CLERK_AUTH_RETRY_MS = 75
+const FALLBACK_ADMIN_EMAILS = [
+  'davide@soiree.it',
+  'cristian.palazzolo@soiree.it',
+  'enrico@soiree.it',
+  'daniele@soiree.it',
+  'alessia@soiree.it',
+  'agente1@soiree.studio',
+  'agente2@soiree.studio',
+]
+
+type ClerkIdentity = {
+  userId: string
+  email: string | null
+  name: string | null
+}
+
+type AuthDecisionDebug = {
+  clerkUserId: string | null
+  email: string | null
+  adminEmails: string[]
+  isAllowedByAdminEmails: boolean
+  foundDbUser: boolean
+  finalDecision: 'allow' | 'deny'
+  reasonDenied: string | null
+}
+
+function normalizeEmail(email: string | null | undefined): string | null {
+  if (!email) return null
+  const value = email.trim().toLowerCase()
+  return value.length > 0 ? value : null
+}
+
+function parseAdminEmailsFromEnv(raw: string | undefined): string[] {
+  if (!raw) return []
+  return raw
+    .split(/[,\n;]+/)
+    .map((item) => normalizeEmail(item))
+    .filter((item): item is string => !!item)
+}
+
+function getEmergencyAdminEmails(): string[] {
+  const envEmails = parseAdminEmailsFromEnv(process.env.ADMIN_EMAILS)
+  const merged = new Set<string>([...envEmails, ...FALLBACK_ADMIN_EMAILS])
+  return Array.from(merged)
+}
+
+async function getClerkIdentity(userId: string): Promise<ClerkIdentity | null> {
+  try {
+    const { clerkClient } = await import('@clerk/nextjs/server')
+    const clerkUser = await clerkClient.users.getUser(userId)
+    const email = normalizeEmail(clerkUser.primaryEmailAddress?.emailAddress ?? null)
+    const fullName = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(' ').trim()
+    const name = fullName || clerkUser.username || null
+    return { userId, email, name }
+  } catch (e) {
+    console.warn('[auth] getClerkIdentity failed', e)
+    return { userId, email: null, name: null }
+  }
+}
 
 async function readClerkUserId(): Promise<string | null> {
   const { auth } = await import('@clerk/nextjs/server')
@@ -87,34 +146,42 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
     )
 
     let user = await prisma.user.findFirst({
-      where: { clerkId: userId, isActive: true },
+      where: { clerkId: userId },
     })
 
     if (!user && userId.startsWith(DEV_USER_PREFIX)) {
       const suffix = userId.slice(DEV_USER_PREFIX.length)
       if (suffix.length >= 15) {
-        user = await prisma.user.findFirst({
-          where: { id: suffix, isActive: true },
-        })
+        user = await prisma.user.findFirst({ where: { id: suffix } })
       }
     }
 
+    const identity =
+      isClerkConfigured && userId && !userId.startsWith(DEV_USER_PREFIX)
+        ? await getClerkIdentity(userId)
+        : null
+    const email = normalizeEmail(identity?.email ?? null)
+    const adminEmails = getEmergencyAdminEmails()
+    const isAllowedByAdminEmails = !!(email && adminEmails.includes(email))
+
     if (!user && isClerkConfigured && userId && !userId.startsWith(DEV_USER_PREFIX)) {
       try {
-        const { clerkClient } = await import('@clerk/nextjs/server')
-        const clerkUser = await clerkClient.users.getUser(userId)
-        const email = clerkUser.primaryEmailAddress?.emailAddress
         if (email) {
-          user = await prisma.user.findFirst({
-            where: { email, isActive: true },
-          })
+          user = await prisma.user.findFirst({ where: { email } })
           if (user) {
-            await prisma.user.update({
+            user = await prisma.user.update({
               where: { id: user.id },
-              data: { clerkId: userId },
+              data: { clerkId: userId, isActive: true },
             })
-          } else {
-            console.warn('[getCurrentUser] Nessun utente nel DB per email:', email, '- Esegui il seed sul DB di produzione (vedi README o scripts/seed-users.ts)')
+          } else if (isAllowedByAdminEmails) {
+            user = await prisma.user.create({
+              data: {
+                email,
+                name: identity?.name || email.split('@')[0] || 'Utente',
+                clerkId: userId,
+                isActive: true,
+              },
+            })
           }
         }
       } catch (e) {
@@ -122,19 +189,96 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
       }
     }
 
-    const role = (user as { role?: string }).role
-    if (!user || (role !== 'ADMIN' && role !== 'AGENTE')) return null
+    if (user && !user.isActive && isAllowedByAdminEmails) {
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: { isActive: true, clerkId: userId.startsWith(DEV_USER_PREFIX) ? user.clerkId : userId },
+      })
+    }
 
+    const role = (user as { role?: string }).role
+    const userIsValid = !!user && user.isActive && (role === 'ADMIN' || role === 'AGENTE')
+    const reasonDenied = !user
+      ? 'db_user_not_found'
+      : !user.isActive
+        ? 'db_user_inactive'
+        : role !== 'ADMIN' && role !== 'AGENTE'
+          ? 'invalid_role'
+          : null
+
+    console.info('[auth-decision]', {
+      clerkUserId: userId,
+      email,
+      ADMIN_EMAILS: adminEmails,
+      isAllowedByAdminEmails,
+      foundDbUser: !!user,
+      reasonDenied: reasonDenied ?? 'none',
+    })
+
+    if (!userIsValid || !user) return null
+
+    const resolvedUser = user
     return {
-      id: user.id,
+      id: resolvedUser.id,
       userId,
-      name: user.name,
-      email: user.email,
+      name: resolvedUser.name,
+      email: resolvedUser.email,
       role: role as UserRole,
     }
   } catch (err) {
     console.error('[getCurrentUser]', err)
     return null
+  }
+}
+
+export async function getAuthDecisionDebug(): Promise<AuthDecisionDebug> {
+  const userId = await getAuthUserId()
+  if (!userId) {
+    const adminEmails = getEmergencyAdminEmails()
+    return {
+      clerkUserId: null,
+      email: null,
+      adminEmails,
+      isAllowedByAdminEmails: false,
+      foundDbUser: false,
+      finalDecision: 'deny',
+      reasonDenied: 'no_clerk_session',
+    }
+  }
+
+  const isClerk =
+    !!(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY) &&
+    !userId.startsWith(DEV_USER_PREFIX)
+  const identity = isClerk ? await getClerkIdentity(userId) : null
+  const email = normalizeEmail(identity?.email ?? null)
+  const adminEmails = getEmergencyAdminEmails()
+  const isAllowedByAdminEmails = !!(email && adminEmails.includes(email))
+  const found = await prisma.user.findFirst({
+    where: {
+      OR: [{ clerkId: userId }, ...(email ? [{ email }] : [])],
+    },
+  })
+  const role = (found as { role?: string } | null)?.role
+  const currentUser = await getCurrentUser()
+  const allowed = !!currentUser
+  const reasonDenied = allowed
+    ? null
+    : !found
+      ? 'db_user_not_found'
+      : !found.isActive
+        ? 'db_user_inactive'
+        : role !== 'ADMIN' && role !== 'AGENTE'
+          ? 'invalid_role'
+          : 'unknown'
+
+  return {
+    clerkUserId: userId,
+    email,
+    adminEmails,
+    isAllowedByAdminEmails,
+    foundDbUser: !!found,
+    finalDecision: allowed ? 'allow' : 'deny',
+    reasonDenied,
   }
 }
 

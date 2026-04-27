@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { SignIn, useAuth } from '@clerk/nextjs'
+import { SignIn, useAuth, useClerk } from '@clerk/nextjs'
 
 const clerkConfigured =
   typeof window !== 'undefined' &&
@@ -24,6 +24,7 @@ const darkAppearance = {
 
 export function SignInForm() {
   const { isSignedIn, isLoaded } = useAuth()
+  const { signOut } = useClerk()
 
   // Nessun redirect automatico a dashboard: evita loop (incognito/post-logout). Se già connesso mostriamo link.
   if (clerkConfigured) {
@@ -39,12 +40,21 @@ export function SignInForm() {
         <div className="flex items-center justify-center min-h-screen bg-dark py-12">
           <div className="text-center max-w-sm">
             <p className="text-white/80 mb-4">Sei già connesso.</p>
-            <Link
-              href="/dashboard"
-              className="inline-block px-6 py-3 rounded-md font-medium bg-accent text-dark hover:bg-accent/90"
-            >
-              Vai alla Dashboard
-            </Link>
+            <div className="flex flex-col gap-3">
+              <Link
+                href="/dashboard"
+                className="inline-block px-6 py-3 rounded-md font-medium bg-accent text-dark hover:bg-accent/90"
+              >
+                Vai alla Dashboard
+              </Link>
+              <button
+                type="button"
+                onClick={() => signOut({ redirectUrl: '/login' })}
+                className="inline-block px-6 py-3 rounded-md font-medium bg-white/10 text-white border border-white/20 hover:bg-white/20"
+              >
+                Esci e accedi con un altro account
+              </button>
+            </div>
           </div>
         </div>
       )
