@@ -106,7 +106,7 @@ export function PedItemModal({
       setWorkId(editItem.workId ?? '')
       setIsExtra(Boolean(editItem.isExtra))
       setAssignedToUserId(editItem.assignedToUserId ?? editItem.assignedTo?.id ?? currentUserId)
-      setPlatforms(editItem.platforms?.length ? editItem.platforms : ['INSTAGRAM'])
+      setPlatforms(editItem.platforms ?? [])
     } else {
       const dateKeyVal = dateKey ?? format(new Date(), 'yyyy-MM-dd')
       setModalDateKey(dateKeyVal)
@@ -190,7 +190,7 @@ export function PedItemModal({
           workId: workId || null,
           isExtra,
           assignedToUserId: assignedToUserId || null,
-          platforms: platforms.length ? platforms : ['INSTAGRAM'],
+          platforms,
         })
       } else {
         await createPedItem({
@@ -204,7 +204,7 @@ export function PedItemModal({
           workId: workId || null,
           isExtra,
           assignedToUserId: assignedToUserId || currentUserId,
-          platforms: platforms.length ? platforms : ['INSTAGRAM'],
+          platforms,
         })
       }
       onClose()
@@ -399,7 +399,7 @@ export function PedItemModal({
                       onChange={() => {
                         if (checked) {
                           const next = platforms.filter((x) => x !== pf)
-                          setPlatforms(next.length ? next : ['INSTAGRAM'])
+                          setPlatforms(next)
                         } else {
                           setPlatforms([...platforms, pf])
                         }

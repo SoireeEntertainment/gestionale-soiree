@@ -228,7 +228,7 @@ export async function getPedMonth(year: number, month: number, viewAsUserId?: st
 
   return {
     pedClientSettings: settingsSorted.map((s) => ({ ...s, platforms: (s as { platforms?: string[] }).platforms ?? ['INSTAGRAM'] })),
-    pedItems: items.map((i) => ({ ...i, platforms: (i as { platforms?: string[] }).platforms ?? ['INSTAGRAM'] })),
+    pedItems: items.map((i) => ({ ...i, platforms: (i as { platforms?: string[] }).platforms ?? [] })),
     assignedWorkDeadlines,
     computedStats: {
       dailyStats,
@@ -861,7 +861,7 @@ export async function createPedItem(payload: unknown) {
 
   const label = validated.label ?? DEFAULT_LABEL
   const status = label === DONE_LABEL ? 'DONE' : 'TODO'
-  const platforms = (validated.platforms?.length ? validated.platforms : ['INSTAGRAM']) as string[]
+  const platforms = validated.platforms ?? []
   await prisma.pedItem.create({
     data: {
       id,
@@ -927,7 +927,7 @@ export async function updatePedItem(id: string, payload: unknown) {
     data.status = validated.label === DONE_LABEL ? 'DONE' : 'TODO'
   }
   if (validated.status !== undefined) data.status = validated.status
-  if (validated.platforms !== undefined && validated.platforms.length > 0) data.platforms = validated.platforms
+  if (validated.platforms !== undefined) data.platforms = validated.platforms
   if (validated.workId !== undefined) {
     if (validated.workId) {
       const work = await prisma.work.findUnique({ where: { id: validated.workId } })
@@ -1210,6 +1210,7 @@ export async function duplicatePedItem(id: string, targetDate: string, targetIsE
       workId,
       isExtra: !!isExtra,
       sortOrder,
+      platforms: source.platforms ?? [],
     },
   })
 

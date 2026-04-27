@@ -116,7 +116,7 @@ export const pedItemCreateSchema = z.object({
   workId: z.string().optional().nullable(),
   isExtra: z.boolean().optional(),
   assignedToUserId: z.string().optional().nullable(),
-  platforms: z.array(z.enum(PED_PLATFORMS)).min(1).optional(),
+  platforms: z.array(z.enum(PED_PLATFORMS)).optional(),
 })
 
 export const pedItemUpdateSchema = pedItemCreateSchema.partial().extend({
