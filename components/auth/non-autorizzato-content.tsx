@@ -1,12 +1,26 @@
 'use client'
 
 import Link from 'next/link'
-import { SignOutButton } from '@clerk/nextjs'
-import { useState, useEffect } from 'react'
+import { useClerk } from '@clerk/nextjs'
+import { useState } from 'react'
 
 export function NonAutorizzatoContent() {
-  const [mounted, setMounted] = useState(false)
-  useEffect(() => setMounted(true), [])
+  const { signOut } = useClerk()
+  const [signingOut, setSigningOut] = useState(false)
+
+  const handleRealSignOut = async () => {
+    if (signingOut) return
+    setSigningOut(true)
+    try {
+      await signOut({ redirectUrl: '/sign-in' })
+    } catch (e) {
+      console.error('[non-autorizzato] signOut failed', e)
+      // Fallback hard redirect: evita loop client in caso di errore runtime.
+      window.location.href = '/sign-in'
+    } finally {
+      setSigningOut(false)
+    }
+  }
 
   return (
     <div
@@ -19,20 +33,14 @@ export function NonAutorizzatoContent() {
           Il tuo account non risulta abilitato al gestionale. Se hai appena ricevuto l’invito, assicurati che la tua email sia stata aggiunta come utente nell’app. Per assistenza contatta l’amministratore.
         </p>
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
-          {mounted ? (
-            <SignOutButton signOutOptions={{ redirectUrl: '/sign-in' }}>
-              <button
-                type="button"
-                className="px-4 py-2 rounded-md font-medium bg-white/10 text-white border border-white/20 hover:bg-white/20"
-              >
-                Esci e accedi con un altro account
-              </button>
-            </SignOutButton>
-          ) : (
-            <span className="px-4 py-2 rounded-md font-medium bg-white/10 text-white border border-white/20 opacity-80">
-              Esci e accedi con un altro account
-            </span>
-          )}
+          <button
+            type="button"
+            onClick={() => void handleRealSignOut()}
+            disabled={signingOut}
+            className="px-4 py-2 rounded-md font-medium bg-white/10 text-white border border-white/20 hover:bg-white/20 disabled:opacity-60"
+          >
+            {signingOut ? 'Uscita in corso…' : 'Esci e accedi con un altro account'}
+          </button>
           <Link
             href="/sign-in"
             className="px-4 py-2 rounded-md font-medium bg-accent text-dark hover:bg-accent/90 inline-block"
