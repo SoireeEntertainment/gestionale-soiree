@@ -17,7 +17,7 @@ export async function createClient(data: unknown) {
 
   const validated = clientSchema.parse(data)
   const normalizedName = normalizeNameForDuplicate(validated.name)
-  const existing = await prisma.client.findMany()
+  const existing = await prisma.client.findMany({ select: { name: true } })
   const isDuplicate = existing.some(
     (c) => normalizeNameForDuplicate(c.name) === normalizedName
   )

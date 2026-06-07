@@ -10,7 +10,7 @@ import { PedStats } from './ped-stats'
 import { togglePedItemDone, updatePedItem, duplicatePedItem, deletePedItem, reorderPedItemsInDay, setPedItemLabel, fillPedMonth, emptyPedMonth, createPedItem, bulkMovePedItems, bulkSetPedItemLabel, bulkTogglePedItemDone, bulkDeletePedItems, getPedClientMetrics } from '@/app/actions/ped'
 import { updateWorkStatus, updateWorkFromPed } from '@/app/actions/works'
 import { Button } from '@/components/ui/button'
-import { PED_ITEM_TYPE_LABELS, getISOWeekStart, toDateString } from '@/lib/ped-utils'
+import { PED_ITEM_TYPE_LABELS, getISOWeekStartKey } from '@/lib/ped-utils'
 import { getEffectiveLabel } from '@/lib/pedLabels'
 import { WORK_STATUS_META, normalizeWorkStatus, getWorkStatusMeta } from '@/lib/work-status'
 import { showToast } from '@/lib/toast'
@@ -24,10 +24,6 @@ const PedItemModal = dynamic(
   () => import('./ped-item-modal').then((m) => ({ default: m.PedItemModal })),
   { ssr: false }
 )
-
-function getISOWeekStartKey(dateKey: string): string {
-  return toDateString(getISOWeekStart(new Date(dateKey + 'T00:00:00.000Z')))
-}
 
 type UndoEntry =
   | { type: 'move'; itemId: string; date: string; isExtra: boolean }

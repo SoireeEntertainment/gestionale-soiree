@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { getCurrentUser } from '@/lib/auth-dev'
 import { prisma } from '@/lib/prisma'
 import { calculateWorkStepProgress } from '@/lib/work-step-progress'
+import { applyWorkDeadlineFilter } from '@/lib/work-deadline-filter'
 
 const timelineFiltersSchema = z.object({
   rangeStart: z.coerce.date(),
@@ -48,16 +49,7 @@ function buildFilterWhere(filters: z.infer<typeof timelineFiltersSchema>) {
     ]
   }
 
-  const now = new Date()
-  const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
-
-  if (filters.deadlineFilter === 'SCADUTI') {
-    where.deadline = { lt: now, not: null }
-    where.status = { not: 'DONE' }
-  } else if (filters.deadlineFilter === 'IN_SCADENZA_7_GIORNI') {
-    where.deadline = { gte: now, lte: sevenDaysFromNow }
-    where.status = { not: 'DONE' }
-  }
+  applyWorkDeadlineFilter(where, filters.deadlineFilter)
 
   return where
 }

@@ -16,3 +16,29 @@ export function parseDeadlineFromInput(value: string | null | undefined): Date |
     return null
   }
 }
+
+const IT_DATE_FMT = new Intl.DateTimeFormat('it-IT', {
+  day: '2-digit',
+  month: 'short',
+  year: 'numeric',
+})
+
+const IT_DATETIME_FMT = new Intl.DateTimeFormat('it-IT', {
+  day: '2-digit',
+  month: 'short',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+})
+
+/** Data in formato italiano compatto (es. 07 giu 2026). */
+export function formatItalianDate(value: Date | string | number): string {
+  const d = value instanceof Date ? value : new Date(value)
+  return IT_DATE_FMT.format(d)
+}
+
+/** Data e ora in formato italiano. */
+export function formatItalianDateTime(value: Date | string | number): string {
+  const d = value instanceof Date ? value : new Date(value)
+  return IT_DATETIME_FMT.format(d)
+}

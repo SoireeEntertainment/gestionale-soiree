@@ -2,28 +2,37 @@ import { NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/auth-dev'
 import { prisma } from '@/lib/prisma'
 
-export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: 'Non autorizzato' }, { status: 401 })
 
   const { id } = await ctx.params
+  const url = new URL(req.url)
+  const limitRaw = url.searchParams.get('limit')
+  const limit = Math.min(Math.max(parseInt(limitRaw ?? '30', 10) || 30, 1), 100)
+
   const thread = await prisma.chatThread.findFirst({
     where: { id, userId: user.id },
     select: { id: true, title: true, createdAt: true, updatedAt: true },
   })
   if (!thread) return NextResponse.json({ error: 'Non trovato' }, { status: 404 })
 
-  const messages = await prisma.chatMessage.findMany({
-    where: { threadId: id },
-    orderBy: { createdAt: 'asc' },
-    select: {
-      id: true,
-      role: true,
-      content: true,
-      createdAt: true,
-      metadata: true,
-    },
-  })
+  const [messagesDesc, totalCount] = await Promise.all([
+    prisma.chatMessage.findMany({
+      where: { threadId: id },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      select: {
+        id: true,
+        role: true,
+        content: true,
+        createdAt: true,
+        metadata: true,
+      },
+    }),
+    prisma.chatMessage.count({ where: { threadId: id } }),
+  ])
+  const messages = messagesDesc.reverse()
 
   const safeMessages = messages.map((m) => {
     const meta = m.metadata as Record<string, unknown> | null
@@ -44,7 +53,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     }
   })
 
-  return NextResponse.json({ thread, messages: safeMessages })
+  return NextResponse.json({ thread, messages: safeMessages, hasMore: totalCount > limit })
 }
 
 /** Elimina thread e messaggi (cascade). AssistantActionLog.threadId viene messo a null (SetNull). */

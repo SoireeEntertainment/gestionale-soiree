@@ -1,18 +1,23 @@
 'use client'
 
 import { useEffect } from 'react'
+import dynamic from 'next/dynamic'
 import { usePathname } from 'next/navigation'
 import { MessageCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAssistantUiStore } from '@/lib/stores/assistant-ui-store'
-import { AssistantDrawer } from '@/components/assistant/assistant-drawer'
+
+const AssistantDrawer = dynamic(
+  () => import('@/components/assistant/assistant-drawer').then((m) => ({ default: m.AssistantDrawer })),
+  { ssr: false }
+)
 
 export function AssistantFloatingHost() {
   const pathname = usePathname()
   const isOpen = useAssistantUiStore((s) => s.isOpen)
   const openAssistant = useAssistantUiStore((s) => s.openAssistant)
-  const hideFab = pathname === '/assistente'
   const closeAssistant = useAssistantUiStore((s) => s.closeAssistant)
+  const hideFab = pathname === '/assistente'
 
   useEffect(() => {
     if (pathname === '/assistente') closeAssistant()
@@ -22,7 +27,7 @@ export function AssistantFloatingHost() {
 
   return (
     <>
-      <AssistantDrawer />
+      {isOpen ? <AssistantDrawer /> : null}
       {showFab ? (
         <button
           type="button"

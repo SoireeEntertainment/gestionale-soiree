@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState, useEffect, useRef, useCallback, memo, startTransition } from 'react'
-import { PED_ITEM_TYPE_LABELS, PED_DELEGATED_STYLE, toDateString, getCurrentWeekStartString } from '@/lib/ped-utils'
+import { PED_ITEM_TYPE_LABELS, PED_DELEGATED_STYLE, toDateString, getCurrentWeekStartString, getISOWeekStartKey } from '@/lib/ped-utils'
 import { getItemLabelStyle, PED_LABELS, PED_LABEL_CONFIG } from '@/lib/pedLabels'
 import { getWorkStatusMeta } from '@/lib/work-status'
 
@@ -10,14 +10,6 @@ const DEFAULT_COL_WIDTH = 160
 const DEFAULT_EXTRA_WIDTH = 140
 const MIN_COL_WIDTH = 80
 const ROW_HEIGHT = 100
-
-function getISOWeekStartKey(dateKey: string): string {
-  const d = new Date(dateKey + 'T00:00:00.000Z')
-  const day = d.getUTCDay()
-  const diff = day === 0 ? -6 : 1 - day
-  d.setUTCDate(d.getUTCDate() + diff)
-  return d.toISOString().slice(0, 10)
-}
 
 type PedItem = {
   id: string

@@ -1,9 +1,8 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
+import dynamic from 'next/dynamic'
 import { Button } from '@/components/ui/button'
-import { PedCalendar } from '@/components/ped/ped-calendar'
-import { PedItemModal } from '@/components/ped/ped-item-modal'
 import { getPedMonthForClient } from '@/app/actions/ped'
 import {
   togglePedItemDone,
@@ -21,13 +20,18 @@ import {
   bulkTogglePedItemDone,
   bulkDeletePedItems,
 } from '@/app/actions/ped'
-import { getISOWeekStart, toDateString } from '@/lib/ped-utils'
+import { getISOWeekStartKey } from '@/lib/ped-utils'
 import { getEffectiveLabel } from '@/lib/pedLabels'
 import { showToast } from '@/lib/toast'
 
-function getISOWeekStartKey(dateKey: string): string {
-  return toDateString(getISOWeekStart(new Date(dateKey + 'T00:00:00.000Z')))
-}
+const PedCalendar = dynamic(
+  () => import('@/components/ped/ped-calendar').then((m) => ({ default: m.PedCalendar })),
+  { ssr: false, loading: () => <div className="text-white/50 p-4">Caricamento calendario PED…</div> }
+)
+const PedItemModal = dynamic(
+  () => import('@/components/ped/ped-item-modal').then((m) => ({ default: m.PedItemModal })),
+  { ssr: false }
+)
 
 type UndoEntry =
   | { type: 'move'; itemId: string; date: string; isExtra: boolean }

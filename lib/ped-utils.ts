@@ -78,6 +78,11 @@ export function getCalendarRangeUTC(year: number, month: number) {
   return { start, end }
 }
 
+/** Chiave YYYY-MM-DD del lunedì ISO per una data YYYY-MM-DD. */
+export function getISOWeekStartKey(dateKey: string): string {
+  return toDateString(getISOWeekStart(new Date(dateKey + 'T00:00:00.000Z')))
+}
+
 /** Crea una data a mezzanotte UTC per un giorno. */
 export function dateToUTC(year: number, month: number, day: number): Date {
   return new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0))

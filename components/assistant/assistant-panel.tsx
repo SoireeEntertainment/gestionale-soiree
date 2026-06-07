@@ -162,7 +162,7 @@ export function AssistantPanel({ embedded = false, variant }: AssistantPanelProp
     setLoadingThread(true)
     setError(null)
     try {
-      const res = await fetch(`/api/assistant/threads/${id}`)
+      const res = await fetch(`/api/assistant/threads/${id}?limit=30`)
       if (!res.ok) throw new Error('Caricamento messaggi fallito')
       const data = await res.json()
       setMessages(data.messages ?? [])

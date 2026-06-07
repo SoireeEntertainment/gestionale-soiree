@@ -1,20 +1,39 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import dynamic from 'next/dynamic'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Client, Category, Work, User } from '@prisma/client'
+import { Client, Category, User } from '@prisma/client'
 import type { WorksTimelineResult } from '@/app/actions/works-timeline'
 import type { TimelineViewUnit } from '@/lib/timeline-range'
 import type { WorksPageView } from '@/lib/works-page-view'
 import { WorksFilters, type WorksFiltersState } from './works-filters'
-import { WorksTable } from './works-table'
-import { WorksTimeline } from './works-timeline'
 import { NewWorkButton, NewWorkModal } from './new-work-modal'
 
-type WorkRow = Work & {
-  client: Client
-  category: Category
-  assignedTo?: User | null
+const WorksTimeline = dynamic(
+  () => import('./works-timeline').then((m) => ({ default: m.WorksTimeline })),
+  { loading: () => <div className="text-white/50 py-8">Caricamento timeline…</div> }
+)
+const WorksTable = dynamic(
+  () => import('./works-table').then((m) => ({ default: m.WorksTable })),
+  { loading: () => <div className="text-white/50 py-8">Caricamento elenco…</div> }
+)
+
+type WorkRow = {
+  id: string
+  title: string
+  description: string | null
+  clientId: string
+  categoryId: string
+  status: string
+  priority: string | null
+  deadline: Date | null
+  assignedToUserId: string | null
+  createdAt: Date
+  updatedAt: Date
+  client: { id: string; name: string }
+  category: { id: string; name: string }
+  assignedTo?: { id: string; name: string } | null
   steps?: { status: string }[]
 }
 

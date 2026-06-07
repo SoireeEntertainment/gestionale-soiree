@@ -7,6 +7,8 @@ import { format } from 'date-fns'
 import { it } from 'date-fns/locale'
 import { Button } from '@/components/ui/button'
 import { WorkStatusBadge } from '@/components/works/work-status-badge'
+import { EmptyState } from '@/components/ui/empty-state'
+import { formatAssignees, assigneeInitials } from '@/lib/work-assignees'
 import type { TimelineWorkItem, WorksTimelineResult } from '@/app/actions/works-timeline'
 import { getTimelineBarPosition } from '@/lib/timeline-bar-position'
 import {
@@ -24,22 +26,6 @@ const PERIOD_UNITS: { value: TimelineViewUnit; label: string }[] = [
   { value: 'month', label: 'Mese' },
   { value: 'year', label: 'Anno' },
 ]
-
-function formatAssignees(assignees: { id: string; name: string }[]): string {
-  if (assignees.length === 0) return 'Non assegnato'
-  if (assignees.length === 1) return assignees[0].name
-  return `${assignees[0].name} +${assignees.length - 1}`
-}
-
-function assigneeInitials(name: string): string {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((p) => p[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase()
-}
 
 function WorkTooltip({ work, x, y }: { work: TimelineWorkItem; x: number; y: number }) {
   return (
@@ -264,10 +250,11 @@ export function WorksTimeline({
       </div>
 
       {isEmpty ? (
-        <div className="bg-dark border border-accent/20 rounded-lg p-12 text-center">
-          <p className="text-white/60">Nessun lavoro nel periodo selezionato.</p>
-          <p className="text-white/40 text-sm mt-2">Prova a cambiare filtri o navigare ad un altro periodo.</p>
-        </div>
+        <EmptyState
+          title="Nessun lavoro nel periodo selezionato."
+          description="Prova a cambiare filtri o navigare ad un altro periodo."
+          className="bg-dark border border-accent/20 rounded-lg p-12 text-center text-white/50"
+        />
       ) : (
         <>
           <div className="bg-dark border border-accent/20 rounded-lg overflow-hidden">

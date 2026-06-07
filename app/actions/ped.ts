@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { Prisma } from '@prisma/client'
 import { getCurrentUser } from '@/lib/auth-dev'
 import { prisma } from '@/lib/prisma'
-import { toDateString, getISOWeekStart, getTenContentsPerMonthTargetDates } from '@/lib/ped-utils'
+import { toDateString, getISOWeekStart, getTenContentsPerMonthTargetDates, getCalendarRangeUTC } from '@/lib/ped-utils'
 import { getEffectiveLabel, PED_LABEL_ORDER, DEFAULT_LABEL, DONE_LABEL, PED_LABELS, type PedLabel } from '@/lib/pedLabels'
 import { pedClientSettingSchema, pedItemCreateSchema, pedItemUpdateSchema, pedItemSetLabelSchema } from '@/lib/validations'
 
@@ -104,13 +104,7 @@ export async function getPedMonth(year: number, month: number, viewAsUserId?: st
   const ownerId = await getViewOwnerId(viewAsUserId)
   if (!ownerId) throw new Error('Non autorizzato')
 
-  const firstWeekday = (new Date(Date.UTC(year, month - 1, 1)).getUTCDay() + 6) % 7
-  const lastDay = new Date(Date.UTC(year, month, 0))
-  const daysToSunday = (7 - lastDay.getUTCDay()) % 7
-  const startMs = Date.UTC(year, month - 1, 1 - firstWeekday, 0, 0, 0, 0)
-  const endMs = lastDay.getTime() + daysToSunday * 24 * 60 * 60 * 1000 + 23 * 60 * 60 * 1000 + 59 * 60 * 1000 + 59 * 1000 + 999
-  const startDate = new Date(startMs)
-  const endDate = new Date(endMs)
+  const { start: startDate, end: endDate } = getCalendarRangeUTC(year, month)
 
   const settings = await prisma.pedClientSetting.findMany({
     where: { ownerId },
@@ -126,11 +120,14 @@ export async function getPedMonth(year: number, month: number, viewAsUserId?: st
     },
   })
 
-  const itemWhere = { OR: [{ ownerId }, { assignedToUserId: ownerId }] }
+  const itemWhere = {
+    OR: [{ ownerId }, { assignedToUserId: ownerId }],
+    date: { gte: startDate, lte: endDate },
+  }
   const [allItemsRaw, assignedWorkDeadlines] = await Promise.all([
     prisma.pedItem.findMany({
-    where: itemWhere,
-    select: {
+      where: itemWhere,
+      select: {
       id: true,
       ownerId: true,
       assignedToUserId: true,
@@ -156,22 +153,10 @@ export async function getPedMonth(year: number, month: number, viewAsUserId?: st
     }),
     getAssignedWorkDeadlinesForPed(ownerId, startDate, endDate),
   ])
-  const allItems = allItemsRaw
-
-  const orderRows = await prisma.pedItem.findMany({
-    where: itemWhere,
-    select: { id: true, sortOrder: true },
-  })
-  const sortOrderById = new Map(orderRows.map((r) => [r.id, Number(r.sortOrder) ?? 0]))
-
-  const filtered = allItems.filter((item) => {
-    const d = new Date(item.date).getTime()
-    return d >= startDate.getTime() && d <= endDate.getTime()
-  })
 
   // Ordine: date → ordine etichetta (PED_LABEL_ORDER) → sortOrder → createdAt
-  const labelOrder = (item: (typeof filtered)[0]) => PED_LABEL_ORDER[getEffectiveLabel(item)] ?? 1
-  const items = filtered.sort((a, b) => {
+  const labelOrder = (item: (typeof allItemsRaw)[0]) => PED_LABEL_ORDER[getEffectiveLabel(item)] ?? 1
+  const items = [...allItemsRaw].sort((a, b) => {
     const da = new Date(a.date).getTime()
     const db = new Date(b.date).getTime()
     if (da !== db) return da - db
@@ -567,13 +552,7 @@ export async function getPedMonthForClient(clientId: string, year: number, month
   const currentUser = await getCurrentUser()
   if (!currentUser) throw new Error('Non autorizzato')
 
-  const firstWeekday = (new Date(Date.UTC(year, month - 1, 1)).getUTCDay() + 6) % 7
-  const lastDay = new Date(Date.UTC(year, month, 0))
-  const daysToSunday = (7 - lastDay.getUTCDay()) % 7
-  const startMs = Date.UTC(year, month - 1, 1 - firstWeekday, 0, 0, 0, 0)
-  const endMs = lastDay.getTime() + daysToSunday * 24 * 60 * 60 * 1000 + 23 * 60 * 60 * 1000 + 59 * 60 * 1000 + 59 * 1000 + 999
-  const startDate = new Date(startMs)
-  const endDate = new Date(endMs)
+  const { start: startDate, end: endDate } = getCalendarRangeUTC(year, month)
 
   const [allItemsRaw, clientSettings] = await Promise.all([
     prisma.pedItem.findMany({

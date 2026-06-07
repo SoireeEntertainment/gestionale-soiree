@@ -51,22 +51,26 @@ export default async function WorksPage(props: {
   }
 
   const [works, timelineData, clients, categories, users] = await Promise.all([
-    getWorks({
-      clientId: filters.clientId,
-      categoryId: filters.categoryId,
-      status: filters.status,
-      deadlineFilter: filters.deadlineFilter as 'SCADUTI' | 'IN_SCADENZA_7_GIORNI' | 'TUTTI' | undefined,
-      assignedUserId: filters.assignedUserId,
-    }),
-    getWorksTimeline({
-      rangeStart: start,
-      rangeEnd: end,
-      categoryId: filters.categoryId,
-      status: filters.status,
-      clientId: filters.clientId,
-      assignedUserId: filters.assignedUserId,
-      deadlineFilter: timelineFilters.deadlineFilter,
-    }),
+    pageView === 'list'
+      ? getWorks({
+          clientId: filters.clientId,
+          categoryId: filters.categoryId,
+          status: filters.status,
+          deadlineFilter: filters.deadlineFilter as 'SCADUTI' | 'IN_SCADENZA_7_GIORNI' | 'TUTTI' | undefined,
+          assignedUserId: filters.assignedUserId,
+        })
+      : Promise.resolve([]),
+    pageView === 'timeline'
+      ? getWorksTimeline({
+          rangeStart: start,
+          rangeEnd: end,
+          categoryId: filters.categoryId,
+          status: filters.status,
+          clientId: filters.clientId,
+          assignedUserId: filters.assignedUserId,
+          deadlineFilter: timelineFilters.deadlineFilter,
+        })
+      : Promise.resolve({ works: [], withoutDeadline: [] }),
     prisma.client.findMany({ orderBy: { name: 'asc' } }),
     prisma.category.findMany({ orderBy: { name: 'asc' } }),
     getUsers(),

@@ -8,6 +8,7 @@ import { workSchema } from '@/lib/validations'
 import { parseDeadlineFromInput } from '@/lib/date-utils'
 import { sendWorkAssignedEmail } from '@/lib/work-assignment-email'
 import { createDefaultWorkStepsForCategory } from '@/app/actions/work-steps'
+import { applyWorkDeadlineFilter } from '@/lib/work-deadline-filter'
 
 function uniqueIds(ids: Array<string | null | undefined>): string[] {
   return [...new Set(ids.filter((id): id is string => typeof id === 'string' && id.trim().length > 0))]
@@ -365,10 +366,7 @@ export async function getWorks(filters?: {
   const user = await getCurrentUser()
   if (!user) throw new Error('Non autorizzato')
 
-  const now = new Date()
-  const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
-
-  const where: any = {}
+  const where: Record<string, unknown> = {}
 
   if (filters?.clientId) {
     where.clientId = filters.clientId
@@ -389,23 +387,25 @@ export async function getWorks(filters?: {
     ]
   }
 
-  if (filters?.deadlineFilter === 'SCADUTI') {
-    where.deadline = { lt: now }
-    where.status = { not: 'DONE' }
-  } else if (filters?.deadlineFilter === 'IN_SCADENZA_7_GIORNI') {
-    where.deadline = {
-      gte: now,
-      lte: sevenDaysFromNow,
-    }
-    where.status = { not: 'DONE' }
-  }
+  applyWorkDeadlineFilter(where, filters?.deadlineFilter)
 
   return prisma.work.findMany({
     where,
-    include: {
-      client: true,
-      category: true,
-      assignedTo: true,
+    select: {
+      id: true,
+      title: true,
+      description: true,
+      clientId: true,
+      categoryId: true,
+      status: true,
+      priority: true,
+      deadline: true,
+      assignedToUserId: true,
+      createdAt: true,
+      updatedAt: true,
+      client: { select: { id: true, name: true } },
+      category: { select: { id: true, name: true } },
+      assignedTo: { select: { id: true, name: true } },
       steps: { select: { status: true } },
     },
     orderBy: [

@@ -2,18 +2,23 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { Client, Category, Work, User } from '@prisma/client'
 import { format } from 'date-fns'
 import { it } from 'date-fns/locale'
 import { WorkStatusBadge } from './work-status-badge'
+import { ProgressBar } from '@/components/ui/progress-bar'
+import { EmptyState } from '@/components/ui/empty-state'
 import { sortWorksByColumn, sortWorksDefault, type WorkSortBy, type WorkSortDirection } from '@/lib/work-sorting'
 import { calculateWorkStepProgress } from '@/lib/work-step-progress'
 import type { WorksFiltersState } from './works-filters'
 
-type WorkRow = Work & {
-  client: Client
-  category: Category
-  assignedTo?: User | null
+type WorkRow = {
+  id: string
+  title: string
+  deadline: Date | null
+  status: string
+  client: { id: string; name: string }
+  category: { id: string; name: string }
+  assignedTo?: { id: string; name: string } | null
   steps?: { status: string }[]
 }
 
@@ -119,12 +124,7 @@ export function WorksTable({ works, returnTo, filters }: WorksTableProps) {
                 </td>
                 <td className="px-6 py-4">
                   {stepProgress.total > 0 ? (
-                    <div className="flex items-center gap-2 min-w-[100px]">
-                      <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
-                        <div className="h-full bg-accent" style={{ width: `${stepProgress.percent}%` }} />
-                      </div>
-                      <span className="text-xs text-white/50 shrink-0">{stepProgress.percent}%</span>
-                    </div>
+                    <ProgressBar percent={stepProgress.percent} showLabel className="min-w-[100px]" />
                   ) : (
                     <span className="text-white/50 text-xs">—</span>
                   )}
@@ -143,9 +143,7 @@ export function WorksTable({ works, returnTo, filters }: WorksTableProps) {
           })}
         </tbody>
       </table>
-      {sortedWorks.length === 0 && (
-        <div className="p-12 text-center text-white/50">Nessun lavoro trovato</div>
-      )}
+      {sortedWorks.length === 0 && <EmptyState title="Nessun lavoro trovato" />}
     </div>
   )
 }
