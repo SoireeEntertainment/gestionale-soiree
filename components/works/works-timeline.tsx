@@ -5,24 +5,20 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { format } from 'date-fns'
 import { it } from 'date-fns/locale'
-import { Client, Category, User } from '@prisma/client'
 import { Button } from '@/components/ui/button'
 import { WorkStatusBadge } from '@/components/works/work-status-badge'
 import type { TimelineWorkItem, WorksTimelineResult } from '@/app/actions/works-timeline'
 import { getTimelineBarPosition } from '@/lib/timeline-bar-position'
 import {
   formatAnchorDate,
-  getTimelineRange,
   getTimelineTicks,
   getTodayLinePercent,
   navigateTimeline,
   parseAnchorDate,
-  parseTimelineView,
   type TimelineViewUnit,
 } from '@/lib/timeline-range'
-import { WorksTimelineFilters } from './works-timeline-filters'
 
-const VIEW_UNITS: { value: TimelineViewUnit; label: string }[] = [
+const PERIOD_UNITS: { value: TimelineViewUnit; label: string }[] = [
   { value: 'day', label: 'Giorno' },
   { value: 'week', label: 'Settimana' },
   { value: 'month', label: 'Mese' },
@@ -45,15 +41,7 @@ function assigneeInitials(name: string): string {
     .toUpperCase()
 }
 
-function WorkTooltip({
-  work,
-  x,
-  y,
-}: {
-  work: TimelineWorkItem
-  x: number
-  y: number
-}) {
+function WorkTooltip({ work, x, y }: { work: TimelineWorkItem; x: number; y: number }) {
   return (
     <div
       className="fixed z-50 pointer-events-none w-72 rounded-lg border border-accent/30 bg-[#1a1a1a] p-3 shadow-xl text-sm"
@@ -68,9 +56,7 @@ function WorkTooltip({
         </div>
         <div>
           Scadenza:{' '}
-          {work.deadline
-            ? format(new Date(work.deadline), 'dd MMM yyyy', { locale: it })
-            : 'Nessuna'}
+          {work.deadline ? format(new Date(work.deadline), 'dd MMM yyyy', { locale: it }) : 'Nessuna'}
         </div>
         <div>Assegnatari: {formatAssignees(work.assignees)}</div>
         <div>
@@ -107,8 +93,7 @@ function TimelineWorkRow({
     )
   }, [work.createdAt, work.deadline, rangeStart, rangeEnd])
 
-  const progressLabel =
-    work.totalSteps > 0 ? `${work.progress}%` : work.progress === 0 ? '0%' : '0%'
+  const progressLabel = `${work.progress}%`
 
   return (
     <>
@@ -146,16 +131,12 @@ function TimelineWorkRow({
             )}
           </div>
         </div>
-
         <div className="flex-1 relative min-w-[200px] p-3">
           {bar && (
             <Link
               href={`/works/${work.id}?returnTo=${encodeURIComponent(returnTo)}`}
               className="block absolute top-1/2 -translate-y-1/2 h-7 rounded-md overflow-hidden border border-white/10 bg-white/5 hover:border-accent/40 transition-colors"
-              style={{
-                left: `${bar.leftPercent}%`,
-                width: `${bar.widthPercent}%`,
-              }}
+              style={{ left: `${bar.leftPercent}%`, width: `${bar.widthPercent}%` }}
               onMouseEnter={(e) => setHover({ x: e.clientX, y: e.clientY })}
               onMouseMove={(e) => setHover({ x: e.clientX, y: e.clientY })}
               onMouseLeave={() => setHover(null)}
@@ -191,89 +172,66 @@ function TimelineWorkRow({
   )
 }
 
-interface WorksTimelineViewProps {
+interface WorksTimelineProps {
   data: WorksTimelineResult
   rangeStart: string
   rangeEnd: string
   rangeLabel: string
-  view: TimelineViewUnit
+  period: TimelineViewUnit
   anchor: string
-  clients: Client[]
-  categories: Category[]
-  users: User[]
-  filters: {
-    clientId?: string
-    categoryId?: string
-    status?: string
-    assignedUserId?: string
-  }
+  returnTo: string
 }
 
-export function WorksTimelineView({
+export function WorksTimeline({
   data,
   rangeStart,
   rangeEnd,
   rangeLabel,
-  view,
+  period,
   anchor,
-  clients,
-  categories,
-  users,
-  filters,
-}: WorksTimelineViewProps) {
+  returnTo,
+}: WorksTimelineProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
 
   const rangeStartDate = useMemo(() => new Date(rangeStart), [rangeStart])
   const rangeEndDate = useMemo(() => new Date(rangeEnd), [rangeEnd])
   const ticks = useMemo(
-    () => getTimelineTicks(view, rangeStartDate, rangeEndDate),
-    [view, rangeStartDate, rangeEndDate]
+    () => getTimelineTicks(period, rangeStartDate, rangeEndDate),
+    [period, rangeStartDate, rangeEndDate]
   )
   const todayPercent = useMemo(
     () => getTodayLinePercent(rangeStartDate, rangeEndDate),
     [rangeStartDate, rangeEndDate]
   )
 
-  const returnTo = useMemo(() => {
-    const qs = searchParams.toString()
-    return qs ? `/calendar?${qs}` : '/calendar'
-  }, [searchParams])
-
   const pushParams = (updates: Record<string, string | null>) => {
     const params = new URLSearchParams(searchParams.toString())
+    if (!params.get('view')) params.set('view', 'timeline')
     for (const [key, value] of Object.entries(updates)) {
       if (value) params.set(key, value)
       else params.delete(key)
     }
-    router.push(`/calendar?${params.toString()}`)
+    router.push(`/works?${params.toString()}`)
   }
 
   const goToday = () => {
-    const now = new Date()
-    pushParams({ date: formatAnchorDate(now), view })
+    pushParams({ date: formatAnchorDate(new Date()) })
   }
 
   const goNavigate = (direction: -1 | 1) => {
-    const next = navigateTimeline(view, parseAnchorDate(anchor), direction)
-    pushParams({ date: formatAnchorDate(next), view })
+    const next = navigateTimeline(period, parseAnchorDate(anchor), direction)
+    pushParams({ date: formatAnchorDate(next) })
   }
 
-  const setView = (nextView: TimelineViewUnit) => {
-    pushParams({ view: nextView })
+  const setPeriod = (nextPeriod: TimelineViewUnit) => {
+    pushParams({ period: nextPeriod })
   }
 
   const isEmpty = data.works.length === 0 && data.withoutDeadline.length === 0
 
   return (
     <div>
-      <WorksTimelineFilters
-        clients={clients}
-        categories={categories}
-        users={users}
-        filters={filters}
-      />
-
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <div className="flex items-center gap-2">
           <Button size="sm" variant="secondary" onClick={() => goNavigate(-1)} aria-label="Periodo precedente">
@@ -287,15 +245,14 @@ export function WorksTimelineView({
           </Button>
           <span className="text-white font-medium capitalize ml-2">{rangeLabel}</span>
         </div>
-
         <div className="flex rounded-md border border-accent/20 overflow-hidden">
-          {VIEW_UNITS.map((unit) => (
+          {PERIOD_UNITS.map((unit) => (
             <button
               key={unit.value}
               type="button"
-              onClick={() => setView(unit.value)}
+              onClick={() => setPeriod(unit.value)}
               className={`px-3 py-1.5 text-sm transition-colors ${
-                view === unit.value
+                period === unit.value
                   ? 'bg-accent text-dark font-medium'
                   : 'bg-dark text-white/70 hover:text-white hover:bg-white/5'
               }`}
@@ -342,7 +299,6 @@ export function WorksTimelineView({
                     )}
                   </div>
                 </div>
-
                 {data.works.map((work) => (
                   <TimelineWorkRow
                     key={work.id}

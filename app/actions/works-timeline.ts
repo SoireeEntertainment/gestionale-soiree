@@ -12,6 +12,7 @@ const timelineFiltersSchema = z.object({
   assignedUserId: z.string().optional(),
   status: z.string().optional(),
   clientId: z.string().optional(),
+  deadlineFilter: z.enum(['SCADUTI', 'IN_SCADENZA_7_GIORNI', 'TUTTI']).optional(),
 })
 
 export type TimelineWorkItem = {
@@ -47,7 +48,54 @@ function buildFilterWhere(filters: z.infer<typeof timelineFiltersSchema>) {
     ]
   }
 
+  const now = new Date()
+  const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
+
+  if (filters.deadlineFilter === 'SCADUTI') {
+    where.deadline = { lt: now, not: null }
+    where.status = { not: 'DONE' }
+  } else if (filters.deadlineFilter === 'IN_SCADENZA_7_GIORNI') {
+    where.deadline = { gte: now, lte: sevenDaysFromNow }
+    where.status = { not: 'DONE' }
+  }
+
   return where
+}
+
+function buildWithDeadlineWhere(
+  filters: z.infer<typeof timelineFiltersSchema>,
+  baseWhere: Record<string, unknown>
+) {
+  const deadlineFilter = filters.deadlineFilter
+  if (deadlineFilter === 'SCADUTI' || deadlineFilter === 'IN_SCADENZA_7_GIORNI') {
+    return {
+      ...baseWhere,
+      createdAt: { lte: filters.rangeEnd },
+    }
+  }
+
+  return {
+    ...baseWhere,
+    createdAt: { lte: filters.rangeEnd },
+    deadline: {
+      not: null,
+      gte: filters.rangeStart,
+    },
+  }
+}
+
+function buildWithoutDeadlineWhere(
+  filters: z.infer<typeof timelineFiltersSchema>,
+  baseWhere: Record<string, unknown>
+) {
+  if (filters.deadlineFilter === 'SCADUTI' || filters.deadlineFilter === 'IN_SCADENZA_7_GIORNI') {
+    return null
+  }
+
+  return {
+    ...baseWhere,
+    deadline: null,
+  }
 }
 
 function mapWorkToTimelineItem(work: {
@@ -97,28 +145,22 @@ export async function getWorksTimeline(input: unknown): Promise<WorksTimelineRes
 
   const filters = timelineFiltersSchema.parse(input)
   const baseWhere = buildFilterWhere(filters)
+  const withDeadlineWhere = buildWithDeadlineWhere(filters, baseWhere)
+  const withoutDeadlineWhere = buildWithoutDeadlineWhere(filters, baseWhere)
 
   const [withDeadline, withoutDeadlineRows] = await Promise.all([
     prisma.work.findMany({
-      where: {
-        ...baseWhere,
-        createdAt: { lte: filters.rangeEnd },
-        deadline: {
-          not: null,
-          gte: filters.rangeStart,
-        },
-      },
+      where: withDeadlineWhere,
       include: workInclude,
       orderBy: [{ deadline: 'asc' }, { createdAt: 'asc' }],
     }),
-    prisma.work.findMany({
-      where: {
-        ...baseWhere,
-        deadline: null,
-      },
-      include: workInclude,
-      orderBy: [{ createdAt: 'desc' }],
-    }),
+    withoutDeadlineWhere
+      ? prisma.work.findMany({
+          where: withoutDeadlineWhere,
+          include: workInclude,
+          orderBy: [{ createdAt: 'desc' }],
+        })
+      : Promise.resolve([]),
   ])
 
   return {

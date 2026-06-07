@@ -4,6 +4,20 @@ const nextConfig = {
     /** Tree-shaking più aggressivo per import da barrel (bundle più piccoli). */
     optimizePackageImports: ['lucide-react', 'date-fns'],
   },
+  async redirects() {
+    return [
+      {
+        source: '/calendar',
+        destination: '/works?view=timeline',
+        permanent: true,
+      },
+      {
+        source: '/calendar/:path*',
+        destination: '/works?view=timeline',
+        permanent: true,
+      },
+    ]
+  },
   webpack: (config, { dev, isServer }) => {
     // Next inserisce il CSS minimizer come funzione che applica CssMinimizerPlugin (non come istanza).
     // cssnano-simple fallisce su selettori Tailwind con `/`. JS resta minificato (primo minimizer).

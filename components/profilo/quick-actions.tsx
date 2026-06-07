@@ -17,9 +17,9 @@ export function QuickActions({ canWrite }: QuickActionsProps) {
           </Button>
         </Link>
       )}
-      <Link href="/calendar">
+      <Link href="/works?view=timeline">
         <Button variant="ghost" style={{ backgroundColor: 'transparent', color: 'rgba(255,255,255,0.8)', padding: '8px 16px', borderRadius: '6px' }}>
-          Apri calendario
+          Apri timeline lavori
         </Button>
       </Link>
       <Link href="/profilo#lavori-attivi">

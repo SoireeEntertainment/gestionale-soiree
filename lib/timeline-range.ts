@@ -19,10 +19,13 @@ import { it } from 'date-fns/locale'
 
 export type TimelineViewUnit = 'day' | 'week' | 'month' | 'year'
 
-export function parseTimelineView(raw?: string | null): TimelineViewUnit {
+export function parseTimelinePeriod(raw?: string | null): TimelineViewUnit {
   if (raw === 'day' || raw === 'week' || raw === 'month' || raw === 'year') return raw
   return 'month'
 }
+
+/** @deprecated Use parseTimelinePeriod — `view` on /works is timeline|list */
+export const parseTimelineView = parseTimelinePeriod
 
 export function parseAnchorDate(raw?: string | null): Date {
   if (raw && /^\d{4}-\d{2}-\d{2}$/.test(raw)) {

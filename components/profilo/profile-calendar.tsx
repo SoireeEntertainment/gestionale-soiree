@@ -111,8 +111,8 @@ export function ProfileCalendar({ works, range, onRangeChange }: ProfileCalendar
         )}
       </div>
 
-      <Link href="/calendar" className="inline-block mt-4 text-accent hover:underline text-sm">
-        Apri calendario completo →
+      <Link href="/works?view=timeline" className="inline-block mt-4 text-accent hover:underline text-sm">
+        Apri timeline lavori →
       </Link>
     </div>
   )

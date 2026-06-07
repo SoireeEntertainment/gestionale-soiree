@@ -5,26 +5,22 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { Client, Category, User } from '@prisma/client'
 import { WORK_STATUS_META } from '@/lib/work-status'
 
-interface WorksTimelineFiltersProps {
+export type WorksFiltersState = {
+  clientId?: string
+  categoryId?: string
+  status?: string
+  deadlineFilter?: string
+  assignedUserId?: string
+}
+
+interface WorksFiltersProps {
   clients: Client[]
   categories: Category[]
   users: User[]
-  filters: {
-    clientId?: string
-    categoryId?: string
-    status?: string
-    assignedUserId?: string
-  }
-  basePath?: string
+  filters: WorksFiltersState
 }
 
-export function WorksTimelineFilters({
-  clients,
-  categories,
-  users,
-  filters,
-  basePath = '/calendar',
-}: WorksTimelineFiltersProps) {
+export function WorksFilters({ clients, categories, users, filters }: WorksFiltersProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [clientDropdownOpen, setClientDropdownOpen] = useState(false)
@@ -67,9 +63,9 @@ export function WorksTimelineFilters({
 
   const updateFilter = (key: string, value: string) => {
     const params = new URLSearchParams(searchParams.toString())
-    if (value) params.set(key, value)
+    if (value && value !== 'TUTTI') params.set(key, value)
     else params.delete(key)
-    router.push(`${basePath}?${params.toString()}`)
+    router.push(`/works?${params.toString()}`)
   }
 
   const applyClientFilter = (clientId: string) => {
@@ -79,7 +75,7 @@ export function WorksTimelineFilters({
 
   return (
     <div className="bg-dark border border-accent/20 rounded-lg p-4 mb-4">
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         <div>
           <label className="block text-sm font-medium text-white mb-1">Cliente</label>
           <div className="relative" ref={clientDropdownRef}>
@@ -87,6 +83,8 @@ export function WorksTimelineFilters({
               type="button"
               onClick={() => setClientDropdownOpen((open) => !open)}
               className="w-full px-3 py-2 bg-dark border border-accent/20 rounded-md text-white text-sm text-left focus:outline-none focus:ring-2 focus:ring-accent flex items-center justify-between"
+              aria-haspopup="listbox"
+              aria-expanded={clientDropdownOpen}
             >
               <span className={selectedClientName ? 'text-white' : 'text-white/70'}>
                 {selectedClientName || 'Tutti'}
@@ -151,6 +149,9 @@ export function WorksTimelineFilters({
                       {client.name}
                     </button>
                   ))}
+                  {filteredClients.length === 0 && (
+                    <div className="px-3 py-2 text-sm text-white/50">Nessun cliente trovato</div>
+                  )}
                 </div>
               </div>
             )}
@@ -172,6 +173,33 @@ export function WorksTimelineFilters({
           </select>
         </div>
         <div>
+          <label className="block text-sm font-medium text-white mb-1">Stato</label>
+          <select
+            value={filters.status || ''}
+            onChange={(e) => updateFilter('status', e.target.value)}
+            className="w-full px-3 py-2 bg-dark border border-accent/20 rounded-md text-white text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+          >
+            <option value="">Tutti</option>
+            {Object.entries(WORK_STATUS_META).map(([value, meta]) => (
+              <option key={value} value={value}>
+                {meta.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-white mb-1">Scadenza</label>
+          <select
+            value={filters.deadlineFilter || 'TUTTI'}
+            onChange={(e) => updateFilter('deadlineFilter', e.target.value)}
+            className="w-full px-3 py-2 bg-dark border border-accent/20 rounded-md text-white text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+          >
+            <option value="TUTTI">Tutti</option>
+            <option value="SCADUTI">Scaduti</option>
+            <option value="IN_SCADENZA_7_GIORNI">In scadenza (7 giorni)</option>
+          </select>
+        </div>
+        <div>
           <label className="block text-sm font-medium text-white mb-1">Assegnato a</label>
           <select
             value={filters.assignedUserId || ''}
@@ -182,21 +210,6 @@ export function WorksTimelineFilters({
             {users.map((user) => (
               <option key={user.id} value={user.id}>
                 {user.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-white mb-1">Stato</label>
-          <select
-            value={filters.status || ''}
-            onChange={(e) => updateFilter('status', e.target.value)}
-            className="w-full px-3 py-2 bg-dark border border-accent/20 rounded-md text-white text-sm focus:outline-none focus:ring-2 focus:ring-accent"
-          >
-            <option value="">Tutti</option>
-            {Object.entries(WORK_STATUS_META).map(([key, meta]) => (
-              <option key={key} value={key}>
-                {meta.label}
               </option>
             ))}
           </select>

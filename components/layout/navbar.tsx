@@ -14,7 +14,6 @@ const allNavItems = [
   { href: '/works', label: 'Lavori' },
   { href: '/preventivi', label: 'Preventivi' },
   { href: '/ped', label: 'PED' },
-  { href: '/calendar', label: 'Calendario' },
   { href: '/profilo', label: 'Area operativa' },
 ]
 

@@ -134,7 +134,6 @@ export async function createWork(data: unknown) {
   }
 
   revalidatePath('/works')
-  revalidatePath('/calendar')
   revalidatePath(`/clients/${validated.clientId}`)
   const workOut =
     list.length > 0 && !work.assignedToUserId
@@ -166,7 +165,6 @@ export async function syncWorkAssignees(workId: string, userIds: string[]) {
   })
 
   revalidatePath('/works')
-  revalidatePath('/calendar')
   revalidatePath('/profilo')
   revalidatePath(`/works/${workId}`)
 }
@@ -198,7 +196,6 @@ export async function removeWorkAssignees(workId: string, userIds: string[]) {
   }
 
   revalidatePath('/works')
-  revalidatePath('/calendar')
   revalidatePath('/profilo')
   revalidatePath(`/works/${workId}`)
 }
@@ -241,7 +238,6 @@ export async function updateWork(id: string, data: unknown) {
   }
 
   revalidatePath('/works')
-  revalidatePath('/calendar')
   revalidatePath('/profilo')
   revalidatePath(`/works/${id}`)
   revalidatePath(`/clients/${validated.clientId}`)
@@ -262,7 +258,6 @@ export async function deleteWork(id: string) {
   })
 
   revalidatePath('/works')
-  revalidatePath('/calendar')
   if (work) {
     revalidatePath(`/clients/${work.clientId}`)
   }
@@ -293,7 +288,6 @@ export async function updateWorkStatus(workId: string, status: z.infer<typeof wo
   })
 
   revalidatePath('/works')
-  revalidatePath('/calendar')
   revalidatePath('/ped')
   revalidatePath('/profilo')
   revalidatePath(`/works/${updated.id}`)
