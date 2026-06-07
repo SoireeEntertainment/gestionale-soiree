@@ -504,10 +504,17 @@ export async function executeAssistantAction(
       case 'mark_work_step_done':
       case 'mark_work_step_todo': {
         const p = markWorkStepPayloadSchema.parse(payload)
-        await updateWorkStep(p.stepId, {
-          status: p.markDone ? 'DONE' : 'TODO',
-          completedAt: p.markDone ? new Date() : null,
-        })
+        if (p.markDone) {
+          await updateWorkStep(p.stepId, {
+            status: 'DONE',
+            completedAt: new Date(),
+          })
+        } else {
+          await updateWorkStep(p.stepId, {
+            status: 'TODO',
+            completedAt: null,
+          })
+        }
         await logAssistantAction({
           userId,
           threadId,

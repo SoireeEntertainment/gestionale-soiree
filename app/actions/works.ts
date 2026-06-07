@@ -7,6 +7,7 @@ import { prisma } from '@/lib/prisma'
 import { workSchema } from '@/lib/validations'
 import { parseDeadlineFromInput } from '@/lib/date-utils'
 import { sendWorkAssignedEmail } from '@/lib/work-assignment-email'
+import { createDefaultWorkStepsForCategory } from '@/app/actions/work-steps'
 
 function uniqueIds(ids: Array<string | null | undefined>): string[] {
   return [...new Set(ids.filter((id): id is string => typeof id === 'string' && id.trim().length > 0))]
@@ -124,6 +125,12 @@ export async function createWork(data: unknown) {
     if (list.length > 0) await notifyUsersAssignedToWork(work.id, list)
   } catch (emailErr) {
     console.error('[createWork] notification error', { workId: work.id, error: emailErr })
+  }
+
+  try {
+    await createDefaultWorkStepsForCategory(work.id, validated.categoryId)
+  } catch (stepsErr) {
+    console.error('[createWork] default steps error', { workId: work.id, error: stepsErr })
   }
 
   revalidatePath('/works')
@@ -405,6 +412,7 @@ export async function getWorks(filters?: {
       client: true,
       category: true,
       assignedTo: true,
+      steps: { select: { status: true } },
     },
     orderBy: [
       { deadline: { sort: 'asc', nulls: 'last' } },

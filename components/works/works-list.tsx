@@ -12,9 +12,15 @@ import { WorkForm } from './work-form'
 import { WorkStatusBadge } from './work-status-badge'
 import { WORK_STATUS_META } from '@/lib/work-status'
 import { sortWorksByColumn, sortWorksDefault, type WorkSortBy, type WorkSortDirection } from '@/lib/work-sorting'
+import { calculateWorkStepProgress } from '@/lib/work-step-progress'
 
 interface WorksListProps {
-  works: (Work & { client: Client; category: Category; assignedTo?: User | null })[]
+  works: (Work & {
+    client: Client
+    category: Category
+    assignedTo?: User | null
+    steps?: { status: string }[]
+  })[]
   clients: Client[]
   categories: Category[]
   users: User[]
@@ -332,6 +338,9 @@ export function WorksList({ works, clients, categories, users, filters }: WorksL
                   Scadenza <span className="text-[10px]">{sortIndicator('deadline')}</span>
                 </button>
               </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-accent uppercase">
+                Avanzamento
+              </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-accent uppercase" aria-sort={ariaSort('assignedTo')}>
                 <button type="button" onClick={() => toggleSort('assignedTo')} className="inline-flex items-center gap-1 hover:text-white transition-colors">
                   Assegnato a <span className="text-[10px]">{sortIndicator('assignedTo')}</span>
@@ -345,6 +354,7 @@ export function WorksList({ works, clients, categories, users, filters }: WorksL
           <tbody className="divide-y divide-white/10">
             {sortedWorks.map((work) => {
               const isExpired = work.deadline && new Date(work.deadline) < new Date() && work.status !== 'DONE'
+              const stepProgress = calculateWorkStepProgress(work.steps ?? [])
               return (
                 <tr key={work.id} className="hover:bg-white/5">
                   <td className="px-6 py-4 text-white">{work.title}</td>
@@ -361,6 +371,21 @@ export function WorksList({ works, clients, categories, users, filters }: WorksL
                       </span>
                     ) : (
                       <span className="text-white/50">-</span>
+                    )}
+                  </td>
+                  <td className="px-6 py-4">
+                    {stepProgress.total > 0 ? (
+                      <div className="flex items-center gap-2 min-w-[100px]">
+                        <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-accent"
+                            style={{ width: `${stepProgress.percent}%` }}
+                          />
+                        </div>
+                        <span className="text-xs text-white/50 shrink-0">{stepProgress.percent}%</span>
+                      </div>
+                    ) : (
+                      <span className="text-white/50 text-xs">—</span>
                     )}
                   </td>
                   <td className="px-6 py-4 text-white/70">

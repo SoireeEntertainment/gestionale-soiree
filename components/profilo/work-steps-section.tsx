@@ -4,9 +4,17 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { getWorkSteps, updateWorkStep, createWorkStep } from '@/app/actions/work-steps'
+import { getWorkSteps, toggleWorkStep, createWorkStep, deleteWorkStep } from '@/app/actions/work-steps'
+import { calculateWorkStepProgress } from '@/lib/work-step-progress'
 
-type Step = { id: string; title: string; status: string; sortOrder: number; completedAt: Date | null }
+type Step = {
+  id: string
+  title: string
+  status: string
+  sortOrder: number
+  completedAt: Date | null
+  completedBy: { id: string; name: string } | null
+}
 
 export function WorkStepsSection({
   workId,
@@ -29,20 +37,11 @@ export function WorkStepsSection({
     })
   }, [workId])
 
-  const handleToggle = async (stepId: string, currentStatus: string) => {
+  const handleToggle = async (stepId: string) => {
     if (!canWrite) return
-    const next = currentStatus === 'DONE' ? 'TODO' : 'DONE'
-    await updateWorkStep(stepId, {
-      status: next,
-      completedAt: next === 'DONE' ? new Date() : null,
-    })
-    setSteps((prev) =>
-      prev.map((s) =>
-        s.id === stepId
-          ? { ...s, status: next, completedAt: next === 'DONE' ? new Date() : null }
-          : s
-      )
-    )
+    await toggleWorkStep(stepId)
+    const updated = await getWorkSteps(workId)
+    setSteps(updated as Step[])
     router.refresh()
   }
 
@@ -65,12 +64,26 @@ export function WorkStepsSection({
           <p className="text-white/60">Caricamento...</p>
         ) : (
           <div className="space-y-3">
+            {steps.length > 0 && (
+              <div className="space-y-1">
+                <div className="text-sm text-white/70">
+                  Avanzamento: {calculateWorkStepProgress(steps).completed}/{calculateWorkStepProgress(steps).total} —{' '}
+                  {calculateWorkStepProgress(steps).percent}%
+                </div>
+                <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-accent"
+                    style={{ width: `${calculateWorkStepProgress(steps).percent}%` }}
+                  />
+                </div>
+              </div>
+            )}
             {steps.map((step) => (
               <div key={step.id} className="flex items-center gap-3">
                 {canWrite ? (
                   <button
                     type="button"
-                    onClick={() => handleToggle(step.id, step.status)}
+                    onClick={() => handleToggle(step.id)}
                     className={`w-5 h-5 rounded border-2 shrink-0 ${
                       step.status === 'DONE'
                         ? 'bg-accent border-accent'
@@ -98,6 +111,11 @@ export function WorkStepsSection({
                   }
                 >
                   {step.title}
+                  {step.status === 'DONE' && step.completedBy && (
+                    <span className="text-xs text-white/40 ml-2 no-underline">
+                      ({step.completedBy.name})
+                    </span>
+                  )}
                 </span>
               </div>
             ))}

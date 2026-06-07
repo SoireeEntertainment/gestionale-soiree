@@ -11,12 +11,16 @@ import { WorkForm } from './work-form'
 import { deleteWork } from '@/app/actions/works'
 import { useRouter } from 'next/navigation'
 import { WorkStatusBadge } from './work-status-badge'
+import { WorkChecklistSection } from './work-checklist-section'
+import type { CurrentUser } from '@/lib/auth-dev'
 
 interface WorkDetailProps {
   work: Work & { client: Client; category: Category; assignedTo?: User | null }
   clients: Client[]
   categories: Category[]
   users: User[]
+  currentUser: CurrentUser
+  assigneeUserIds?: string[]
   returnTo?: string
 }
 
@@ -26,9 +30,14 @@ const priorityLabels: Record<string, string> = {
   HIGH: 'Alta',
 }
 
-export function WorkDetail({ work, clients, categories, users, returnTo = '/works' }: WorkDetailProps) {
+export function WorkDetail({ work, clients, categories, users, currentUser, assigneeUserIds = [], returnTo = '/works' }: WorkDetailProps) {
   const router = useRouter()
   const [isEditOpen, setIsEditOpen] = useState(false)
+
+  const isAssigned =
+    work.assignedToUserId === currentUser.id || assigneeUserIds.includes(currentUser.id)
+  const canAdmin = currentUser.role === 'ADMIN'
+  const canManage = canAdmin || isAssigned
 
   const handleDelete = async () => {
     if (!confirm('Sei sicuro di voler eliminare questo lavoro?')) return
@@ -132,6 +141,16 @@ export function WorkDetail({ work, clients, categories, users, returnTo = '/work
               <span className="text-white/50">Nessuna descrizione</span>
             )}
           </div>
+        </div>
+
+        <div className="mt-6">
+          <WorkChecklistSection
+            workId={work.id}
+            workStatus={work.status}
+            categoryName={work.category.name}
+            canManage={canManage}
+            canAdmin={canAdmin}
+          />
         </div>
       </div>
     </div>

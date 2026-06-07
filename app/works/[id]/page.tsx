@@ -19,15 +19,29 @@ export default async function WorkDetailPage(props: {
     returnToRaw && returnToRaw.startsWith('/works')
       ? returnToRaw
       : '/works'
-  const [work, clients, categories, users] = await Promise.all([
+  const [work, clients, categories, users, assignees] = await Promise.all([
     getWork(id),
     prisma.client.findMany({ orderBy: { name: 'asc' } }),
     prisma.category.findMany({ orderBy: { name: 'asc' } }),
     getUsers(),
+    prisma.workAssignee.findMany({
+      where: { workId: id },
+      select: { userId: true },
+    }),
   ])
 
   if (!work) redirect('/works')
 
-  return <WorkDetail work={work} clients={clients} categories={categories} users={users} returnTo={returnTo} />
+  return (
+    <WorkDetail
+      work={work}
+      clients={clients}
+      categories={categories}
+      users={users}
+      currentUser={user}
+      assigneeUserIds={assignees.map((a) => a.userId)}
+      returnTo={returnTo}
+    />
+  )
 }
 

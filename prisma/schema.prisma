@@ -25,6 +25,7 @@ model User {
   assignedWorks      Work[]
   workAssignees      WorkAssignee[]
   workComments       WorkComment[]
+  completedWorkSteps WorkStep[] @relation("WorkStepCompletedBy")
   todos              UserTodo[]
   preference         UserPreference?
   pedClientSettings  PedClientSetting[]
@@ -236,16 +237,19 @@ model WorkAssignee {
 }
 
 model WorkStep {
-  id          String    @id @default(cuid())
-  workId      String
-  title       String
-  status      String    @default("TODO") // TODO, DONE, BLOCKED
-  sortOrder   Int       @default(0)
-  completedAt DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id                 String    @id @default(cuid())
+  workId             String
+  title              String
+  description        String?
+  status             String    @default("TODO") // TODO, DONE, BLOCKED
+  sortOrder          Int       @default(0)
+  completedAt        DateTime?
+  completedByUserId  String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
-  work Work @relation(fields: [workId], references: [id], onDelete: Cascade)
+  work        Work  @relation(fields: [workId], references: [id], onDelete: Cascade)
+  completedBy User? @relation("WorkStepCompletedBy", fields: [completedByUserId], references: [id], onDelete: SetNull)
 
   @@map("work_steps")
 }
