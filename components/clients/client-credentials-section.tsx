@@ -1,9 +1,11 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { LoadingButton } from '@/components/ui/loading-button'
 import { upsertClientCredential, deleteClientCredential } from '@/app/actions/client-credentials'
+import { showToast } from '@/lib/toast'
+import { measureAction } from '@/lib/measure-action'
 
 type Credential = {
   id: string
@@ -16,14 +18,14 @@ type Credential = {
 
 export function ClientCredentialsSection({
   clientId,
-  credentials,
+  credentials: initialCredentials,
   canWrite,
 }: {
   clientId: string
   credentials: Credential[]
   canWrite: boolean
 }) {
-  const router = useRouter()
+  const [credentials, setCredentials] = useState(initialCredentials)
   const [adding, setAdding] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [label, setLabel] = useState('')
@@ -32,6 +34,11 @@ export function ClientCredentialsSection({
   const [notes, setNotes] = useState('')
   const [showPassword, setShowPassword] = useState<Record<string, boolean>>({})
   const [showPasswordAdd, setShowPasswordAdd] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    setCredentials(initialCredentials)
+  }, [initialCredentials])
 
   const startAdd = () => {
     setEditingId(null)
@@ -57,39 +64,69 @@ export function ClientCredentialsSection({
   }
 
   const handleSave = async () => {
-    if (!label.trim()) return
+    if (!label.trim() || saving) return
+    setSaving(true)
+    showToast('Salvataggio…', 'loading')
+
+    const payload = {
+      id: editingId ?? undefined,
+      label: label.trim(),
+      username: username.trim() || null,
+      password: password || null,
+      notes: notes.trim() || null,
+    }
+
+    const previous = credentials
+    if (editingId) {
+      setCredentials((prev) =>
+        prev.map((c) =>
+          c.id === editingId
+            ? { ...c, label: payload.label, username: payload.username, password: payload.password, notes: payload.notes }
+            : c
+        )
+      )
+    }
+    cancel()
+
     try {
-      if (editingId) {
-        await upsertClientCredential(clientId, {
-          id: editingId,
-          label: label.trim(),
-          username: username.trim() || null,
-          password: password || null,
-          notes: notes.trim() || null,
-        })
-      } else {
-        await upsertClientCredential(clientId, {
-          label: label.trim(),
-          username: username.trim() || null,
-          password: password || null,
-          notes: notes.trim() || null,
-        })
+      await measureAction('upsertClientCredential', () => upsertClientCredential(clientId, payload))
+      showToast('Credenziale salvata', 'success')
+      if (!editingId) {
+        window.location.reload()
       }
-      cancel()
-      router.refresh()
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Errore')
+      setCredentials(previous)
+      if (editingId) {
+        setEditingId(editingId)
+        setLabel(payload.label)
+        setUsername(payload.username ?? '')
+        setPassword(payload.password ?? '')
+        setNotes(payload.notes ?? '')
+      } else {
+        setAdding(true)
+        setLabel(payload.label)
+        setUsername(payload.username ?? '')
+        setPassword(payload.password ?? '')
+        setNotes(payload.notes ?? '')
+      }
+      showToast(e instanceof Error ? e.message : 'Errore', 'error')
+    } finally {
+      setSaving(false)
     }
   }
 
   const handleDelete = async (credentialId: string) => {
     if (!confirm('Eliminare questa credenziale?')) return
+    const previous = credentials
+    setCredentials((prev) => prev.filter((c) => c.id !== credentialId))
+    if (editingId === credentialId) cancel()
+    showToast('Eliminazione…', 'loading')
     try {
-      await deleteClientCredential(credentialId, clientId)
-      if (editingId === credentialId) cancel()
-      router.refresh()
+      await measureAction('deleteClientCredential', () => deleteClientCredential(credentialId, clientId))
+      showToast('Credenziale eliminata', 'success')
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Errore')
+      setCredentials(previous)
+      showToast(e instanceof Error ? e.message : 'Errore', 'error')
     }
   }
 
@@ -148,7 +185,9 @@ export function ClientCredentialsSection({
                   className="w-full px-3 py-2 bg-dark border border-accent/20 rounded text-white text-sm"
                 />
                 <div className="flex gap-2">
-                  <Button size="sm" onClick={handleSave}>Salva</Button>
+                  <LoadingButton size="sm" onClick={handleSave} loading={saving} loadingText="Salvataggio…">
+                    Salva
+                  </LoadingButton>
                   <Button size="sm" variant="ghost" onClick={cancel}>Annulla</Button>
                   <Button size="sm" variant="danger" onClick={() => handleDelete(c.id)}>Elimina</Button>
                 </div>
@@ -226,7 +265,9 @@ export function ClientCredentialsSection({
             className="w-full px-3 py-2 bg-dark border border-accent/20 rounded text-white text-sm"
           />
           <div className="flex gap-2">
-            <Button size="sm" onClick={handleSave}>Salva</Button>
+            <LoadingButton size="sm" onClick={handleSave} loading={saving} loadingText="Salvataggio…">
+              Salva
+            </LoadingButton>
             <Button size="sm" variant="ghost" onClick={cancel}>Annulla</Button>
           </div>
         </div>

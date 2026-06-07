@@ -217,6 +217,11 @@ model Work {
   comments        WorkComment[]
   pedItems        PedItem[]
 
+  @@index([deadline])
+  @@index([status])
+  @@index([clientId])
+  @@index([categoryId])
+  @@index([assignedToUserId])
   @@map("works")
 }
 

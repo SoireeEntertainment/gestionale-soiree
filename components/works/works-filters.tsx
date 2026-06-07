@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, startTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Client, Category, User } from '@prisma/client'
 import { WORK_STATUS_META } from '@/lib/work-status'
@@ -65,7 +65,9 @@ export function WorksFilters({ clients, categories, users, filters }: WorksFilte
     const params = new URLSearchParams(searchParams.toString())
     if (value && value !== 'TUTTI') params.set(key, value)
     else params.delete(key)
-    router.push(`/works?${params.toString()}`)
+    startTransition(() => {
+      router.replace(`/works?${params.toString()}`, { scroll: false })
+    })
   }
 
   const applyClientFilter = (clientId: string) => {

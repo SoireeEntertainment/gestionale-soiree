@@ -6,8 +6,10 @@ import { Work, Client, Category, User } from '@prisma/client'
 import { createWork, updateWork } from '@/app/actions/works'
 import { createClient } from '@/app/actions/clients'
 import { Button } from '@/components/ui/button'
+import { LoadingButton } from '@/components/ui/loading-button'
 import { UserSelect } from '@/components/ui/user-select'
 import { showToast } from '@/lib/toast'
+import { measureAction } from '@/lib/measure-action'
 import { WORK_STATUS_META } from '@/lib/work-status'
 
 interface WorkFormProps {
@@ -74,6 +76,7 @@ export function WorkForm({ work, clients, categories, users, clientId: initialCl
       return
     }
     setLoading(true)
+    showToast(work ? 'Salvataggio…' : 'Creazione lavoro…', 'loading')
 
     try {
       const data = {
@@ -83,17 +86,17 @@ export function WorkForm({ work, clients, categories, users, clientId: initialCl
       }
 
       if (work) {
-        await updateWork(work.id, data)
+        await measureAction('updateWork', () => updateWork(work.id, data))
         showToast('Lavoro aggiornato con successo', 'success')
       } else {
-        await createWork(data)
+        await measureAction('createWork', () => createWork(data))
         showToast('Lavoro creato con successo', 'success')
         setFormData(buildInitialFormData())
         setClientSearch('')
         setClientDropdownOpen(false)
       }
-      router.refresh()
       onSuccess?.()
+      router.refresh()
     } catch (error) {
       const msg = error instanceof Error
         ? error.message
@@ -326,9 +329,9 @@ export function WorkForm({ work, clients, categories, users, clientId: initialCl
         >
           Annulla
         </Button>
-        <Button type="submit" disabled={loading}>
-          {loading ? (work ? 'Salvataggio...' : 'Creazione...') : work ? 'Salva Modifiche' : 'Crea Lavoro'}
-        </Button>
+        <LoadingButton type="submit" loading={loading} loadingText={work ? 'Salvataggio…' : 'Creazione…'}>
+          {work ? 'Salva Modifiche' : 'Crea Lavoro'}
+        </LoadingButton>
       </div>
     </form>
   )

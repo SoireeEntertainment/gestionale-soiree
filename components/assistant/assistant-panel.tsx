@@ -247,6 +247,13 @@ export function AssistantPanel({ embedded = false, variant }: AssistantPanelProp
             content: msg,
             createdAt: new Date().toISOString(),
           },
+          {
+            id: `optimistic-assistant-${Date.now()}`,
+            role: 'assistant',
+            content: 'Sto pensando…',
+            createdAt: new Date().toISOString(),
+            assistantBadge: 'info',
+          },
         ])
       } else if (!confirmId && !cancelId && msg) {
         setMessages((prev) => [
@@ -256,6 +263,13 @@ export function AssistantPanel({ embedded = false, variant }: AssistantPanelProp
             role: 'user',
             content: msg,
             createdAt: new Date().toISOString(),
+          },
+          {
+            id: `optimistic-assistant-${Date.now()}`,
+            role: 'assistant',
+            content: 'Sto pensando…',
+            createdAt: new Date().toISOString(),
+            assistantBadge: 'info',
           },
         ])
       }
@@ -276,8 +290,49 @@ export function AssistantPanel({ embedded = false, variant }: AssistantPanelProp
       const outTid = (data.threadId as string) || tid
       if (data.threadId) setActiveId(data.threadId)
       setInput('')
-      await loadThreads()
-      if (outTid) await loadMessages(outTid)
+
+      const assistantMsg: MsgRow = {
+        id: `assistant-${Date.now()}`,
+        role: 'assistant',
+        content: (data.reply as string) ?? '',
+        createdAt: new Date().toISOString(),
+        mode: data.mode as string | undefined,
+        pendingConfirmationId: data.pendingConfirmationId as string | undefined,
+        assistantBadge: data.mode
+          ? (data.mode === 'needs_confirmation'
+              ? 'needs_confirmation'
+              : data.mode === 'action_result'
+                ? data.result?.success
+                  ? 'action_done'
+                  : 'action_failed'
+                : 'info')
+          : undefined,
+        result: data.result as MsgRow['result'],
+        quickLinks: data.readQuickLinks as MsgRow['quickLinks'],
+      }
+
+      setMessages((prev) => {
+        const withoutOptimistic = prev.filter(
+          (m) => !m.id.startsWith('optimistic-user-') && !m.id.startsWith('optimistic-assistant-')
+        )
+        const userMsg: MsgRow = {
+          id: `user-${Date.now()}`,
+          role: 'user',
+          content: msg,
+          createdAt: new Date().toISOString(),
+        }
+        return [...withoutOptimistic, userMsg, assistantMsg]
+      })
+
+      setThreads((prev) => {
+        if (!outTid) return prev
+        const now = new Date().toISOString()
+        const existing = prev.find((t) => t.id === outTid)
+        if (existing) {
+          return [{ ...existing, updatedAt: now }, ...prev.filter((t) => t.id !== outTid)]
+        }
+        return [{ id: outTid, title: msg.slice(0, 60), createdAt: now, updatedAt: now }, ...prev]
+      })
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Errore')
       if (tid) {

@@ -1,8 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { Work, Client, Category } from '@prisma/client'
 import { format } from 'date-fns'
 import { it } from 'date-fns/locale'
@@ -13,6 +12,8 @@ import { createWorkComment } from '@/app/actions/work-comments'
 import { WorkStepsSection } from './work-steps-section'
 import { WorkStatusBadge } from '@/components/works/work-status-badge'
 import { WORK_STATUS_META } from '@/lib/work-status'
+import { showToast } from '@/lib/toast'
+import { measureAction } from '@/lib/measure-action'
 
 type WorkWithRelations = Work & { client: Client; category: Category }
 
@@ -29,15 +30,22 @@ type MyWorksActiveProps = {
 }
 
 export function MyWorksActive({ works: initialWorks, categories, canWrite }: MyWorksActiveProps) {
-  const router = useRouter()
+  const [works, setWorks] = useState(initialWorks)
+
+  useEffect(() => {
+    setWorks(initialWorks)
+  }, [initialWorks])
+
   const [statusFilter, setStatusFilter] = useState('')
+  const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null)
+  const [addingNote, setAddingNote] = useState(false)
   const [categoryFilter, setCategoryFilter] = useState('')
   const [deadlineFilter, setDeadlineFilter] = useState('')
   const [noteWorkId, setNoteWorkId] = useState<string | null>(null)
   const [noteBody, setNoteBody] = useState('')
   const [stepsWorkId, setStepsWorkId] = useState<string | null>(null)
 
-  const filtered = initialWorks.filter((w) => {
+  const filtered = works.filter((w) => {
     if (statusFilter && w.status !== statusFilter) return false
     if (categoryFilter && w.categoryId !== categoryFilter) return false
     if (deadlineFilter === 'OGGI') {
@@ -57,10 +65,16 @@ export function MyWorksActive({ works: initialWorks, categories, canWrite }: MyW
   })
 
   const handleStatusChange = async (workId: string, newStatus: string) => {
-    if (!canWrite) return
+    if (!canWrite || updatingStatusId) return
+    const work = works.find((w) => w.id === workId)
+    if (!work) return
+
+    const previous = works
+    setUpdatingStatusId(workId)
+    setWorks((prev) => prev.map((w) => (w.id === workId ? { ...w, status: newStatus } : w)))
+    showToast('Aggiornamento stato…', 'loading')
+
     try {
-      const work = initialWorks.find((w) => w.id === workId)
-      if (!work) return
       const payload = {
         title: work.title,
         description: work.description ?? '',
@@ -71,22 +85,29 @@ export function MyWorksActive({ works: initialWorks, categories, canWrite }: MyW
         deadline: work.deadline ? format(new Date(work.deadline), "yyyy-MM-dd'T'HH:mm") : '',
         assignedToUserId: work.assignedToUserId,
       }
-      await updateWork(workId, payload)
-      router.refresh()
+      await measureAction('updateWork', () => updateWork(workId, payload))
+      showToast('Stato aggiornato', 'success')
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Errore')
+      setWorks(previous)
+      showToast(e instanceof Error ? e.message : 'Errore', 'error')
+    } finally {
+      setUpdatingStatusId(null)
     }
   }
 
   const handleAddNote = async (workId: string) => {
-    if (!noteBody.trim()) return
+    if (!noteBody.trim() || addingNote) return
+    setAddingNote(true)
+    showToast('Salvataggio nota…', 'loading')
     try {
-      await createWorkComment(workId, noteBody.trim())
+      await measureAction('createWorkComment', () => createWorkComment(workId, noteBody.trim()))
       setNoteWorkId(null)
       setNoteBody('')
-      router.refresh()
+      showToast('Nota aggiunta', 'success')
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Errore')
+      showToast(e instanceof Error ? e.message : 'Errore', 'error')
+    } finally {
+      setAddingNote(false)
     }
   }
 

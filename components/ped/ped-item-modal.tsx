@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
+import { LoadingButton } from '@/components/ui/loading-button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { PED_ITEM_TYPE_LABELS } from '@/lib/ped-utils'
 import { PED_ITEM_KINDS, PED_ITEM_TYPES, PED_PLATFORMS } from '@/lib/validations'
@@ -492,7 +493,9 @@ export function PedItemModal({
           </div>
           <div className="flex gap-2">
             <Button variant="ghost" onClick={onClose}>Annulla</Button>
-            <Button onClick={handleSave} disabled={saving}>{saving ? 'Salvataggio...' : 'Salva'}</Button>
+            <LoadingButton onClick={handleSave} loading={saving} loadingText="Salvataggio…">
+              Salva
+            </LoadingButton>
           </div>
         </div>
       </DialogContent>

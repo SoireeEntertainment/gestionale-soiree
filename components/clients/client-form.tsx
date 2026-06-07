@@ -5,8 +5,10 @@ import { useRouter } from 'next/navigation'
 import { Client, User } from '@prisma/client'
 import { createClient, updateClient } from '@/app/actions/clients'
 import { Button } from '@/components/ui/button'
+import { LoadingButton } from '@/components/ui/loading-button'
 import { UserSelect } from '@/components/ui/user-select'
 import { showToast } from '@/lib/toast'
+import { measureAction } from '@/lib/measure-action'
 
 const INDUSTRY_OPTIONS = ['Food', 'Wellness', 'Beauty', 'Fashion', 'Tech', 'Altro'] as const
 
@@ -36,17 +38,18 @@ export function ClientForm({ client, users, onSuccess }: ClientFormProps) {
     e.preventDefault()
     if (loading) return
     setLoading(true)
+    showToast(client ? 'Salvataggio…' : 'Creazione cliente…', 'loading')
 
     try {
       if (client) {
-        await updateClient(client.id, formData)
+        await measureAction('updateClient', () => updateClient(client.id, formData))
         showToast('Cliente aggiornato', 'success')
       } else {
-        await createClient(formData)
+        await measureAction('createClient', () => createClient(formData))
         showToast('Cliente creato', 'success')
       }
-      router.refresh()
       onSuccess?.()
+      router.refresh()
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Errore nel salvataggio'
       showToast(msg, 'error')
@@ -197,9 +200,9 @@ export function ClientForm({ client, users, onSuccess }: ClientFormProps) {
         >
           Annulla
         </Button>
-        <Button type="submit" disabled={loading}>
-          {loading ? (client ? 'Salvataggio...' : 'Creazione...') : client ? 'Salva Modifiche' : 'Crea Cliente'}
-        </Button>
+        <LoadingButton type="submit" loading={loading} loadingText={client ? 'Salvataggio…' : 'Creazione…'}>
+          {client ? 'Salva Modifiche' : 'Crea Cliente'}
+        </LoadingButton>
       </div>
     </form>
   )

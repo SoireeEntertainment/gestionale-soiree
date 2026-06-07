@@ -1,10 +1,10 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { format } from 'date-fns'
 import { it } from 'date-fns/locale'
 import { Button } from '@/components/ui/button'
+import { LoadingButton } from '@/components/ui/loading-button'
 import {
   getWorkSteps,
   toggleWorkStep,
@@ -16,6 +16,8 @@ import {
 } from '@/app/actions/work-steps'
 import { updateWorkStatus } from '@/app/actions/works'
 import { calculateWorkStepProgress } from '@/lib/work-step-progress'
+import { showToast } from '@/lib/toast'
+import { measureAction } from '@/lib/measure-action'
 
 type Step = {
   id: string
@@ -41,13 +43,14 @@ export function WorkChecklistSection({
   canManage,
   canAdmin,
 }: WorkChecklistSectionProps) {
-  const router = useRouter()
   const [steps, setSteps] = useState<Step[]>([])
   const [loading, setLoading] = useState(true)
   const [newTitle, setNewTitle] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editTitle, setEditTitle] = useState('')
   const [generating, setGenerating] = useState(false)
+  const [togglingId, setTogglingId] = useState<string | null>(null)
+  const [markingDone, setMarkingDone] = useState(false)
 
   const loadSteps = async () => {
     const s = await getWorkSteps(workId)
@@ -63,43 +66,94 @@ export function WorkChecklistSection({
   const allCompleted = progress.total > 0 && progress.completed === progress.total
 
   const handleToggle = async (stepId: string) => {
-    if (!canManage) return
-    await toggleWorkStep(stepId)
-    await loadSteps()
-    router.refresh()
+    if (!canManage || togglingId) return
+    const previous = steps
+    const step = steps.find((s) => s.id === stepId)
+    if (!step) return
+
+    const nextDone = step.status !== 'DONE'
+    setTogglingId(stepId)
+    setSteps((prev) =>
+      prev.map((s) =>
+        s.id === stepId
+          ? {
+              ...s,
+              status: nextDone ? 'DONE' : 'TODO',
+              completedAt: nextDone ? new Date() : null,
+              completedBy: nextDone ? s.completedBy : null,
+            }
+          : s
+      )
+    )
+
+    try {
+      await measureAction('toggleWorkStep', () => toggleWorkStep(stepId))
+    } catch {
+      setSteps(previous)
+      showToast('Errore durante l\'aggiornamento dello step', 'error')
+    } finally {
+      setTogglingId(null)
+    }
   }
 
   const handleAddStep = async () => {
     if (!newTitle.trim() || !canManage) return
-    await createWorkStep(workId, newTitle.trim())
+    const title = newTitle.trim()
     setNewTitle('')
-    await loadSteps()
-    router.refresh()
+    showToast('Aggiunta step…', 'loading')
+    try {
+      await measureAction('createWorkStep', () => createWorkStep(workId, title))
+      await loadSteps()
+      showToast('Step aggiunto', 'success')
+    } catch {
+      setNewTitle(title)
+      showToast('Errore durante l\'aggiunta dello step', 'error')
+    }
   }
 
   const handleSaveRename = async (stepId: string) => {
     if (!editTitle.trim() || !canAdmin) return
-    await updateWorkStep(stepId, { title: editTitle.trim() })
+    const title = editTitle.trim()
+    const previous = steps
+    setSteps((prev) => prev.map((s) => (s.id === stepId ? { ...s, title } : s)))
     setEditingId(null)
-    await loadSteps()
-    router.refresh()
+    showToast('Salvataggio…', 'loading')
+    try {
+      await measureAction('updateWorkStep', () => updateWorkStep(stepId, { title }))
+      showToast('Step aggiornato', 'success')
+    } catch {
+      setSteps(previous)
+      setEditingId(stepId)
+      setEditTitle(title)
+      showToast('Errore durante il salvataggio', 'error')
+    }
   }
 
   const handleDelete = async (stepId: string, title: string) => {
     if (!canAdmin) return
     if (!confirm(`Eliminare lo step "${title}"?`)) return
-    await deleteWorkStep(stepId)
-    await loadSteps()
-    router.refresh()
+    const previous = steps
+    setSteps((prev) => prev.filter((s) => s.id !== stepId))
+    showToast('Eliminazione…', 'loading')
+    try {
+      await measureAction('deleteWorkStep', () => deleteWorkStep(stepId))
+      showToast('Step eliminato', 'success')
+    } catch {
+      setSteps(previous)
+      showToast('Errore durante l\'eliminazione', 'error')
+    }
   }
 
   const handleGenerate = async () => {
     if (!canAdmin) return
     setGenerating(true)
+    showToast('Generazione checklist…', 'loading')
     try {
-      await generateMissingWorkSteps(workId)
+      await measureAction('generateMissingWorkSteps', () => generateMissingWorkSteps(workId))
       await loadSteps()
-      router.refresh()
+      showToast('Checklist generata', 'success')
+    } catch {
+      showToast('Errore durante la generazione', 'error')
     } finally {
       setGenerating(false)
     }
@@ -115,20 +169,31 @@ export function WorkChecklistSection({
       return
     }
     setGenerating(true)
+    showToast('Rigenerazione checklist…', 'loading')
     try {
-      await regenerateWorkStepsFromCategory(workId)
+      await measureAction('regenerateWorkStepsFromCategory', () => regenerateWorkStepsFromCategory(workId))
       await loadSteps()
-      router.refresh()
+      showToast('Checklist rigenerata', 'success')
+    } catch {
+      showToast('Errore durante la rigenerazione', 'error')
     } finally {
       setGenerating(false)
     }
   }
 
   const handleMarkWorkDone = async () => {
-    if (!canAdmin || workStatus === 'DONE') return
+    if (!canAdmin || workStatus === 'DONE' || markingDone) return
     if (!confirm('Segnare il lavoro come Fatto?')) return
-    await updateWorkStatus(workId, 'DONE')
-    router.refresh()
+    setMarkingDone(true)
+    showToast('Aggiornamento stato…', 'loading')
+    try {
+      await measureAction('updateWorkStatus', () => updateWorkStatus(workId, 'DONE'))
+      showToast('Lavoro segnato come Fatto', 'success')
+    } catch {
+      showToast('Errore durante l\'aggiornamento', 'error')
+    } finally {
+      setMarkingDone(false)
+    }
   }
 
   if (loading) {
@@ -144,14 +209,14 @@ export function WorkChecklistSection({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-semibold text-white">Checklist operativa</h2>
         {canAdmin && steps.length === 0 && (
-          <Button size="sm" onClick={handleGenerate} disabled={generating}>
+          <LoadingButton size="sm" onClick={handleGenerate} loading={generating} loadingText="Generazione…">
             Genera checklist da categoria
-          </Button>
+          </LoadingButton>
         )}
         {canAdmin && steps.length > 0 && (
-          <Button size="sm" variant="secondary" onClick={handleRegenerate} disabled={generating}>
+          <LoadingButton size="sm" variant="secondary" onClick={handleRegenerate} loading={generating} loadingText="Rigenerazione…">
             Rigenera checklist da categoria
-          </Button>
+          </LoadingButton>
         )}
       </div>
 
@@ -186,12 +251,14 @@ export function WorkChecklistSection({
                   <button
                     type="button"
                     onClick={() => handleToggle(step.id)}
+                    disabled={togglingId === step.id}
                     aria-label={step.status === 'DONE' ? 'Segna come da fare' : 'Segna come completato'}
-                    className={`w-5 h-5 mt-0.5 rounded border-2 shrink-0 flex items-center justify-center ${
+                    aria-busy={togglingId === step.id}
+                    className={`w-5 h-5 mt-0.5 rounded border-2 shrink-0 flex items-center justify-center transition-colors ${
                       step.status === 'DONE'
                         ? 'bg-accent border-accent'
                         : 'border-white/40 hover:border-accent'
-                    }`}
+                    } ${togglingId === step.id ? 'opacity-60' : ''}`}
                   >
                     {step.status === 'DONE' && (
                       <span className="text-dark text-xs font-bold leading-none">✓</span>
@@ -293,9 +360,9 @@ export function WorkChecklistSection({
               <p className="text-sm text-white/80 mb-2">
                 Tutti gli step sono completati. Vuoi segnare il lavoro come Fatto?
               </p>
-              <Button size="sm" onClick={handleMarkWorkDone}>
+              <LoadingButton size="sm" onClick={handleMarkWorkDone} loading={markingDone} loadingText="Aggiornamento…">
                 Segna lavoro come Fatto
-              </Button>
+              </LoadingButton>
             </div>
           )}
         </>
