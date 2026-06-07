@@ -1,82 +1,69 @@
 import { redirect } from 'next/navigation'
 import { requireAuth } from '@/lib/auth-dev'
 import { prisma } from '@/lib/prisma'
-import { CalendarViewDynamic } from '@/components/calendar/calendar-view-dynamic'
-
-const calendarAdminIds = (process.env.CALENDAR_ADMIN_USER_IDS ?? '')
-  .split(',')
-  .map((s) => s.trim())
-  .filter(Boolean)
+import { getUsers } from '@/lib/users'
+import { getWorksTimeline } from '@/app/actions/works-timeline'
+import {
+  formatAnchorDate,
+  getTimelineRange,
+  parseAnchorDate,
+  parseTimelineView,
+} from '@/lib/timeline-range'
+import { WorksTimelineDynamic } from '@/components/calendar/works-timeline-dynamic'
 
 export default async function CalendarPage(props: {
-  searchParams: Promise<{ range?: string; start?: string; end?: string }>
+  searchParams: Promise<{
+    view?: string
+    date?: string
+    categoryId?: string
+    assignedUserId?: string
+    status?: string
+    clientId?: string
+  }>
 }) {
   const user = await requireAuth()
   if (user.role === 'AGENTE') redirect('/clients')
 
-  const isCalendarAdmin = calendarAdminIds.includes(user.userId)
-
   const searchParams = await props.searchParams
-  const now = new Date()
-  let startDate: Date
-  let endDate: Date
+  const view = parseTimelineView(searchParams.view)
+  const anchor = parseAnchorDate(searchParams.date)
+  const { start, end, label } = getTimelineRange(view, anchor)
 
-  switch (searchParams.range) {
-    case 'today':
-      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0)
-      endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999)
-      break
-    case '7days':
-      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0)
-      endDate = new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000)
-      break
-    case '30days':
-      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0)
-      endDate = new Date(startDate.getTime() + 30 * 24 * 60 * 60 * 1000)
-      break
-    case 'month':
-      startDate = new Date(now.getFullYear(), now.getMonth(), 1)
-      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
-      break
-    default:
-      if (searchParams.start && searchParams.end) {
-        startDate = new Date(searchParams.start)
-        endDate = new Date(searchParams.end)
-      } else {
-        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0)
-        endDate = new Date(startDate.getTime() + 30 * 24 * 60 * 60 * 1000)
-      }
+  const filters = {
+    categoryId: searchParams.categoryId,
+    assignedUserId: searchParams.assignedUserId,
+    status: searchParams.status,
+    clientId: searchParams.clientId,
   }
 
-  const works = await prisma.work.findMany({
-    where: {
-      deadline: {
-        gte: startDate,
-        lte: endDate,
-      },
-    },
-    include: {
-      client: true,
-      category: true,
-    },
-    orderBy: {
-      deadline: 'asc',
-    },
-  })
+  const [data, clients, categories, users] = await Promise.all([
+    getWorksTimeline({
+      rangeStart: start,
+      rangeEnd: end,
+      ...filters,
+    }),
+    prisma.client.findMany({ orderBy: { name: 'asc' } }),
+    prisma.category.findMany({ orderBy: { name: 'asc' } }),
+    getUsers(),
+  ])
 
   return (
     <div className="min-h-screen bg-dark p-6">
       <div className="w-[90vw] max-w-[90vw] mx-auto">
-        <h1 className="text-3xl font-bold mb-6 text-white">Calendario</h1>
-        <CalendarViewDynamic
-          works={works}
-          initialRange={searchParams.range}
-          initialFrom={startDate.toISOString().slice(0, 10)}
-          initialTo={endDate.toISOString().slice(0, 10)}
-          isCalendarAdmin={isCalendarAdmin}
+        <h1 className="text-3xl font-bold mb-6 text-white">Timeline lavori</h1>
+        <WorksTimelineDynamic
+          data={data}
+          rangeStart={start.toISOString()}
+          rangeEnd={end.toISOString()}
+          rangeLabel={label}
+          view={view}
+          anchor={formatAnchorDate(anchor)}
+          clients={clients}
+          categories={categories}
+          users={users}
+          filters={filters}
         />
       </div>
     </div>
   )
 }
-
