@@ -20,6 +20,7 @@ export type TimelineWorkItem = {
   id: string
   title: string
   createdAt: string
+  startDate: string | null
   deadline: string | null
   status: string
   categoryName: string
@@ -58,17 +59,24 @@ function buildWithDeadlineWhere(
   filters: z.infer<typeof timelineFiltersSchema>,
   baseWhere: Record<string, unknown>
 ) {
+  const overlapStart = {
+    OR: [
+      { startDate: { lte: filters.rangeEnd } },
+      { startDate: null, createdAt: { lte: filters.rangeEnd } },
+    ],
+  }
+
   const deadlineFilter = filters.deadlineFilter
   if (deadlineFilter === 'SCADUTI' || deadlineFilter === 'IN_SCADENZA_7_GIORNI') {
     return {
       ...baseWhere,
-      createdAt: { lte: filters.rangeEnd },
+      ...overlapStart,
     }
   }
 
   return {
     ...baseWhere,
-    createdAt: { lte: filters.rangeEnd },
+    ...overlapStart,
     deadline: {
       not: null,
       gte: filters.rangeStart,
@@ -94,6 +102,7 @@ function mapWorkToTimelineItem(work: {
   id: string
   title: string
   createdAt: Date
+  startDate: Date | null
   deadline: Date | null
   status: string
   category: { name: string }
@@ -112,6 +121,7 @@ function mapWorkToTimelineItem(work: {
     id: work.id,
     title: work.title,
     createdAt: work.createdAt.toISOString(),
+    startDate: work.startDate?.toISOString() ?? null,
     deadline: work.deadline?.toISOString() ?? null,
     status: work.status,
     categoryName: work.category.name,
@@ -144,7 +154,7 @@ export async function getWorksTimeline(input: unknown): Promise<WorksTimelineRes
     prisma.work.findMany({
       where: withDeadlineWhere,
       include: workInclude,
-      orderBy: [{ deadline: 'asc' }, { createdAt: 'asc' }],
+      orderBy: [{ deadline: 'asc' }, { startDate: 'asc' }, { createdAt: 'asc' }],
     }),
     withoutDeadlineWhere
       ? prisma.work.findMany({

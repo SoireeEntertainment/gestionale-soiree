@@ -50,6 +50,7 @@ interface WorksPageClientProps {
   categories: Category[]
   users: User[]
   filters: WorksFiltersState
+  canEditTimeline?: boolean
 }
 
 export function WorksPageClient({
@@ -65,6 +66,7 @@ export function WorksPageClient({
   categories,
   users,
   filters,
+  canEditTimeline = false,
 }: WorksPageClientProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -126,6 +128,7 @@ export function WorksPageClient({
           period={period}
           anchor={anchor}
           returnTo={returnTo}
+          canEdit={canEditTimeline}
         />
       ) : (
         <WorksTable works={works} returnTo={returnTo} filters={filters} />

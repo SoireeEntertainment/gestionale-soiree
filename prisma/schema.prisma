@@ -204,6 +204,7 @@ model Work {
   categoryId      String
   status          String   @default("TODO") // TODO, IN_PROGRESS, IN_REVIEW, WAITING_CLIENT, DONE, PAUSED, CANCELED
   priority        String?  // LOW, MEDIUM, HIGH
+  startDate       DateTime?
   deadline        DateTime?
   assignedToUserId String?
   createdAt       DateTime @default(now())
@@ -218,6 +219,7 @@ model Work {
   pedItems        PedItem[]
 
   @@index([deadline])
+  @@index([startDate])
   @@index([status])
   @@index([clientId])
   @@index([categoryId])

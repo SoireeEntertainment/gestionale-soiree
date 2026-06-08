@@ -42,6 +42,11 @@ export function WorkForm({ work, clients, categories, users, clientId: initialCl
     categoryId: work?.categoryId || initialCategoryId || '',
     status: work?.status || 'TODO',
     priority: work?.priority || '',
+    startDate: work?.startDate
+      ? new Date(work.startDate).toISOString().slice(0, 10)
+      : work?.createdAt
+        ? new Date(work.createdAt).toISOString().slice(0, 10)
+        : new Date().toISOString().slice(0, 10),
     deadline: work?.deadline
       ? new Date(work.deadline).toISOString().slice(0, 10)
       : '',
@@ -73,6 +78,10 @@ export function WorkForm({ work, clients, categories, users, clientId: initialCl
     if (loading) return
     if (canQuickCreateClient && !formData.clientId) {
       showToast('Seleziona un cliente dall’elenco o creane uno nuovo con il nome che hai digitato.', 'error')
+      return
+    }
+    if (formData.startDate && formData.deadline && formData.startDate > formData.deadline) {
+      showToast('La data di partenza deve essere precedente o uguale alla scadenza', 'error')
       return
     }
     setLoading(true)
@@ -296,6 +305,18 @@ export function WorkForm({ work, clients, categories, users, clientId: initialCl
             <option value="MEDIUM">Media</option>
             <option value="HIGH">Alta</option>
           </select>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-white mb-1">
+            Data di partenza
+          </label>
+          <input
+            type="date"
+            value={formData.startDate}
+            onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
+            className="w-full px-3 py-2 bg-dark border border-accent/20 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-accent [color-scheme:dark]"
+          />
         </div>
 
         <div>

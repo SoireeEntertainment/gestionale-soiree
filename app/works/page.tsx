@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import { requireAuth } from '@/lib/auth-dev'
+import { requireAuth, canWrite } from '@/lib/auth-dev'
 import { getWorks } from '@/app/actions/works'
 import { getWorksTimeline } from '@/app/actions/works-timeline'
 import { prisma } from '@/lib/prisma'
@@ -93,6 +93,7 @@ export default async function WorksPage(props: {
           categories={categories}
           users={users}
           filters={filters}
+          canEditTimeline={canWrite(user)}
         />
       </div>
     </div>

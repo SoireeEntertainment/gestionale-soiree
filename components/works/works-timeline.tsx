@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { format } from 'date-fns'
@@ -9,8 +9,9 @@ import { Button } from '@/components/ui/button'
 import { WorkStatusBadge } from '@/components/works/work-status-badge'
 import { EmptyState } from '@/components/ui/empty-state'
 import { formatAssignees, assigneeInitials } from '@/lib/work-assignees'
+import { getWorkEffectiveStartDate } from '@/lib/timeline-dates'
 import type { TimelineWorkItem, WorksTimelineResult } from '@/app/actions/works-timeline'
-import { getTimelineBarPosition } from '@/lib/timeline-bar-position'
+import { TimelineWorkBar } from '@/components/works/timeline-work-bar'
 import {
   formatAnchorDate,
   getTimelineTicks,
@@ -28,6 +29,7 @@ const PERIOD_UNITS: { value: TimelineViewUnit; label: string }[] = [
 ]
 
 function WorkTooltip({ work, x, y }: { work: TimelineWorkItem; x: number; y: number }) {
+  const start = getWorkEffectiveStartDate(work)
   return (
     <div
       className="fixed z-50 pointer-events-none w-72 rounded-lg border border-accent/30 bg-[#1a1a1a] p-3 shadow-xl text-sm"
@@ -40,6 +42,7 @@ function WorkTooltip({ work, x, y }: { work: TimelineWorkItem; x: number; y: num
         <div className="flex items-center gap-2">
           Stato: <WorkStatusBadge status={work.status} />
         </div>
+        <div>Partenza: {format(start, 'dd MMM yyyy', { locale: it })}</div>
         <div>
           Scadenza:{' '}
           {work.deadline ? format(new Date(work.deadline), 'dd MMM yyyy', { locale: it }) : 'Nessuna'}
@@ -61,25 +64,17 @@ function TimelineWorkRow({
   rangeStart,
   rangeEnd,
   returnTo,
+  canEdit,
+  onDatesChange,
 }: {
   work: TimelineWorkItem
   rangeStart: Date
   rangeEnd: Date
   returnTo: string
+  canEdit: boolean
+  onDatesChange: (workId: string, startDate: string | null, deadline: string) => void
 }) {
   const [hover, setHover] = useState<{ x: number; y: number } | null>(null)
-
-  const bar = useMemo(() => {
-    if (!work.deadline) return null
-    return getTimelineBarPosition(
-      new Date(work.createdAt),
-      new Date(work.deadline),
-      rangeStart,
-      rangeEnd
-    )
-  }, [work.createdAt, work.deadline, rangeStart, rangeEnd])
-
-  const progressLabel = `${work.progress}%`
 
   return (
     <>
@@ -117,43 +112,25 @@ function TimelineWorkRow({
             )}
           </div>
         </div>
-        <div className="flex-1 relative min-w-[200px] p-3">
-          {bar && (
-            <Link
-              href={`/works/${work.id}?returnTo=${encodeURIComponent(returnTo)}`}
-              className="block absolute top-1/2 -translate-y-1/2 h-7 rounded-md overflow-hidden border border-white/10 bg-white/5 hover:border-accent/40 transition-colors"
-              style={{ left: `${bar.leftPercent}%`, width: `${bar.widthPercent}%` }}
-              onMouseEnter={(e) => setHover({ x: e.clientX, y: e.clientY })}
-              onMouseMove={(e) => setHover({ x: e.clientX, y: e.clientY })}
-              onMouseLeave={() => setHover(null)}
-            >
-              {bar.continuesBefore && (
-                <span className="absolute left-0 top-0 bottom-0 w-1 bg-accent/50 rounded-l" title="Iniziato prima del periodo" />
-              )}
-              <div
-                className="absolute inset-y-0 left-0 bg-accent/70 rounded-l-md"
-                style={{ width: `${work.progress}%` }}
-              />
-              <span className="absolute inset-0 flex items-center px-2 text-[10px] font-medium text-white truncate drop-shadow">
-                {progressLabel} · {work.title}
-              </span>
-              {bar.continuesAfter && (
-                <span
-                  className="absolute right-0 top-1/2 -translate-y-1/2 w-2 h-2 rotate-45 bg-white/30"
-                  title="Continua dopo il periodo"
-                />
-              )}
-              {work.deadline && (
-                <span
-                  className="absolute right-0 top-0 bottom-0 w-0.5 bg-red-400/80"
-                  title={`Scadenza: ${format(new Date(work.deadline), 'dd MMM yyyy', { locale: it })}`}
-                />
-              )}
-            </Link>
+        <div
+          className="flex-1 relative min-w-[200px] p-3"
+          onMouseEnter={(e) => setHover({ x: e.clientX, y: e.clientY })}
+          onMouseMove={(e) => setHover({ x: e.clientX, y: e.clientY })}
+          onMouseLeave={() => setHover(null)}
+        >
+          {work.deadline && (
+            <TimelineWorkBar
+              work={work}
+              rangeStart={rangeStart}
+              rangeEnd={rangeEnd}
+              returnTo={returnTo}
+              canEdit={canEdit}
+              onDatesChange={onDatesChange}
+            />
           )}
         </div>
       </div>
-      {hover && <WorkTooltip work={work} x={hover.x} y={hover.y} />}
+      {hover && !work.deadline && <WorkTooltip work={work} x={hover.x} y={hover.y} />}
     </>
   )
 }
@@ -166,6 +143,7 @@ interface WorksTimelineProps {
   period: TimelineViewUnit
   anchor: string
   returnTo: string
+  canEdit?: boolean
 }
 
 export function WorksTimeline({
@@ -176,9 +154,26 @@ export function WorksTimeline({
   period,
   anchor,
   returnTo,
+  canEdit = false,
 }: WorksTimelineProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const [works, setWorks] = useState(data.works)
+
+  useEffect(() => {
+    setWorks(data.works)
+  }, [data.works])
+
+  const handleDatesChange = useCallback(
+    (workId: string, startDate: string | null, deadline: string) => {
+      setWorks((prev) =>
+        prev.map((w) =>
+          w.id === workId ? { ...w, startDate, deadline } : w
+        )
+      )
+    },
+    []
+  )
 
   const rangeStartDate = useMemo(() => new Date(rangeStart), [rangeStart])
   const rangeEndDate = useMemo(() => new Date(rangeEnd), [rangeEnd])
@@ -214,7 +209,7 @@ export function WorksTimeline({
     pushParams({ period: nextPeriod })
   }
 
-  const isEmpty = data.works.length === 0 && data.withoutDeadline.length === 0
+  const isEmpty = works.length === 0 && data.withoutDeadline.length === 0
 
   return (
     <div>
@@ -248,6 +243,12 @@ export function WorksTimeline({
           ))}
         </div>
       </div>
+
+      {canEdit && (
+        <p className="text-xs text-white/40 mb-3">
+          Trascina la barra per spostare le date, i bordi sinistro/destro per modificare partenza o scadenza.
+        </p>
+      )}
 
       {isEmpty ? (
         <EmptyState
@@ -286,13 +287,15 @@ export function WorksTimeline({
                     )}
                   </div>
                 </div>
-                {data.works.map((work) => (
+                {works.map((work) => (
                   <TimelineWorkRow
                     key={work.id}
                     work={work}
                     rangeStart={rangeStartDate}
                     rangeEnd={rangeEndDate}
                     returnTo={returnTo}
+                    canEdit={canEdit}
+                    onDatesChange={handleDatesChange}
                   />
                 ))}
               </div>

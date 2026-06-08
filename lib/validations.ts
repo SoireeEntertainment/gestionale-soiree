@@ -34,18 +34,35 @@ export const categorySchema = z.object({
   description: z.string().optional(),
 })
 
-export const workSchema = z.object({
-  title: z.string().min(1, 'Il titolo è obbligatorio'),
-  description: z.string().optional(),
-  clientId: z.string().min(1, 'Il cliente è obbligatorio'),
-  categoryId: z.string().min(1, 'La categoria è obbligatoria'),
-  status: z.enum(['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'WAITING_CLIENT', 'DONE', 'PAUSED', 'CANCELED']),
-  priority: z.enum(['LOW', 'MEDIUM', 'HIGH']).optional(),
-  deadline: z.string().optional().or(z.literal('')),
-  assignedToUserId: z.string().optional().nullable(),
-  /** Co-assegnatari (oltre al primario); usato dall'assistente e dalla UI avanzata */
-  assigneeUserIds: z.array(z.string().min(1)).optional(),
-})
+export const workSchema = z
+  .object({
+    title: z.string().min(1, 'Il titolo è obbligatorio'),
+    description: z.string().optional(),
+    clientId: z.string().min(1, 'Il cliente è obbligatorio'),
+    categoryId: z.string().min(1, 'La categoria è obbligatoria'),
+    status: z.enum(['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'WAITING_CLIENT', 'DONE', 'PAUSED', 'CANCELED']),
+    priority: z.enum(['LOW', 'MEDIUM', 'HIGH']).optional(),
+    startDate: z.string().optional().or(z.literal('')),
+    deadline: z.string().optional().or(z.literal('')),
+    assignedToUserId: z.string().optional().nullable(),
+    /** Co-assegnatari (oltre al primario); usato dall'assistente e dalla UI avanzata */
+    assigneeUserIds: z.array(z.string().min(1)).optional(),
+  })
+  .superRefine((data, ctx) => {
+    const start = data.startDate?.trim()
+    const end = data.deadline?.trim()
+    if (start && end) {
+      const s = new Date(start)
+      const e = new Date(end)
+      if (!Number.isNaN(s.getTime()) && !Number.isNaN(e.getTime()) && s.getTime() > e.getTime()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'La data di partenza deve essere precedente o uguale alla scadenza',
+          path: ['startDate'],
+        })
+      }
+    }
+  })
 
 export const clientCategorySchema = z.object({
   clientId: z.string().min(1),

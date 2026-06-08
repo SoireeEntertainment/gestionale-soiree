@@ -12,6 +12,7 @@ import { deleteWork } from '@/app/actions/works'
 import { useRouter } from 'next/navigation'
 import { WorkStatusBadge } from './work-status-badge'
 import { WorkChecklistSection } from './work-checklist-section'
+import { getWorkEffectiveStartDate } from '@/lib/timeline-dates'
 import type { CurrentUser } from '@/lib/auth-dev'
 
 interface WorkDetailProps {
@@ -52,6 +53,7 @@ export function WorkDetail({ work, clients, categories, users, currentUser, assi
   }
 
   const isExpired = work.deadline && new Date(work.deadline) < new Date() && work.status !== 'DONE'
+  const effectiveStart = getWorkEffectiveStartDate(work)
 
   return (
     <div className="min-h-screen bg-dark p-6">
@@ -117,6 +119,12 @@ export function WorkDetail({ work, clients, categories, users, currentUser, assi
                 <span className="text-white">{priorityLabels[work.priority]}</span>
               </div>
             )}
+            <div>
+              <div className="text-sm text-white/50 mb-1">Data di partenza</div>
+              <span className="text-white">
+                {format(effectiveStart, 'dd MMMM yyyy', { locale: it })}
+              </span>
+            </div>
             {work.deadline && (
               <div>
                 <div className="text-sm text-white/50 mb-1">Scadenza</div>
