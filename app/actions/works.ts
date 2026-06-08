@@ -6,10 +6,17 @@ import { getCurrentUser, canWrite } from '@/lib/auth-dev'
 import { prisma } from '@/lib/prisma'
 import { workSchema } from '@/lib/validations'
 import { parseDeadlineFromInput } from '@/lib/date-utils'
-import { startOfDay } from 'date-fns'
+import { dateOnlyToDbDate, formatDateOnly } from '@/lib/timeline-dates'
 import { sendWorkAssignedEmail } from '@/lib/work-assignment-email'
 import { createDefaultWorkStepsForCategory } from '@/app/actions/work-steps'
 import { applyWorkDeadlineFilter } from '@/lib/work-deadline-filter'
+
+function parseWorkDateField(value: string | undefined | null): Date | null {
+  if (!value || typeof value !== 'string' || value.trim() === '') return null
+  const trimmed = value.trim().slice(0, 10)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return dateOnlyToDbDate(trimmed)
+  return parseDeadlineFromInput(value)
+}
 
 function uniqueIds(ids: Array<string | null | undefined>): string[] {
   return [...new Set(ids.filter((id): id is string => typeof id === 'string' && id.trim().length > 0))]
@@ -92,9 +99,9 @@ export async function createWork(data: unknown) {
   if (!user || !canWrite(user)) throw new Error('Non autorizzato')
 
   const validated = workSchema.parse(data)
-  const deadlineDate = parseDeadlineFromInput(validated.deadline ?? undefined)
+  const deadlineDate = parseWorkDateField(validated.deadline ?? undefined)
   const startDateParsed =
-    parseDeadlineFromInput(validated.startDate ?? undefined) ?? startOfDay(new Date())
+    parseWorkDateField(validated.startDate ?? undefined) ?? dateOnlyToDbDate(formatDateOnly(new Date()))
   const { assigneeUserIds, startDate: _start, deadline: _deadline, ...workFields } = validated
 
   const work = await prisma.work.create({
@@ -210,8 +217,8 @@ export async function updateWork(id: string, data: unknown) {
   if (!user || !canWrite(user)) throw new Error('Non autorizzato')
 
   const validated = workSchema.parse(data)
-  const deadlineDate = parseDeadlineFromInput(validated.deadline ?? undefined)
-  const startDateParsed = parseDeadlineFromInput(validated.startDate ?? undefined)
+  const deadlineDate = parseWorkDateField(validated.deadline ?? undefined)
+  const startDateParsed = parseWorkDateField(validated.startDate ?? undefined)
   const { assigneeUserIds, startDate: _start, deadline: _deadline, ...workFields } = validated
 
   const previousAssigneeIds = await getCurrentAssigneeIdsForWork(id)
@@ -253,10 +260,10 @@ export async function updateWork(id: string, data: unknown) {
 
 const updateWorkDatesSchema = z
   .object({
-    startDate: z.coerce.date(),
-    deadline: z.coerce.date(),
+    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    deadline: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   })
-  .refine((d) => d.startDate.getTime() <= d.deadline.getTime(), {
+  .refine((d) => d.startDate <= d.deadline, {
     message: 'La data di partenza deve essere precedente o uguale alla scadenza',
   })
 
@@ -269,11 +276,11 @@ export async function updateWorkDates(
 
   const validated = updateWorkDatesSchema.parse(data)
 
-  const work = await prisma.work.update({
+  await prisma.work.update({
     where: { id: workId },
     data: {
-      startDate: startOfDay(validated.startDate),
-      deadline: startOfDay(validated.deadline),
+      startDate: dateOnlyToDbDate(validated.startDate),
+      deadline: dateOnlyToDbDate(validated.deadline),
     },
     select: { id: true, startDate: true, deadline: true, clientId: true },
   })
@@ -283,8 +290,8 @@ export async function updateWorkDates(
 
   return {
     success: true,
-    startDate: work.startDate!.toISOString(),
-    deadline: work.deadline!.toISOString(),
+    startDate: validated.startDate,
+    deadline: validated.deadline,
   }
 }
 

@@ -11,6 +11,7 @@ import { UserSelect } from '@/components/ui/user-select'
 import { showToast } from '@/lib/toast'
 import { measureAction } from '@/lib/measure-action'
 import { WORK_STATUS_META } from '@/lib/work-status'
+import { dbDateToDateOnly, formatDateOnly } from '@/lib/timeline-dates'
 
 interface WorkFormProps {
   work?: Work & { client: Client; category: Category; assignedTo?: User | null }
@@ -43,13 +44,11 @@ export function WorkForm({ work, clients, categories, users, clientId: initialCl
     status: work?.status || 'TODO',
     priority: work?.priority || '',
     startDate: work?.startDate
-      ? new Date(work.startDate).toISOString().slice(0, 10)
+      ? dbDateToDateOnly(work.startDate)
       : work?.createdAt
-        ? new Date(work.createdAt).toISOString().slice(0, 10)
-        : new Date().toISOString().slice(0, 10),
-    deadline: work?.deadline
-      ? new Date(work.deadline).toISOString().slice(0, 10)
-      : '',
+        ? formatDateOnly(new Date(work.createdAt))
+        : formatDateOnly(new Date()),
+    deadline: work?.deadline ? dbDateToDateOnly(work.deadline) : '',
     assignedToUserId: work?.assignedToUserId || null,
   })
   const [formData, setFormData] = useState(buildInitialFormData)

@@ -11,6 +11,7 @@ import {
   parseTimelinePeriod,
 } from '@/lib/timeline-range'
 import { parseWorksPageView } from '@/lib/works-page-view'
+import { formatDateOnly } from '@/lib/timeline-dates'
 import { WorksPageClient } from '@/components/works/works-page-client'
 
 export default async function WorksPage(props: {
@@ -84,8 +85,8 @@ export default async function WorksPage(props: {
           pageView={pageView}
           works={works}
           timelineData={timelineData}
-          rangeStart={start.toISOString()}
-          rangeEnd={end.toISOString()}
+          rangeStart={formatDateOnly(start)}
+          rangeEnd={formatDateOnly(end)}
           rangeLabel={label}
           period={period}
           anchor={formatAnchorDate(anchor)}

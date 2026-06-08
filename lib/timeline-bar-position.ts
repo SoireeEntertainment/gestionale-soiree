@@ -1,3 +1,8 @@
+import {
+  diffCalendarDaysLocal,
+  startOfLocalDay,
+} from '@/lib/timeline-dates'
+
 const MIN_WIDTH_PERCENT = 1.5
 
 export type TimelineBarPosition = {
@@ -7,35 +12,45 @@ export type TimelineBarPosition = {
   continuesAfter: boolean
 }
 
+/**
+ * Bar position using inclusive calendar days (0% = rangeStart, 100% = rangeEnd).
+ * Dates in timeline are treated as date-only to avoid timezone off-by-one.
+ */
 export function getTimelineBarPosition(
   workStart: Date,
   workEnd: Date,
   rangeStart: Date,
   rangeEnd: Date
 ): TimelineBarPosition {
-  const rangeMs = rangeEnd.getTime() - rangeStart.getTime()
-  if (rangeMs <= 0) {
+  const start = startOfLocalDay(workStart)
+  const end = startOfLocalDay(workEnd)
+  const rangeStartDay = startOfLocalDay(rangeStart)
+  const rangeEndDay = startOfLocalDay(rangeEnd)
+
+  const daySpan = diffCalendarDaysLocal(rangeStartDay, rangeEndDay)
+  if (daySpan <= 0) {
     return { leftPercent: 0, widthPercent: MIN_WIDTH_PERCENT, continuesBefore: false, continuesAfter: false }
   }
 
-  let start = workStart
-  let end = workEnd
-
+  let endDay = end
   if (end.getTime() < start.getTime()) {
     if (process.env.NODE_ENV !== 'production') {
-      console.warn('[timeline] deadline before createdAt', { start, end })
+      console.warn('[timeline] deadline before startDate', { start, end })
     }
-    end = new Date(start.getTime() + 60 * 60 * 1000)
+    endDay = start
   }
 
-  const continuesBefore = start.getTime() < rangeStart.getTime()
-  const continuesAfter = end.getTime() > rangeEnd.getTime()
+  const continuesBefore = diffCalendarDaysLocal(start, rangeStartDay) < 0
+  const continuesAfter = diffCalendarDaysLocal(endDay, rangeEndDay) > 0
 
-  const visibleStart = new Date(Math.max(start.getTime(), rangeStart.getTime()))
-  const visibleEnd = new Date(Math.min(end.getTime(), rangeEnd.getTime()))
+  const visibleStart = continuesBefore ? rangeStartDay : start
+  const visibleEnd = continuesAfter ? rangeEndDay : endDay
 
-  let leftPercent = ((visibleStart.getTime() - rangeStart.getTime()) / rangeMs) * 100
-  let widthPercent = ((visibleEnd.getTime() - visibleStart.getTime()) / rangeMs) * 100
+  const leftIndex = Math.max(0, diffCalendarDaysLocal(rangeStartDay, visibleStart))
+  const rightIndex = Math.min(daySpan, diffCalendarDaysLocal(rangeStartDay, visibleEnd))
+
+  let leftPercent = (leftIndex / daySpan) * 100
+  let widthPercent = ((rightIndex - leftIndex) / daySpan) * 100
 
   if (widthPercent < MIN_WIDTH_PERCENT) widthPercent = MIN_WIDTH_PERCENT
   if (leftPercent < 0) leftPercent = 0

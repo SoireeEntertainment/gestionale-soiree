@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { WorkStatusBadge } from '@/components/works/work-status-badge'
 import { EmptyState } from '@/components/ui/empty-state'
 import { formatAssignees, assigneeInitials } from '@/lib/work-assignees'
-import { getWorkEffectiveStartDate } from '@/lib/timeline-dates'
+import { getWorkEffectiveStartDate, parseDateOnly } from '@/lib/timeline-dates'
 import type { TimelineWorkItem, WorksTimelineResult } from '@/app/actions/works-timeline'
 import { TimelineWorkBar } from '@/components/works/timeline-work-bar'
 import {
@@ -175,8 +175,8 @@ export function WorksTimeline({
     []
   )
 
-  const rangeStartDate = useMemo(() => new Date(rangeStart), [rangeStart])
-  const rangeEndDate = useMemo(() => new Date(rangeEnd), [rangeEnd])
+  const rangeStartDate = useMemo(() => parseDateOnly(rangeStart), [rangeStart])
+  const rangeEndDate = useMemo(() => parseDateOnly(rangeEnd), [rangeEnd])
   const ticks = useMemo(
     () => getTimelineTicks(period, rangeStartDate, rangeEndDate),
     [period, rangeStartDate, rangeEndDate]

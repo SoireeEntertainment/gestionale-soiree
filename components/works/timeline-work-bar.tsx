@@ -8,8 +8,9 @@ import { updateWorkDates } from '@/app/actions/works'
 import type { TimelineWorkItem } from '@/app/actions/works-timeline'
 import { getTimelineBarPosition } from '@/lib/timeline-bar-position'
 import {
-  addCalendarDays,
+  addDaysLocal,
   ensureMinDuration,
+  formatDateOnly,
   getWorkEffectiveEndDate,
   getWorkEffectiveStartDate,
   MIN_DRAG_PX,
@@ -85,16 +86,16 @@ export function TimelineWorkBar({
       }
       if (mode === 'move') {
         return ensureMinDuration(
-          addCalendarDays(originStart, deltaDays),
-          addCalendarDays(originEnd, deltaDays),
+          addDaysLocal(originStart, deltaDays),
+          addDaysLocal(originEnd, deltaDays),
           0
         )
       }
       if (mode === 'resize-start') {
-        const nextStart = addCalendarDays(originStart, deltaDays)
+        const nextStart = addDaysLocal(originStart, deltaDays)
         return ensureMinDuration(nextStart, originEnd, 0)
       }
-      const nextEnd = addCalendarDays(originEnd, deltaDays)
+      const nextEnd = addDaysLocal(originEnd, deltaDays)
       return ensureMinDuration(originStart, nextEnd, 0)
     },
     []
@@ -110,7 +111,10 @@ export function TimelineWorkBar({
 
       try {
         const result = await measureAction('updateWorkDates', () =>
-          updateWorkDates(work.id, { startDate: start, deadline: end })
+          updateWorkDates(work.id, {
+            startDate: formatDateOnly(start),
+            deadline: formatDateOnly(end),
+          })
         )
         onDatesChange?.(work.id, result.startDate, result.deadline)
         showToast('Date lavoro aggiornate', 'success')
