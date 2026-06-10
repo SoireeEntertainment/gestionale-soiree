@@ -7,6 +7,7 @@ import { Client, User } from '@prisma/client'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { ClientForm } from './client-form'
+import { DomainRenewalsAlertButton } from './domain-renewals-alert-button'
 import { deleteClient } from '@/app/actions/clients'
 import { showToast } from '@/lib/toast'
 
@@ -62,6 +63,7 @@ export function ClientsList({ clients, users, canWrite = true }: ClientsListProp
           placeholder="Cerca per nome, contatto, email, telefono..."
           className="flex-1 min-w-[200px] px-3 py-2 bg-dark border border-accent/20 rounded text-white placeholder-white/40"
         />
+        <DomainRenewalsAlertButton />
         {canWrite && (
           <>
             <Link href="/clients/import-domains">
