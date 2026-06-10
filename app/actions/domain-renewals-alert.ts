@@ -3,18 +3,30 @@
 import { getCurrentUser } from '@/lib/auth-dev'
 import { sendDomainRenewalsAlertEmail } from '@/lib/domain-renewals-alert'
 
-export async function sendDomainRenewalsAlertEmailAction(): Promise<{
-  success: boolean
-  count: number
-  sentTo: string
-}> {
+export type DomainRenewalsAlertActionResult =
+  | { success: true; count: number; sentTo: string }
+  | { success: false; error: string }
+
+function toClientErrorMessage(err: unknown): string {
+  if (err instanceof Error && err.message.trim()) return err.message
+  return 'Errore durante l\'invio dell\'alert rinnovi'
+}
+
+export async function sendDomainRenewalsAlertEmailAction(): Promise<DomainRenewalsAlertActionResult> {
   const user = await getCurrentUser()
-  if (!user) throw new Error('Non autorizzato')
+  if (!user) {
+    return { success: false, error: 'Non autorizzato' }
+  }
 
   try {
-    return await sendDomainRenewalsAlertEmail()
+    const result = await sendDomainRenewalsAlertEmail()
+    return { success: true, count: result.count, sentTo: result.sentTo }
   } catch (err) {
-    console.error('[sendDomainRenewalsAlertEmailAction]', err)
-    throw new Error('Errore durante l\'invio dell\'alert rinnovi')
+    console.error('[DomainRenewalsAlert] error', {
+      message: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+      cause: err instanceof Error ? err.cause : undefined,
+    })
+    return { success: false, error: toClientErrorMessage(err) }
   }
 }

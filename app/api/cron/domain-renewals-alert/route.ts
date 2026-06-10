@@ -19,8 +19,12 @@ export async function GET(request: NextRequest) {
     const result = await sendDomainRenewalsAlertEmail()
     return NextResponse.json(result)
   } catch (err) {
-    console.error('[cron/domain-renewals-alert]', err)
-    return NextResponse.json({ error: 'Internal error' }, { status: 500 })
+    const message = err instanceof Error ? err.message : 'Internal error'
+    console.error('[cron/domain-renewals-alert]', {
+      message,
+      stack: err instanceof Error ? err.stack : undefined,
+    })
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }
 

@@ -16,10 +16,15 @@ export function DomainRenewalsAlertButton() {
     showToast('Invio alert rinnovi…', 'loading')
     try {
       const result = await sendDomainRenewalsAlertEmailAction()
+      if (!result.success) {
+        showToast(result.error, 'error')
+        return
+      }
       const to = result.sentTo || ALERT_RECIPIENT
       showToast(`Alert rinnovi inviato a ${to}`, 'success')
-    } catch {
-      showToast('Errore durante l\'invio dell\'alert rinnovi', 'error')
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Errore durante l\'invio dell\'alert rinnovi'
+      showToast(msg, 'error')
     } finally {
       setSending(false)
     }
@@ -33,6 +38,7 @@ export function DomainRenewalsAlertButton() {
       onClick={handleSend}
       loading={sending}
       loadingText="Invio..."
+      disabled={sending}
     >
       Manda Alert Rinnovi
     </LoadingButton>

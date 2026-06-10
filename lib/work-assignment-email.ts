@@ -143,11 +143,15 @@ export async function sendWorkAssignedEmail({
   const workUrl = `${getAppUrl()}/works/${work.id}`
   const { subject, html, text } = buildWorkAssignedEmail({ user, work, workUrl })
 
-  await resend.emails.send({
+  const { error } = await resend.emails.send({
     from,
     to: user.email,
     subject,
     html,
     text,
   })
+
+  if (error) {
+    throw new Error(`Errore provider email: ${error.message}`)
+  }
 }
