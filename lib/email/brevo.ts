@@ -1,5 +1,9 @@
 import { BrevoClient, BrevoError } from '@getbrevo/brevo'
-import { getBrevoApiKey, getEmailSender } from '@/lib/email-env'
+import {
+  getBrevoApiKey,
+  getEmailSender,
+  TRANSACTIONAL_EMAIL_SENDER_NAME,
+} from '@/lib/email-env'
 
 export type SendEmailParams = {
   to: string
@@ -33,11 +37,14 @@ export async function sendEmail({
   html,
   text,
 }: SendEmailParams): Promise<{ messageId?: string }> {
-  const sender = getEmailSender()
+  const { email } = getEmailSender()
 
   try {
     const response = await getClient().transactionalEmails.sendTransacEmail({
-      sender,
+      sender: {
+        email,
+        name: TRANSACTIONAL_EMAIL_SENDER_NAME,
+      },
       to: [{ email: to }],
       subject,
       htmlContent: html,

@@ -1,6 +1,7 @@
 /** Validazione env per invio email via Brevo (senza loggare segreti). */
 
-const DEFAULT_SENDER_NAME = 'Soirée Studio'
+/** Nome mittente uniforme per tutte le email transazionali del gestionale. */
+export const TRANSACTIONAL_EMAIL_SENDER_NAME = 'Soirëe Studio'
 
 export function logEmailEnvCheck(context: string): void {
   console.log(`[${context}] env check`, {
@@ -22,17 +23,16 @@ export function getEmailFrom(): string {
   return from
 }
 
-/** Parse EMAIL_FROM ("Nome <email@domain>" o solo email) per Brevo sender. */
-export function getEmailSender(): { email: string; name: string } {
-  const raw = getEmailFrom()
-  const defaultName = process.env.EMAIL_FROM_NAME?.trim() || DEFAULT_SENDER_NAME
-
+function parseEmailAddress(raw: string): string {
   const angleMatch = raw.match(/^(.+?)\s*<([^>]+)>$/)
-  if (angleMatch) {
-    const name = angleMatch[1].replace(/^["']|["']$/g, '').trim()
-    const email = angleMatch[2].trim()
-    return { name: name || defaultName, email }
-  }
+  if (angleMatch) return angleMatch[2].trim()
+  return raw
+}
 
-  return { name: defaultName, email: raw }
+/** Sender Brevo: indirizzo da EMAIL_FROM, nome sempre "Soirëe Studio". */
+export function getEmailSender(): { email: string; name: string } {
+  return {
+    email: parseEmailAddress(getEmailFrom()),
+    name: TRANSACTIONAL_EMAIL_SENDER_NAME,
+  }
 }
