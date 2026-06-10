@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@clerk/nextjs": "^5.7.5",
+    "@getbrevo/brevo": "^5.0.4",
     "@prisma/client": "^5.22.0",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-dropdown-menu": "^2.1.16",
@@ -39,7 +40,6 @@
     "next": "^15.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "resend": "^6.12.2",
     "tailwind-merge": "^3.4.0",
     "tesseract.js": "^7.0.0",
     "zod": "^3.25.76",

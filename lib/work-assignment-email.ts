@@ -1,4 +1,4 @@
-import { Resend } from 'resend'
+import { sendEmail } from '@/lib/email/brevo'
 
 type WorkEmailData = {
   id: string
@@ -133,25 +133,13 @@ export async function sendWorkAssignedEmail({
   user: WorkRecipient
   work: WorkEmailData
 }) {
-  const apiKey = process.env.RESEND_API_KEY?.trim()
-  const from = process.env.EMAIL_FROM?.trim()
-  if (!apiKey || !from) {
-    throw new Error('Email provider non configurato (RESEND_API_KEY/EMAIL_FROM mancanti)')
-  }
-
-  const resend = new Resend(apiKey)
   const workUrl = `${getAppUrl()}/works/${work.id}`
   const { subject, html, text } = buildWorkAssignedEmail({ user, work, workUrl })
 
-  const { error } = await resend.emails.send({
-    from,
+  await sendEmail({
     to: user.email,
     subject,
     html,
     text,
   })
-
-  if (error) {
-    throw new Error(`Errore provider email: ${error.message}`)
-  }
 }

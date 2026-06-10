@@ -1,9 +1,9 @@
 import { addMonths, endOfDay, format, startOfDay } from 'date-fns'
 import { it } from 'date-fns/locale'
-import { Resend } from 'resend'
-import { prisma } from '@/lib/prisma'
+import { sendEmail } from '@/lib/email/brevo'
+import { logEmailEnvCheck } from '@/lib/email-env'
 import { isDomainRenewalService, parseDomainFromServiceName } from '@/lib/domain-renewal-utils'
-import { getEmailFrom, getResendApiKey, logEmailEnvCheck } from '@/lib/email-env'
+import { prisma } from '@/lib/prisma'
 
 export const DOMAIN_RENEWALS_ALERT_RECIPIENT =
   process.env.DOMAIN_RENEWALS_ALERT_TO?.trim() || 'soiree.teamwork@gmail.com'
@@ -182,8 +182,6 @@ export async function sendDomainRenewalsAlertEmail(): Promise<{
 }> {
   logEmailEnvCheck('DomainRenewalsAlert')
 
-  const apiKey = getResendApiKey()
-  const from = getEmailFrom()
   const sentTo = DOMAIN_RENEWALS_ALERT_RECIPIENT
 
   const items = await getDomainRenewalsExpiringInNextTwoMonths()
@@ -192,27 +190,17 @@ export async function sendDomainRenewalsAlertEmail(): Promise<{
   const { subject, html, text } = buildDomainRenewalsAlertEmail(items)
   console.log('[DomainRenewalsAlert] email template ready', { subject, recipient: sentTo })
 
-  const resend = new Resend(apiKey)
-  const { data, error } = await resend.emails.send({
-    from,
+  const { messageId } = await sendEmail({
     to: sentTo,
     subject,
     html,
     text,
   })
 
-  if (error) {
-    console.error('[DomainRenewalsAlert] resend provider error', {
-      message: error.message,
-      name: error.name,
-    })
-    throw new Error(`Errore provider email: ${error.message}`)
-  }
-
   console.info('[DomainRenewalsAlert] sent', {
     sentTo,
     count: items.length,
-    messageId: data?.id,
+    messageId,
     at: new Date().toISOString(),
   })
 
