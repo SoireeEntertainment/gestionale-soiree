@@ -8,6 +8,11 @@ import { prisma } from '@/lib/prisma'
 import { toDateString, getISOWeekStart, getCalendarRangeUTC, planFillMonthDates } from '@/lib/ped-utils'
 import { getEffectiveLabel, PED_LABEL_ORDER, DEFAULT_LABEL, DONE_LABEL, PED_LABELS, type PedLabel } from '@/lib/pedLabels'
 import { pedClientSettingSchema, pedItemCreateSchema, pedItemUpdateSchema, pedItemSetLabelSchema } from '@/lib/validations'
+import {
+  markShootingReelPublishedIfNeeded,
+  resolveShootingReelForPedItem,
+  syncLinkedShootingReelAfterPedStatusChange,
+} from '@/lib/shooting-reel-sync'
 
 export type WorkDeadlineForPed = {
   id: string
@@ -145,11 +150,20 @@ export async function getPedMonth(year: number, month: number, viewAsUserId?: st
       isExtra: true,
       sortOrder: true,
       platforms: true,
+      shootingReelId: true,
       createdAt: true,
       updatedAt: true,
       client: { select: { id: true, name: true } },
       work: { select: { id: true, title: true } },
       assignedTo: { select: { id: true, name: true } },
+      shootingReel: {
+        select: {
+          id: true,
+          topic: true,
+          published: true,
+          shooting: { select: { id: true, name: true, date: true, location: true } },
+        },
+      },
     },
     }),
     getAssignedWorkDeadlinesForPed(ownerId, startDate, endDate),
@@ -523,6 +537,14 @@ export async function getPedMonthForClient(clientId: string, year: number, month
       work: { select: { id: true, title: true } },
       owner: { select: { id: true, name: true } },
       assignedTo: { select: { id: true, name: true } },
+      shootingReel: {
+        select: {
+          id: true,
+          topic: true,
+          published: true,
+          shooting: { select: { id: true, name: true, date: true, location: true } },
+        },
+      },
     },
   }),
     prisma.pedClientSetting.findMany({
@@ -822,6 +844,13 @@ export async function createPedItem(payload: unknown) {
   const label = validated.label ?? DEFAULT_LABEL
   const status = label === DONE_LABEL ? 'DONE' : 'TODO'
   const platforms = validated.platforms ?? []
+  const resolvedType = validated.type
+  const shootingReelId = await resolveShootingReelForPedItem({
+    clientId: validated.clientId,
+    type: resolvedType,
+    shootingReelId: validated.shootingReelId,
+  })
+
   await prisma.pedItem.create({
     data: {
       id,
@@ -830,7 +859,7 @@ export async function createPedItem(payload: unknown) {
       clientId: validated.clientId,
       date: new Date(dateStr),
       kind: validated.kind,
-      type: validated.type,
+      type: resolvedType,
       title: validated.title,
       description: desc,
       priority: validated.priority ?? 'MEDIUM',
@@ -840,8 +869,13 @@ export async function createPedItem(payload: unknown) {
       isExtra: !!isExtra,
       sortOrder,
       platforms,
+      shootingReelId,
     },
   })
+
+  if (shootingReelId && status === 'DONE') {
+    await markShootingReelPublishedIfNeeded(shootingReelId)
+  }
 
   revalidatePath('/ped')
   revalidatePath(`/clients/${validated.clientId}`)
@@ -861,10 +895,20 @@ export async function updatePedItem(id: string, payload: unknown) {
 
   const existing = await prisma.pedItem.findUnique({
     where: { id },
-    select: { ownerId: true, assignedToUserId: true, date: true, isExtra: true },
+    select: {
+      ownerId: true,
+      assignedToUserId: true,
+      date: true,
+      isExtra: true,
+      clientId: true,
+      type: true,
+      shootingReelId: true,
+      status: true,
+      label: true,
+    },
   })
   const canEdit = existing && (existing.ownerId === ownerId || existing.assignedToUserId === ownerId)
-  if (!canEdit) throw new Error('Non autorizzato')
+  if (!canEdit || !existing) throw new Error('Non autorizzato')
 
   const validated = pedItemUpdateSchema.parse(payload)
 
@@ -897,6 +941,29 @@ export async function updatePedItem(id: string, payload: unknown) {
   }
   if (validated.assignedToUserId !== undefined) data.assignedToUserId = validated.assignedToUserId
 
+  const nextClientId = validated.clientId ?? existing.clientId
+  const nextType = validated.type ?? existing.type
+  if (validated.shootingReelId !== undefined || validated.type !== undefined || validated.clientId !== undefined) {
+    if (nextType !== 'REEL') {
+      data.shootingReelId = null
+    } else if (validated.shootingReelId !== undefined) {
+      data.shootingReelId = await resolveShootingReelForPedItem({
+        clientId: nextClientId,
+        type: nextType,
+        shootingReelId: validated.shootingReelId,
+        currentPedItemId: id,
+      })
+    } else if (validated.clientId !== undefined && existing.shootingReelId) {
+      // Cliente cambiato: rivalida o azzera il collegamento
+      data.shootingReelId = await resolveShootingReelForPedItem({
+        clientId: nextClientId,
+        type: nextType,
+        shootingReelId: existing.shootingReelId,
+        currentPedItemId: id,
+      }).catch(() => null)
+    }
+  }
+
   if (Object.keys(data).length === 0) return
 
   await prisma.pedItem.update({
@@ -904,7 +971,23 @@ export async function updatePedItem(id: string, payload: unknown) {
     data,
   })
 
+  const nextStatus = (data.status as string | undefined) ?? existing.status
+  const nextLabel = (data.label as string | undefined) ?? existing.label
+  const nextReelId =
+    data.shootingReelId !== undefined ? (data.shootingReelId as string | null) : existing.shootingReelId
+
+  if (nextReelId && getEffectiveLabel({ label: nextLabel, status: nextStatus }) === DONE_LABEL) {
+    await markShootingReelPublishedIfNeeded(nextReelId)
+  } else {
+    await syncLinkedShootingReelAfterPedStatusChange({
+      pedItemId: id,
+      newStatus: nextStatus,
+      newLabel: nextLabel,
+    })
+  }
+
   revalidatePath('/ped')
+  if (nextClientId) revalidatePath(`/clients/${nextClientId}`)
 }
 
 /** Imposta l'etichetta di una task (es. da context menu). Sincronizza status DONE se label = FATTO. */
@@ -926,6 +1009,12 @@ export async function setPedItemLabel(id: string, label: string): Promise<{ ok: 
     await prisma.pedItem.update({
       where: { id },
       data: { label: validated.label, status },
+    })
+
+    await syncLinkedShootingReelAfterPedStatusChange({
+      pedItemId: id,
+      newStatus: status,
+      newLabel: validated.label,
     })
 
     revalidatePath('/ped')
@@ -958,6 +1047,11 @@ export async function bulkSetPedItemLabel(ids: string[], label: string): Promise
         where: { id },
         data: { label, status },
       })
+      await syncLinkedShootingReelAfterPedStatusChange({
+        pedItemId: id,
+        newStatus: status,
+        newLabel: label,
+      })
       applied++
     }
     revalidatePath('/ped')
@@ -981,6 +1075,11 @@ export async function bulkTogglePedItemDone(ids: string[], done: boolean): Promi
       await prisma.pedItem.update({
         where: { id },
         data: { status, label },
+      })
+      await syncLinkedShootingReelAfterPedStatusChange({
+        pedItemId: id,
+        newStatus: status,
+        newLabel: label,
       })
       applied++
     }
@@ -1102,6 +1201,12 @@ export async function togglePedItemDone(id: string): Promise<{ ok: boolean; erro
     await prisma.pedItem.update({
       where: { id },
       data: { status: newStatus, label: newLabel },
+    })
+
+    await syncLinkedShootingReelAfterPedStatusChange({
+      pedItemId: id,
+      newStatus,
+      newLabel,
     })
 
     revalidatePath('/ped')

@@ -1,10 +1,18 @@
 'use client'
 
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { upsertPedClientSetting, removePedClientSetting, fillPedMonthForClient } from '@/app/actions/ped'
 import { showToast } from '@/lib/toast'
+import {
+  DEFAULT_PED_CLIENT_SORT,
+  isPedClientSort,
+  PED_CLIENT_SORT_OPTIONS,
+  PED_CLIENT_SORT_STORAGE_KEY,
+  sortPedClients,
+  type PedClientSort,
+} from '@/lib/ped-client-sort'
 
 const SAVE_DEBOUNCE_MS = 600
 
@@ -41,10 +49,8 @@ export function PedClientSettings({
   clients: Client[]
   userName?: string
   readOnly?: boolean
-  /** Mese visualizzato nel PED (per “Riempi il mese attuale”). */
   year?: number
   month?: number
-  /** Se passato (es. refresh debounced dal parent), evita refresh RSC sovrapposti. */
   onDataMutated?: () => void
 }) {
   const router = useRouter()
@@ -59,9 +65,31 @@ export function PedClientSettings({
   const [draftByClientId, setDraftByClientId] = useState<Record<string, number>>({})
   const [editingClientId, setEditingClientId] = useState<string | null>(null)
   const [weekdaysByClientId, setWeekdaysByClientId] = useState<Record<string, number[]>>({})
+  const [sortMode, setSortMode] = useState<PedClientSort>(DEFAULT_PED_CLIENT_SORT)
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const clientIdsInPed = new Set(settings.map((s) => s.clientId))
   const availableClients = clients.filter((c) => !clientIdsInPed.has(c.id))
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(PED_CLIENT_SORT_STORAGE_KEY)
+      if (isPedClientSort(stored)) setSortMode(stored)
+    } catch {
+      // ignore
+    }
+  }, [])
+
+  const handleSortChange = (value: string) => {
+    if (!isPedClientSort(value)) return
+    setSortMode(value)
+    try {
+      localStorage.setItem(PED_CLIENT_SORT_STORAGE_KEY, value)
+    } catch {
+      // ignore
+    }
+  }
+
+  const sortedSettings = useMemo(() => sortPedClients(settings, sortMode), [settings, sortMode])
 
   const saveDraft = useCallback(
     async (clientId: string, value: number) => {
@@ -160,11 +188,27 @@ export function PedClientSettings({
 
   return (
     <div className="bg-dark border border-accent/20 rounded-xl p-4 mb-6">
-      <h2 className="text-lg font-semibold text-white mb-3">
-        {userName ? `Clienti del PED di ${userName}` : 'Clienti nel PED'}
-      </h2>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+        <h2 className="text-lg font-semibold text-white">
+          {userName ? `Clienti del PED di ${userName}` : 'Clienti nel PED'}
+        </h2>
+        <label className="flex items-center gap-2 text-sm text-white/70 shrink-0">
+          <span>Ordina per</span>
+          <select
+            value={sortMode}
+            onChange={(e) => handleSortChange(e.target.value)}
+            className="px-2 py-1 bg-dark border border-accent/20 rounded text-white text-sm max-w-[220px]"
+          >
+            {PED_CLIENT_SORT_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
       <ul className="space-y-3 mb-3">
-        {settings.map((s) => {
+        {sortedSettings.map((s) => {
           const isEditing = editingClientId === s.clientId
           const displayValue =
             isEditing && draftByClientId[s.clientId] !== undefined
@@ -264,9 +308,7 @@ export function PedClientSettings({
                             year,
                             month
                           )
-                          if (warning) {
-                            showToast(warning, 'error')
-                          }
+                          if (warning) showToast(warning, 'error')
                           if (created > 0) {
                             showToast(`Create ${created} task per ${clientName} nel mese corrente`, 'success')
                           } else if (!warning) {

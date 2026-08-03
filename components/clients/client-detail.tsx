@@ -9,6 +9,7 @@ import { ClientPreventiviSection } from './client-preventivi-section'
 import { ClientCredentialsSection } from './client-credentials-section'
 import { ClientRenewalsSection } from './client-renewals-section'
 import { ClientPedSection } from './client-ped-section'
+import { ClientShootingsSection } from './client-shootings-section'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { User } from '@prisma/client'
@@ -250,6 +251,8 @@ export function ClientDetail({ client, allCategories, users, canWrite = true, sh
           initialRenewals={renewals}
           canWrite={canWrite ?? false}
         />
+
+        <ClientShootingsSection clientId={client.id} canWrite={canWrite ?? false} />
 
         {categoryOverview.length > 0 && (
           <div className="bg-dark border border-accent/20 rounded-lg p-6 mb-6">
