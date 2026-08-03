@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
-import { cookies } from 'next/headers'
+import { cookies, headers } from 'next/headers'
+import { isRedirectError } from 'next/dist/client/components/redirect-error'
 import { prisma } from './prisma'
 
 const DEV_USER_PREFIX = 'dev-user-'
@@ -15,8 +16,13 @@ export interface CurrentUser {
   role: UserRole
 }
 
-function isUuid(s: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)
+/** Errore temporaneo (DB/rete): non implica logout né “non autorizzato”. */
+export class AuthTransientError extends Error {
+  readonly code = 'AUTH_TRANSIENT' as const
+  constructor(message = 'Servizio temporaneamente non disponibile') {
+    super(message)
+    this.name = 'AuthTransientError'
+  }
 }
 
 const CLERK_AUTH_RETRY_MS = 75
@@ -42,9 +48,22 @@ type AuthDecisionDebug = {
   adminEmails: string[]
   isAllowedByAdminEmails: boolean
   foundDbUser: boolean
-  finalDecision: 'allow' | 'deny'
+  finalDecision: 'allow' | 'deny' | 'transient'
   reasonDenied: string | null
 }
+
+type DenialReason =
+  | 'no_clerk_session'
+  | 'missing_email'
+  | 'internal_user_not_found'
+  | 'duplicate_internal_user'
+  | 'clerk_id_mismatch'
+  | 'user_disabled'
+  | 'invalid_role'
+  | 'database_unavailable'
+  | 'session_expired'
+  | 'middleware_redirect'
+  | 'unknown'
 
 function normalizeEmail(email: string | null | undefined): string | null {
   if (!email) return null
@@ -64,6 +83,65 @@ function getEmergencyAdminEmails(): string[] {
   const envEmails = parseAdminEmailsFromEnv(process.env.ADMIN_EMAILS)
   const merged = new Set<string>([...envEmails, ...FALLBACK_ADMIN_EMAILS])
   return Array.from(merged)
+}
+
+function isDatabaseError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  const e = err as { name?: string; code?: string; message?: string }
+  const msg = (e.message ?? '').toLowerCase()
+  return (
+    e.name === 'PrismaClientKnownRequestError' ||
+    e.name === 'PrismaClientUnknownRequestError' ||
+    e.name === 'PrismaClientInitializationError' ||
+    e.name === 'PrismaClientRustPanicError' ||
+    e.code === 'P1001' ||
+    e.code === 'P1002' ||
+    e.code === 'P1008' ||
+    e.code === 'P1017' ||
+    msg.includes('can\'t reach database') ||
+    msg.includes('connection') ||
+    msg.includes('timed out') ||
+    msg.includes('econnrefused') ||
+    msg.includes('econnreset')
+  )
+}
+
+async function logAuthDiagnostic(payload: {
+  route?: string
+  clerkUserId: string | null
+  email: string | null
+  internalUserFound: boolean
+  internalUserId: string | null
+  isActive: boolean | null
+  authorizationDecision: 'allow' | 'deny' | 'transient'
+  denialReason: DenialReason | null
+  sessionPresent: boolean
+  databaseError: boolean
+  redirectTarget?: string | null
+}) {
+  console.info('[auth-diagnostic]', {
+    timestamp: new Date().toISOString(),
+    route: payload.route ?? null,
+    clerkUserId: payload.clerkUserId,
+    email: payload.email,
+    internalUserFound: payload.internalUserFound,
+    internalUserId: payload.internalUserId,
+    isActive: payload.isActive,
+    authorizationDecision: payload.authorizationDecision,
+    denialReason: payload.denialReason,
+    sessionPresent: payload.sessionPresent,
+    databaseError: payload.databaseError,
+    redirectTarget: payload.redirectTarget ?? null,
+  })
+}
+
+async function getRequestPathname(): Promise<string | undefined> {
+  try {
+    const h = await headers()
+    return h.get('x-pathname') ?? h.get('next-url') ?? undefined
+  } catch {
+    return undefined
+  }
 }
 
 async function getClerkIdentity(userId: string): Promise<ClerkIdentity | null> {
@@ -117,7 +195,6 @@ export async function getAuthUserId(): Promise<string | null> {
     if (!isClerkConfigured) {
       const cookieStore = await cookies()
       const devUserId = cookieStore.get(DEV_COOKIE_NAME)?.value
-      // Accetta CUID (25 caratteri) o UUID (36); ammetti anche 15-40 per compatibilità
       if (devUserId && devUserId.length >= 15 && devUserId.length <= 40 && /^[a-zA-Z0-9_-]+$/.test(devUserId))
         return `${DEV_USER_PREFIX}${devUserId}`
       return null
@@ -130,15 +207,42 @@ export async function getAuthUserId(): Promise<string | null> {
   }
 }
 
+async function findUsersByEmailInsensitive(email: string) {
+  return prisma.user.findMany({
+    where: { email: { equals: email, mode: 'insensitive' } },
+    orderBy: { createdAt: 'asc' },
+  })
+}
+
 /**
  * Restituisce l'utente corrente dal DB con ruolo (per autorizzazioni).
- * Cerca per clerkId; in dev (dev-user-<id> o dev-user-123) risolve l'utente come sotto.
+ * Cerca per clerkId; in dev (dev-user-<id>) risolve l'utente come sotto.
  * Se Clerk è configurato e non c'è match per clerkId, prova a risolvere per email (Clerk → DB).
+ * Gli errori DB temporanei lanciano AuthTransientError (non “non autorizzato”).
  */
 export async function getCurrentUser(): Promise<CurrentUser | null> {
+  const route = await getRequestPathname()
+  let clerkUserId: string | null = null
+  let email: string | null = null
+
   try {
     const userId = await getAuthUserId()
-    if (!userId) return null
+    clerkUserId = userId
+    if (!userId) {
+      await logAuthDiagnostic({
+        route,
+        clerkUserId: null,
+        email: null,
+        internalUserFound: false,
+        internalUserId: null,
+        isActive: null,
+        authorizationDecision: 'deny',
+        denialReason: 'no_clerk_session',
+        sessionPresent: false,
+        databaseError: false,
+      })
+      return null
+    }
 
     const isClerkConfigured = !!(
       process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY &&
@@ -160,31 +264,94 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
       isClerkConfigured && userId && !userId.startsWith(DEV_USER_PREFIX)
         ? await getClerkIdentity(userId)
         : null
-    const email = normalizeEmail(identity?.email ?? null)
+    email = normalizeEmail(identity?.email ?? null)
     const adminEmails = getEmergencyAdminEmails()
     const isAllowedByAdminEmails = !!(email && adminEmails.includes(email))
 
     if (!user && isClerkConfigured && userId && !userId.startsWith(DEV_USER_PREFIX)) {
+      if (!email) {
+        await logAuthDiagnostic({
+          route,
+          clerkUserId: userId,
+          email: null,
+          internalUserFound: false,
+          internalUserId: null,
+          isActive: null,
+          authorizationDecision: 'deny',
+          denialReason: 'missing_email',
+          sessionPresent: true,
+          databaseError: false,
+          redirectTarget: '/non-autorizzato',
+        })
+        return null
+      }
+
       try {
-        if (email) {
-          user = await prisma.user.findFirst({ where: { email } })
-          if (user) {
+        const matches = await findUsersByEmailInsensitive(email)
+        if (matches.length > 1) {
+          console.warn('[getCurrentUser] duplicate_internal_user', {
+            email,
+            ids: matches.map((m) => m.id),
+            chosenHint: 'prefer clerkId match, else oldest active',
+          })
+          await logAuthDiagnostic({
+            route,
+            clerkUserId: userId,
+            email,
+            internalUserFound: true,
+            internalUserId: matches[0]?.id ?? null,
+            isActive: matches[0]?.isActive ?? null,
+            authorizationDecision: 'allow',
+            denialReason: 'duplicate_internal_user',
+            sessionPresent: true,
+            databaseError: false,
+          })
+          // Non bloccare: collega il record corretto senza creare duplicati.
+          user =
+            matches.find((m) => m.clerkId === userId) ??
+            matches.find((m) => !m.clerkId && m.isActive) ??
+            matches.find((m) => m.isActive) ??
+            matches[0]
+        } else if (matches.length === 1) {
+          user = matches[0]
+        }
+
+        if (user) {
+          if (user.clerkId && user.clerkId !== userId) {
+            // Record già legato a un altro account Clerk: non sovrascrivere.
+            await logAuthDiagnostic({
+              route,
+              clerkUserId: userId,
+              email,
+              internalUserFound: true,
+              internalUserId: user.id,
+              isActive: user.isActive,
+              authorizationDecision: 'deny',
+              denialReason: 'clerk_id_mismatch',
+              sessionPresent: true,
+              databaseError: false,
+              redirectTarget: '/non-autorizzato',
+            })
+            return null
+          }
+          if (!user.clerkId || !user.isActive) {
             user = await prisma.user.update({
               where: { id: user.id },
               data: { clerkId: userId, isActive: true },
             })
-          } else if (isAllowedByAdminEmails) {
-            user = await prisma.user.create({
-              data: {
-                email,
-                name: identity?.name || email.split('@')[0] || 'Utente',
-                clerkId: userId,
-                isActive: true,
-              },
-            })
           }
+        } else if (isAllowedByAdminEmails) {
+          user = await prisma.user.create({
+            data: {
+              email,
+              name: identity?.name || email.split('@')[0] || 'Utente',
+              clerkId: userId,
+              isActive: true,
+            },
+          })
         }
       } catch (e) {
+        if (isDatabaseError(e)) throw new AuthTransientError()
         console.warn('[getCurrentUser] Errore risoluzione Clerk→DB:', e)
       }
     }
@@ -196,15 +363,29 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
       })
     }
 
-    const role = (user as { role?: string }).role
+    const role = (user as { role?: string } | null)?.role
     const userIsValid = !!user && user.isActive && (role === 'ADMIN' || role === 'AGENTE')
-    const reasonDenied = !user
-      ? 'db_user_not_found'
+    const denialReason: DenialReason | null = !user
+      ? 'internal_user_not_found'
       : !user.isActive
-        ? 'db_user_inactive'
+        ? 'user_disabled'
         : role !== 'ADMIN' && role !== 'AGENTE'
           ? 'invalid_role'
           : null
+
+    await logAuthDiagnostic({
+      route,
+      clerkUserId: userId,
+      email: email ?? normalizeEmail(user?.email) ?? null,
+      internalUserFound: !!user,
+      internalUserId: user?.id ?? null,
+      isActive: user?.isActive ?? null,
+      authorizationDecision: userIsValid ? 'allow' : 'deny',
+      denialReason,
+      sessionPresent: true,
+      databaseError: false,
+      redirectTarget: userIsValid ? null : '/non-autorizzato',
+    })
 
     console.info('[auth-decision]', {
       clerkUserId: userId,
@@ -212,21 +393,65 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
       ADMIN_EMAILS: adminEmails,
       isAllowedByAdminEmails,
       foundDbUser: !!user,
-      reasonDenied: reasonDenied ?? 'none',
+      reasonDenied: denialReason ?? 'none',
     })
 
     if (!userIsValid || !user) return null
 
-    const resolvedUser = user
     return {
-      id: resolvedUser.id,
+      id: user.id,
       userId,
-      name: resolvedUser.name,
-      email: resolvedUser.email,
+      name: user.name,
+      email: user.email,
       role: role as UserRole,
     }
   } catch (err) {
+    if (err instanceof AuthTransientError) {
+      await logAuthDiagnostic({
+        route,
+        clerkUserId,
+        email,
+        internalUserFound: false,
+        internalUserId: null,
+        isActive: null,
+        authorizationDecision: 'transient',
+        denialReason: 'database_unavailable',
+        sessionPresent: !!clerkUserId,
+        databaseError: true,
+        redirectTarget: '/errore-temporaneo',
+      })
+      throw err
+    }
+    if (isDatabaseError(err)) {
+      await logAuthDiagnostic({
+        route,
+        clerkUserId,
+        email,
+        internalUserFound: false,
+        internalUserId: null,
+        isActive: null,
+        authorizationDecision: 'transient',
+        denialReason: 'database_unavailable',
+        sessionPresent: !!clerkUserId,
+        databaseError: true,
+        redirectTarget: '/errore-temporaneo',
+      })
+      throw new AuthTransientError()
+    }
     console.error('[getCurrentUser]', err)
+    await logAuthDiagnostic({
+      route,
+      clerkUserId,
+      email,
+      internalUserFound: false,
+      internalUserId: null,
+      isActive: null,
+      authorizationDecision: 'deny',
+      denialReason: 'unknown',
+      sessionPresent: !!clerkUserId,
+      databaseError: false,
+      redirectTarget: '/non-autorizzato',
+    })
     return null
   }
 }
@@ -253,20 +478,53 @@ export async function getAuthDecisionDebug(): Promise<AuthDecisionDebug> {
   const email = normalizeEmail(identity?.email ?? null)
   const adminEmails = getEmergencyAdminEmails()
   const isAllowedByAdminEmails = !!(email && adminEmails.includes(email))
-  const found = await prisma.user.findFirst({
-    where: {
-      OR: [{ clerkId: userId }, ...(email ? [{ email }] : [])],
-    },
-  })
+
+  let found = null as Awaited<ReturnType<typeof prisma.user.findFirst>>
+  try {
+    found = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { clerkId: userId },
+          ...(email ? [{ email: { equals: email, mode: 'insensitive' as const } }] : []),
+        ],
+      },
+    })
+  } catch {
+    return {
+      clerkUserId: userId,
+      email,
+      adminEmails,
+      isAllowedByAdminEmails,
+      foundDbUser: false,
+      finalDecision: 'transient',
+      reasonDenied: 'database_unavailable',
+    }
+  }
+
   const role = (found as { role?: string } | null)?.role
-  const currentUser = await getCurrentUser()
+  let currentUser: CurrentUser | null = null
+  try {
+    currentUser = await getCurrentUser()
+  } catch (e) {
+    if (e instanceof AuthTransientError) {
+      return {
+        clerkUserId: userId,
+        email,
+        adminEmails,
+        isAllowedByAdminEmails,
+        foundDbUser: !!found,
+        finalDecision: 'transient',
+        reasonDenied: 'database_unavailable',
+      }
+    }
+  }
   const allowed = !!currentUser
   const reasonDenied = allowed
     ? null
     : !found
-      ? 'db_user_not_found'
+      ? 'internal_user_not_found'
       : !found.isActive
-        ? 'db_user_inactive'
+        ? 'user_disabled'
         : role !== 'ADMIN' && role !== 'AGENTE'
           ? 'invalid_role'
           : 'unknown'
@@ -301,7 +559,10 @@ const isClerkConfigured = () =>
   !!(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY)
 
 /**
- * Richiede utente loggato: se manca redirect a sign-in; se è in Clerk ma non nel DB (o errore DB) → /non-autorizzato (evita loop).
+ * Richiede utente loggato.
+ * - Nessuna sessione → /sign-in
+ * - Sessione ok ma non abilitato → /non-autorizzato
+ * - Errore DB temporaneo → /errore-temporaneo (sessione Clerk intatta)
  */
 export async function requireAuth(): Promise<CurrentUser> {
   const toLogin = () => redirect(isClerkConfigured() ? '/sign-in' : '/dev-users')
@@ -309,21 +570,24 @@ export async function requireAuth(): Promise<CurrentUser> {
     const userId = await getAuthUserId()
     if (!userId) toLogin()
     const user = await getCurrentUser()
-    // Autenticato con Clerk ma utente non presente nel DB (o senza ruolo): evita redirect a /sign-in che causerebbe loop
     if (!user) {
-      console.warn('[requireAuth] Redirect /non-autorizzato: userId presente ma getCurrentUser() null (contesto:', typeof globalThis !== 'undefined' ? 'server' : 'unknown', ')')
+      console.warn('[requireAuth] Redirect /non-autorizzato: sessione presente ma utente app non autorizzato')
       redirect('/non-autorizzato')
     }
     return user as CurrentUser
   } catch (err) {
+    if (isRedirectError(err)) throw err
+    if (err instanceof AuthTransientError || isDatabaseError(err)) {
+      console.warn('[requireAuth] Errore temporaneo, redirect /errore-temporaneo')
+      redirect('/errore-temporaneo')
+    }
     console.error('[requireAuth]', err)
     const userId = await getAuthUserId().catch(() => null)
     if (userId) {
-      console.warn('[requireAuth] Redirect /non-autorizzato dopo catch: userId=', userId)
+      console.warn('[requireAuth] Redirect /non-autorizzato dopo errore inatteso: userId=', userId)
       redirect('/non-autorizzato')
     }
     toLogin()
   }
-  throw new Error('Auth failed') // unreachable dopo toLogin()
+  throw new Error('Auth failed')
 }
-

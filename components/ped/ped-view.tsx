@@ -34,7 +34,14 @@ type UndoEntry =
 
 type Client = { id: string; name: string }
 type Work = { id: string; title: string }
-type PedClientSetting = { id: string; clientId: string; contentsPerWeek: number; platforms?: string[]; client: { id: string; name: string } }
+type PedClientSetting = {
+  id: string
+  clientId: string
+  contentsPerWeek: number
+  publishingWeekdays?: number[]
+  platforms?: string[]
+  client: { id: string; name: string }
+}
 type PedItem = {
   id: string
   date: string

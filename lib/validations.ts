@@ -115,10 +115,15 @@ export const PED_LABELS = ['IN_APPROVAZIONE', 'DA_FARE', 'PRONTO_NON_PUBBLICATO'
 export const PED_STATUSES = ['TODO', 'DONE'] as const
 export const PED_PLATFORMS = ['INSTAGRAM', 'LINKEDIN', 'TIKTOK'] as const
 
+export const PED_ISO_WEEKDAYS = [1, 2, 3, 4, 5, 6, 7] as const
+
 export const pedClientSettingSchema = z.object({
   clientId: z.string().min(1),
   contentsPerWeek: z.number().int().min(0),
-  platforms: z.array(z.enum(PED_PLATFORMS)).min(1).optional(),
+  platforms: z.array(z.enum(PED_PLATFORMS)).optional(),
+  publishingWeekdays: z
+    .array(z.number().int().min(1).max(7))
+    .optional(),
 })
 
 export const pedItemCreateSchema = z.object({

@@ -15,6 +15,7 @@ const isPublicRoute = createRouteMatcher([
   '/sign-out',
   '/dev-users',
   '/non-autorizzato',
+  '/errore-temporaneo',
   '/api/dev-users(.*)',
   '/api/health',
 ])

@@ -116,52 +116,136 @@ export function addDaysToDateString(dateStr: string, days: number): string {
 }
 
 /**
- * 10 contenuti/mese: 10 date target nel mese (settimane 1–4 ISO dal lunedì della settimana del 1° del mese).
- * - Settimane 1 e 3: lunedì, mercoledì, venerdì
- * - Settimane 2 e 4: martedì, giovedì
- * Se un giorno cade fuori dal mese, si usa il primo giorno lavorativo (lun–ven) libero in quella settimana nel mese.
+ * Date YYYY-MM-DD del mese che cadono nei giorni ISO selezionati (1=lun … 7=dom).
  */
-export function getTenContentsPerMonthTargetDates(year: number, month: number): string[] {
-  const monthStart = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0))
-  const week1Monday = getISOWeekStart(monthStart)
-  const targets: string[] = []
-  const used = new Set<string>()
-  const weekdaysByWeek: (1 | 2 | 3 | 4 | 5)[][] = [
-    [1, 3, 5],
-    [2, 4],
-    [1, 3, 5],
-    [2, 4],
-  ]
-  for (let wi = 0; wi < 4; wi++) {
-    const weekStart = new Date(week1Monday)
-    weekStart.setUTCDate(weekStart.getUTCDate() + wi * 7)
-    const wanted = weekdaysByWeek[wi]
-    for (const utcDayOfWeek of wanted) {
-      const dayOffset = utcDayOfWeek - 1
-      const candidate = new Date(weekStart)
-      candidate.setUTCDate(weekStart.getUTCDate() + dayOffset)
-      const candidateStr = toDateString(candidate)
-      const inMonth = candidate.getUTCFullYear() === year && candidate.getUTCMonth() === month - 1
-      if (inMonth && !used.has(candidateStr)) {
-        targets.push(candidateStr)
-        used.add(candidateStr)
-      } else {
-        const inMonthDays: string[] = []
-        for (let d = 0; d < 7; d++) {
-          const day = new Date(weekStart)
-          day.setUTCDate(weekStart.getUTCDate() + d)
-          const dow = day.getUTCDay()
-          if (dow >= 1 && dow <= 5 && day.getUTCFullYear() === year && day.getUTCMonth() === month - 1) {
-            inMonthDays.push(toDateString(day))
-          }
-        }
-        const firstFree = inMonthDays.find((s) => !used.has(s))
-        if (firstFree) {
-          targets.push(firstFree)
-          used.add(firstFree)
-        }
-      }
+export function getMonthDateKeysForIsoWeekdays(
+  year: number,
+  month: number,
+  isoWeekdays: number[]
+): string[] {
+  const allowed = new Set(
+    isoWeekdays.filter((d) => Number.isInteger(d) && d >= 1 && d <= 7)
+  )
+  if (allowed.size === 0) return []
+
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate()
+  const result: string[] = []
+  for (let day = 1; day <= lastDay; day++) {
+    const date = new Date(Date.UTC(year, month - 1, day))
+    const utcDow = date.getUTCDay() // 0=dom … 6=sab
+    const iso = utcDow === 0 ? 7 : utcDow
+    if (allowed.has(iso)) result.push(toDateString(date))
+  }
+  return result
+}
+
+/**
+ * Seleziona `count` indici uniformemente lungo `length` elementi (cronologici).
+ */
+export function pickUniformIndices(length: number, count: number): number[] {
+  if (count <= 0 || length <= 0) return []
+  if (count >= length) return Array.from({ length }, (_, i) => i)
+  const indices: number[] = []
+  for (let i = 0; i < count; i++) {
+    const idx = Math.floor((i + 0.5) * (length / count))
+    indices.push(Math.min(length - 1, Math.max(0, idx)))
+  }
+  // Dedup preservando ordine; se collisioni, sposta al successivo libero
+  const used = new Set<number>()
+  const unique: number[] = []
+  for (const idx of indices) {
+    let cur = idx
+    while (used.has(cur) && cur < length - 1) cur++
+    while (used.has(cur) && cur > 0) cur--
+    if (!used.has(cur)) {
+      used.add(cur)
+      unique.push(cur)
     }
   }
-  return targets.slice(0, 10)
+  return unique.sort((a, b) => a - b)
+}
+
+export type FillMonthPlan =
+  | {
+      ok: true
+      datesToCreate: string[]
+      existingCount: number
+      target: number
+      /** Avviso se non si è raggiunto il target per mancanza di date. */
+      warning?: string
+    }
+  | {
+      ok: false
+      reason: 'no_weekdays' | 'already_reached' | 'zero_target'
+      message: string
+      existingCount?: number
+      target?: number
+    }
+
+/**
+ * Piano di riempimento: crea solo le date mancanti sui giorni selezionati,
+ * distribuite in modo uniforme, senza duplicare date già occupate.
+ */
+export function planFillMonthDates(params: {
+  year: number
+  month: number
+  targetCount: number
+  publishingWeekdays: number[]
+  existingDateKeys: string[]
+}): FillMonthPlan {
+  const { year, month, targetCount, publishingWeekdays, existingDateKeys } = params
+  const existingUnique = Array.from(new Set(existingDateKeys))
+  const existingCount = existingUnique.length
+  const existingSet = new Set(existingUnique)
+
+  if (targetCount <= 0) {
+    return {
+      ok: false,
+      reason: 'zero_target',
+      message: 'Imposta un numero di contenuti/mese maggiore di zero.',
+      target: targetCount,
+      existingCount,
+    }
+  }
+
+  if (!publishingWeekdays.length) {
+    return {
+      ok: false,
+      reason: 'no_weekdays',
+      message: 'Seleziona almeno un giorno della settimana',
+      target: targetCount,
+      existingCount,
+    }
+  }
+
+  if (existingCount >= targetCount) {
+    return {
+      ok: false,
+      reason: 'already_reached',
+      message: 'Il cliente ha già raggiunto il numero di contenuti previsto per questo mese',
+      target: targetCount,
+      existingCount,
+    }
+  }
+
+  const need = targetCount - existingCount
+  const weekdayDates = getMonthDateKeysForIsoWeekdays(year, month, publishingWeekdays)
+  const available = weekdayDates.filter((d) => !existingSet.has(d))
+  const toPick = Math.min(need, available.length)
+  const indices = pickUniformIndices(available.length, toPick)
+  const datesToCreate = indices.map((i) => available[i])
+
+  const reachable = existingCount + datesToCreate.length
+  const warning =
+    reachable < targetCount
+      ? `Con i giorni selezionati sono disponibili solo ${reachable} date. Seleziona altri giorni per raggiungere ${targetCount} contenuti.`
+      : undefined
+
+  return {
+    ok: true,
+    datesToCreate,
+    existingCount,
+    target: targetCount,
+    warning,
+  }
 }

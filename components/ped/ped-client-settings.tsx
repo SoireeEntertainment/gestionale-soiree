@@ -4,14 +4,29 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { upsertPedClientSetting, removePedClientSetting, fillPedMonthForClient } from '@/app/actions/ped'
-import { PED_PLATFORMS } from '@/lib/validations'
 import { showToast } from '@/lib/toast'
 
 const SAVE_DEBOUNCE_MS = 600
-const PLATFORM_LABELS: Record<string, string> = { INSTAGRAM: 'Instagram', LINKEDIN: 'LinkedIn', TIKTOK: 'TikTok' }
+
+const WEEKDAY_CHIPS: { iso: number; label: string }[] = [
+  { iso: 1, label: 'Lun' },
+  { iso: 2, label: 'Mar' },
+  { iso: 3, label: 'Mer' },
+  { iso: 4, label: 'Gio' },
+  { iso: 5, label: 'Ven' },
+  { iso: 6, label: 'Sab' },
+  { iso: 7, label: 'Dom' },
+]
 
 type Client = { id: string; name: string }
-type Setting = { id: string; clientId: string; contentsPerWeek: number; platforms?: string[]; client: { id: string; name: string } }
+type Setting = {
+  id: string
+  clientId: string
+  contentsPerWeek: number
+  publishingWeekdays?: number[]
+  platforms?: string[]
+  client: { id: string; name: string }
+}
 
 export function PedClientSettings({
   settings,
@@ -43,15 +58,16 @@ export function PedClientSettings({
   const [contentsPerWeek, setContentsPerWeek] = useState(0)
   const [draftByClientId, setDraftByClientId] = useState<Record<string, number>>({})
   const [editingClientId, setEditingClientId] = useState<string | null>(null)
+  const [weekdaysByClientId, setWeekdaysByClientId] = useState<Record<string, number[]>>({})
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const clientIdsInPed = new Set(settings.map((s) => s.clientId))
   const availableClients = clients.filter((c) => !clientIdsInPed.has(c.id))
 
   const saveDraft = useCallback(
-    async (clientId: string, value: number, platforms?: string[]) => {
+    async (clientId: string, value: number) => {
       setEditingClientId(null)
       try {
-        await upsertPedClientSetting(clientId, Math.max(0, Math.floor(value)), platforms)
+        await upsertPedClientSetting(clientId, Math.max(0, Math.floor(value)))
         setDraftByClientId((prev) => {
           const next = { ...prev }
           delete next[clientId]
@@ -59,7 +75,7 @@ export function PedClientSettings({
         })
         afterMutate()
       } catch (e) {
-        alert(e instanceof Error ? e.message : 'Errore')
+        showToast(e instanceof Error ? e.message : 'Errore', 'error')
       }
     },
     [afterMutate]
@@ -74,25 +90,27 @@ export function PedClientSettings({
   const handleAdd = async () => {
     if (!selectedClientId) return
     try {
-      await upsertPedClientSetting(selectedClientId, contentsPerWeek)
+      await upsertPedClientSetting(selectedClientId, contentsPerWeek, {
+        publishingWeekdays: [],
+      })
       setSelectedClientId('')
       setContentsPerWeek(0)
       setAdding(false)
       afterMutate()
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Errore')
+      showToast(e instanceof Error ? e.message : 'Errore', 'error')
     }
   }
 
   const handleUpdate = useCallback(
-    (clientId: string, value: number, currentPlatforms?: string[]) => {
+    (clientId: string, value: number) => {
       const safe = Math.max(0, Math.floor(Number(value)) || 0)
       setDraftByClientId((prev) => ({ ...prev, [clientId]: safe }))
       setEditingClientId(clientId)
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current)
       saveTimeoutRef.current = setTimeout(() => {
         saveTimeoutRef.current = null
-        saveDraft(clientId, safe, currentPlatforms)
+        saveDraft(clientId, safe)
       }, SAVE_DEBOUNCE_MS)
     },
     [saveDraft]
@@ -103,10 +121,30 @@ export function PedClientSettings({
       const setting = settings.find((s) => s.clientId === clientId)
       const current = editingClientId === clientId ? draftByClientId[clientId] : setting?.contentsPerWeek ?? 0
       const next = Math.max(0, (current ?? 0) + delta)
-      handleUpdate(clientId, next, setting?.platforms)
+      handleUpdate(clientId, next)
     },
     [settings, editingClientId, draftByClientId, handleUpdate]
   )
+
+  const getWeekdays = (clientId: string, fallback?: number[]) =>
+    weekdaysByClientId[clientId] ?? fallback ?? []
+
+  const handleToggleWeekday = async (setting: Setting, isoDay: number) => {
+    const current = getWeekdays(setting.clientId, setting.publishingWeekdays)
+    const next = current.includes(isoDay)
+      ? current.filter((d) => d !== isoDay)
+      : [...current, isoDay].sort((a, b) => a - b)
+    const previous = current
+    setWeekdaysByClientId((prev) => ({ ...prev, [setting.clientId]: next }))
+    try {
+      await upsertPedClientSetting(setting.clientId, setting.contentsPerWeek, {
+        publishingWeekdays: next,
+      })
+    } catch (e) {
+      setWeekdaysByClientId((prev) => ({ ...prev, [setting.clientId]: previous }))
+      showToast(e instanceof Error ? e.message : 'Errore salvataggio giorni', 'error')
+    }
+  }
 
   const handleRemove = async (clientId: string) => {
     if (!confirm('Rimuovere questo cliente dal PED?')) return
@@ -114,7 +152,7 @@ export function PedClientSettings({
       await removePedClientSetting(clientId)
       afterMutate()
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Errore')
+      showToast(e instanceof Error ? e.message : 'Errore', 'error')
     }
   }
 
@@ -125,18 +163,36 @@ export function PedClientSettings({
       <h2 className="text-lg font-semibold text-white mb-3">
         {userName ? `Clienti del PED di ${userName}` : 'Clienti nel PED'}
       </h2>
-      <ul className="space-y-2 mb-3">
+      <ul className="space-y-3 mb-3">
         {settings.map((s) => {
           const isEditing = editingClientId === s.clientId
-          const displayValue = isEditing && draftByClientId[s.clientId] !== undefined ? draftByClientId[s.clientId] : s.contentsPerWeek
-          const effectiveContentsForFill =
-            isEditing && draftByClientId[s.clientId] !== undefined ? draftByClientId[s.clientId]! : s.contentsPerWeek
-          const canFillMonth = [4, 6, 8, 10, 12].includes(effectiveContentsForFill)
+          const displayValue =
+            isEditing && draftByClientId[s.clientId] !== undefined
+              ? draftByClientId[s.clientId]
+              : s.contentsPerWeek
+          const selectedDays = getWeekdays(s.clientId, s.publishingWeekdays)
           return (
             <li key={s.id} className="flex items-center gap-3 flex-wrap">
               <span className="text-white min-w-[220px] shrink-0">{s.client.name}</span>
               {readOnly ? (
-                <span className="text-white/80 text-sm">{s.contentsPerWeek} contenuti/mese</span>
+                <>
+                  <span className="text-white/80 text-sm">{s.contentsPerWeek} contenuti/mese</span>
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {WEEKDAY_CHIPS.map(({ iso, label }) => {
+                      const on = selectedDays.includes(iso)
+                      return (
+                        <span
+                          key={iso}
+                          className={`px-2 py-0.5 rounded text-xs ${
+                            on ? 'bg-accent text-dark font-medium' : 'bg-white/5 text-white/40'
+                          }`}
+                        >
+                          {label}
+                        </span>
+                      )
+                    })}
+                  </div>
+                </>
               ) : (
                 <>
                   <div className="flex items-center gap-0 rounded overflow-hidden border border-accent/20">
@@ -153,7 +209,9 @@ export function PedClientSettings({
                       min={0}
                       step={1}
                       value={displayValue}
-                      onChange={(e) => handleUpdate(s.clientId, e.target.value === '' ? 0 : parseInt(e.target.value, 10), s.platforms)}
+                      onChange={(e) =>
+                        handleUpdate(s.clientId, e.target.value === '' ? 0 : parseInt(e.target.value, 10))
+                      }
                       className="w-16 px-2 py-1 bg-dark text-white text-sm text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     />
                     <button
@@ -166,30 +224,23 @@ export function PedClientSettings({
                     </button>
                   </div>
                   <span className="text-white/60 text-sm">contenuti/mese</span>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {PED_PLATFORMS.map((pf) => {
-                      const checked = (s.platforms ?? ['INSTAGRAM']).includes(pf)
+                  <div className="flex items-center gap-1 flex-wrap" role="group" aria-label="Giorni di pubblicazione">
+                    {WEEKDAY_CHIPS.map(({ iso, label }) => {
+                      const on = selectedDays.includes(iso)
                       return (
-                        <label key={pf} className="flex items-center gap-1 text-white/80 text-xs cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={async () => {
-                              const next = checked
-                                ? (s.platforms ?? ['INSTAGRAM']).filter((x) => x !== pf)
-                                : [...(s.platforms ?? ['INSTAGRAM']), pf]
-                              if (next.length === 0) return
-                              try {
-                                await upsertPedClientSetting(s.clientId, s.contentsPerWeek, next)
-                                afterMutate()
-                              } catch (e) {
-                                alert(e instanceof Error ? e.message : 'Errore')
-                              }
-                            }}
-                            className="rounded border-white/50"
-                          />
-                          {PLATFORM_LABELS[pf] ?? pf}
-                        </label>
+                        <button
+                          key={iso}
+                          type="button"
+                          aria-pressed={on}
+                          onClick={() => void handleToggleWeekday(s, iso)}
+                          className={`px-2 py-1 rounded text-xs transition-colors ${
+                            on
+                              ? 'bg-accent text-dark font-semibold'
+                              : 'bg-white/5 text-white/60 hover:bg-white/10 hover:text-white'
+                          }`}
+                        >
+                          {label}
+                        </button>
                       )
                     })}
                   </div>
@@ -199,20 +250,30 @@ export function PedClientSettings({
                       variant="secondary"
                       size="sm"
                       className="border border-accent/40 text-accent hover:bg-accent/10 shrink-0 text-xs whitespace-nowrap"
-                      disabled={!canFillMonth || fillingClientId === s.clientId}
+                      disabled={fillingClientId === s.clientId || s.contentsPerWeek <= 0}
                       title={
-                        !canFillMonth
-                          ? 'Imposta 4, 6, 8, 10 o 12 contenuti/mese per usare il riempimento'
+                        s.contentsPerWeek <= 0
+                          ? 'Imposta un numero di contenuti/mese maggiore di zero'
                           : undefined
                       }
                       onClick={async () => {
                         setFillingClientId(s.clientId)
                         try {
-                          const { created } = await fillPedMonthForClient(s.clientId, year, month)
+                          const { created, clientName, warning } = await fillPedMonthForClient(
+                            s.clientId,
+                            year,
+                            month
+                          )
+                          if (warning) {
+                            showToast(warning, 'error')
+                          }
                           if (created > 0) {
-                            showToast(`Aggiunte ${created} task nel mese`, 'success')
-                          } else {
-                            showToast('Nessuna nuova task: le date previste sono già piene.', 'success')
+                            showToast(`Create ${created} task per ${clientName} nel mese corrente`, 'success')
+                          } else if (!warning) {
+                            showToast(
+                              'Il cliente ha già raggiunto il numero di contenuti previsto per questo mese',
+                              'success'
+                            )
                           }
                           afterMutate()
                         } catch (e) {
@@ -222,7 +283,7 @@ export function PedClientSettings({
                         }
                       }}
                     >
-                      {fillingClientId === s.clientId ? 'Attendi…' : 'Riempi il mese attuale'}
+                      {fillingClientId === s.clientId ? 'Riempimento…' : 'Riempi il mese attuale'}
                     </Button>
                   )}
                   <Button variant="ghost" size="sm" onClick={() => handleRemove(s.clientId)} className="text-red-400">
@@ -234,34 +295,41 @@ export function PedClientSettings({
           )
         })}
       </ul>
-      {!readOnly && (adding ? (
-        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-white/10">
-          <select
-            value={selectedClientId}
-            onChange={(e) => setSelectedClientId(e.target.value)}
-            className="px-2 py-1 bg-dark border border-accent/20 rounded text-white text-sm"
-          >
-            <option value="">Seleziona cliente</option>
-            {availableClients.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
-          <input
-            type="number"
-            min={0}
-            value={contentsPerWeek}
-            onChange={(e) => setContentsPerWeek(parseInt(e.target.value, 10) || 0)}
-            placeholder="N/mese"
-            className="w-20 px-2 py-1 bg-dark border border-accent/20 rounded text-white text-sm"
-          />
-          <Button size="sm" onClick={handleAdd}>Aggiungi</Button>
-          <Button variant="ghost" size="sm" onClick={() => setAdding(false)}>Annulla</Button>
-        </div>
-      ) : (
-        <Button size="sm" variant="secondary" onClick={() => setAdding(true)} disabled={availableClients.length === 0}>
-          + Aggiungi cliente
-        </Button>
-      ))}
+      {!readOnly &&
+        (adding ? (
+          <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-white/10">
+            <select
+              value={selectedClientId}
+              onChange={(e) => setSelectedClientId(e.target.value)}
+              className="px-2 py-1 bg-dark border border-accent/20 rounded text-white text-sm"
+            >
+              <option value="">Seleziona cliente</option>
+              {availableClients.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            <input
+              type="number"
+              min={0}
+              value={contentsPerWeek}
+              onChange={(e) => setContentsPerWeek(parseInt(e.target.value, 10) || 0)}
+              placeholder="N/mese"
+              className="w-20 px-2 py-1 bg-dark border border-accent/20 rounded text-white text-sm"
+            />
+            <Button size="sm" onClick={handleAdd}>
+              Aggiungi
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setAdding(false)}>
+              Annulla
+            </Button>
+          </div>
+        ) : (
+          <Button size="sm" variant="secondary" onClick={() => setAdding(true)} disabled={availableClients.length === 0}>
+            + Aggiungi cliente
+          </Button>
+        ))}
       {settings.length > 0 && (
         <p className="text-white/50 text-sm mt-2">Totale contenuti/mese pianificati: {totalTarget}</p>
       )}

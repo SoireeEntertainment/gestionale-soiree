@@ -338,13 +338,16 @@ model PreventivoItem {
 }
 
 model PedClientSetting {
-  id              String   @id @default(cuid())
-  ownerId         String
-  clientId        String
-  contentsPerWeek Int      @default(0)
-  platforms       String[] @default(["INSTAGRAM"]) // INSTAGRAM | LINKEDIN | TIKTOK
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                 String   @id @default(cuid())
+  ownerId            String
+  clientId           String
+  contentsPerWeek    Int      @default(0)
+  /// Giorni ISO per “Riempi mese”: 1=lun … 7=dom. Specifico per owner+cliente.
+  publishingWeekdays Int[]    @default([])
+  /// Legacy: non usato più nella config PED; le piattaforme restano per-task.
+  platforms          String[] @default(["INSTAGRAM"]) // INSTAGRAM | LINKEDIN | TIKTOK
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   owner  User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)

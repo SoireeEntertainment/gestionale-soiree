@@ -134,15 +134,9 @@ Per integrare il calendario Google (account soiree.teamwork@gmail.com) con creaz
 
 ## PED – Piano Editoriale
 
-### Riempimento automatico 10 contenuti/mese
+### Riempimento mese attuale
 
-Per i clienti con **10 contenuti/mese** è disponibile il pulsante **"Riempimento automatico 10 contenuti/mese"** che crea le task mancanti nel mese visualizzato secondo una regola fissa:
-
-- **Settimane 1 e 3 del mese:** Lunedì, Mercoledì, Venerdì (3 + 3 = 6 contenuti)
-- **Settimane 2 e 4 del mese:** Martedì, Giovedì (2 + 2 = 4 contenuti)  
-- **Totale:** 10 contenuti nel mese
-
-**Definizione settimane:** si usano le prime 4 settimane del mese con inizio settimana = lunedì (ISO). La settimana 1 è la prima che contiene almeno un giorno del mese. Una eventuale 5ª settimana viene ignorata. Se un giorno target (es. lunedì) cade fuori dal mese, viene usato il primo giorno lavorativo (lun–ven) della stessa settimana che appartiene al mese. Non si duplicano task: vengono create solo le task mancanti fino a un totale di 10 nel mese per quel cliente.
+Per ogni cliente nel PED puoi scegliere i **giorni della settimana** di pubblicazione (Lun–Dom). Il pulsante **"Riempi il mese attuale"** crea le task mancanti fino al numero di contenuti/mese configurato, distribuendole in modo uniforme **solo** sui giorni selezionati per quella coppia utente–cliente. Non vengono applicate regole automatiche basate sul numero di contenuti.
 
 ## Note
 

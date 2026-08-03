@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { Prisma } from '@prisma/client'
 import { getCurrentUser } from '@/lib/auth-dev'
 import { prisma } from '@/lib/prisma'
-import { toDateString, getISOWeekStart, getTenContentsPerMonthTargetDates, getCalendarRangeUTC } from '@/lib/ped-utils'
+import { toDateString, getISOWeekStart, getCalendarRangeUTC, planFillMonthDates } from '@/lib/ped-utils'
 import { getEffectiveLabel, PED_LABEL_ORDER, DEFAULT_LABEL, DONE_LABEL, PED_LABELS, type PedLabel } from '@/lib/pedLabels'
 import { pedClientSettingSchema, pedItemCreateSchema, pedItemUpdateSchema, pedItemSetLabelSchema } from '@/lib/validations'
 
@@ -113,6 +113,7 @@ export async function getPedMonth(year: number, month: number, viewAsUserId?: st
       ownerId: true,
       clientId: true,
       contentsPerWeek: true,
+      publishingWeekdays: true,
       platforms: true,
       createdAt: true,
       updatedAt: true,
@@ -212,7 +213,13 @@ export async function getPedMonth(year: number, month: number, viewAsUserId?: st
   )
 
   return {
-    pedClientSettings: settingsSorted.map((s) => ({ ...s, platforms: (s as { platforms?: string[] }).platforms ?? ['INSTAGRAM'] })),
+    pedClientSettings: settingsSorted.map((s) => ({
+      ...s,
+      publishingWeekdays: Array.isArray((s as { publishingWeekdays?: number[] }).publishingWeekdays)
+        ? (s as { publishingWeekdays: number[] }).publishingWeekdays
+        : [],
+      platforms: (s as { platforms?: string[] }).platforms ?? [],
+    })),
     pedItems: items.map((i) => ({ ...i, platforms: (i as { platforms?: string[] }).platforms ?? [] })),
     assignedWorkDeadlines,
     computedStats: {
@@ -320,65 +327,10 @@ export async function getPedMonthlyTaskCountForUser(userId: string): Promise<num
   })
 }
 
-function firstWeekdayInMonthRange(
-  year: number,
-  month: number,
-  fromDay: number,
-  toDay: number,
-  weekdayUtc: number
-): string | null {
-  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate()
-  const end = Math.min(toDay, lastDay)
-  for (let d = Math.max(1, fromDay); d <= end; d++) {
-    if (new Date(Date.UTC(year, month - 1, d)).getUTCDay() === weekdayUtc) {
-      return toDateString(new Date(Date.UTC(year, month - 1, d)))
-    }
-  }
-  return null
-}
-
-/** Restituisce le date (YYYY-MM-DD) in cui inserire task in base ai contenuti/mese (4, 6, 8, 10, 12). */
-function getTargetDateKeysForContents(year: number, month: number, count: number): string[] {
-  const result: string[] = []
-  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate()
-
-  const format = (d: number) => {
-    const date = new Date(Date.UTC(year, month - 1, d))
-    return toDateString(date)
-  }
-
-  const getDay = (d: number) => new Date(Date.UTC(year, month - 1, d)).getUTCDay() // 0=Sun, 1=Mon, ..., 3=Wed
-
-  if (count === 4) {
-    for (let d = 1; d <= lastDay && result.length < 4; d++) {
-      if (getDay(d) === 3) result.push(format(d))
-    }
-  } else if (count === 6) {
-    // 1° settimana: 1 giorno (mercoledì); 2°: 2 (mar + gio); 3°: 1 (mer); 4°: 2 (mar + gio)
-    const w1 = firstWeekdayInMonthRange(year, month, 1, 7, 3)
-    const w2a = firstWeekdayInMonthRange(year, month, 8, 14, 2)
-    const w2b = firstWeekdayInMonthRange(year, month, 8, 14, 4)
-    const w3 = firstWeekdayInMonthRange(year, month, 15, 21, 3)
-    const w4a = firstWeekdayInMonthRange(year, month, 22, lastDay, 2)
-    const w4b = firstWeekdayInMonthRange(year, month, 22, lastDay, 4)
-    for (const k of [w1, w2a, w2b, w3, w4a, w4b]) {
-      if (k) result.push(k)
-    }
-    result.sort()
-  } else if (count === 8) {
-    for (let d = 1; d <= lastDay; d++) {
-      const day = getDay(d)
-      if (day === 2 || day === 4) result.push(format(d))
-    }
-  } else if (count === 10) {
-    return getTenContentsPerMonthTargetDates(year, month)
-  } else if (count === 12) {
-    for (let d = 1; d <= lastDay; d++) {
-      const day = getDay(d)
-      if (day === 1 || day === 3 || day === 5) result.push(format(d))
-    }
-  }
-  return result
+export type FillPedMonthForClientResult = {
+  created: number
+  clientName: string
+  warning?: string
 }
 
 export async function fillPedMonth(year: number, month: number) {
@@ -390,7 +342,7 @@ export async function fillPedMonth(year: number, month: number) {
     include: { client: { select: { id: true, name: true } } },
   })
   const settingsSorted = settings
-    .filter((s) => [4, 6, 8, 10, 12].includes(s.contentsPerWeek))
+    .filter((s) => s.contentsPerWeek > 0)
     .sort((a, b) => a.client.name.localeCompare(b.client.name, 'it'))
 
   const startStr = `${year}-${String(month).padStart(2, '0')}-01 00:00:00`
@@ -404,17 +356,24 @@ export async function fillPedMonth(year: number, month: number) {
     },
     select: { clientId: true, date: true },
   })
-  const existingRows = existingItems.map((i) => ({
-    clientId: i.clientId,
-    dateKey: i.date.toISOString().slice(0, 10),
-  }))
-  const existingByClientAndDate = new Set(existingRows.map((r) => `${r.clientId}:${r.dateKey}`))
+  const existingByClient = new Map<string, string[]>()
+  for (const item of existingItems) {
+    const dateKey = item.date.toISOString().slice(0, 10)
+    const list = existingByClient.get(item.clientId) ?? []
+    list.push(dateKey)
+    existingByClient.set(item.clientId, list)
+  }
 
   for (const setting of settingsSorted) {
-    const platforms = setting.platforms.length > 0 ? setting.platforms : ['INSTAGRAM']
-    const dateKeys = getTargetDateKeysForContents(year, month, setting.contentsPerWeek)
-    for (const dateKey of dateKeys) {
-      if (existingByClientAndDate.has(`${setting.clientId}:${dateKey}`)) continue
+    const plan = planFillMonthDates({
+      year,
+      month,
+      targetCount: setting.contentsPerWeek,
+      publishingWeekdays: setting.publishingWeekdays ?? [],
+      existingDateKeys: existingByClient.get(setting.clientId) ?? [],
+    })
+    if (!plan.ok) continue
+    for (const dateKey of plan.datesToCreate) {
       await createPedItem({
         clientId: setting.clientId,
         date: dateKey,
@@ -424,9 +383,8 @@ export async function fillPedMonth(year: number, month: number) {
         description: null,
         priority: 'MEDIUM',
         isExtra: false,
-        platforms,
+        platforms: [],
       })
-      existingByClientAndDate.add(`${setting.clientId}:${dateKey}`)
     }
   }
   revalidatePath('/ped')
@@ -636,12 +594,12 @@ export async function getPedMonthForClient(clientId: string, year: number, month
   }
 }
 
-/** Riempe il mese solo per un cliente (stessa logica giorni di fillPedMonth). Le task compaiono anche nel PED generale. */
+/** Riempe il mese solo per un cliente usando i giorni pubblicati configurati per owner+cliente. */
 export async function fillPedMonthForClient(
   clientId: string,
   year: number,
   month: number
-): Promise<{ created: number }> {
+): Promise<FillPedMonthForClientResult> {
   const ownerId = await getOwnerId()
   if (!ownerId) throw new Error('Non autorizzato')
 
@@ -649,9 +607,8 @@ export async function fillPedMonthForClient(
     where: { ownerId_clientId: { ownerId, clientId } },
     include: { client: { select: { id: true, name: true } } },
   })
-  const allowed = [4, 6, 8, 10, 12]
-  if (!setting || !allowed.includes(setting.contentsPerWeek)) {
-    throw new Error('Imposta prima i contenuti/mese a 4, 6, 8, 10 o 12 nella sezione PED di questo cliente.')
+  if (!setting) {
+    throw new Error('Cliente non presente nel PED')
   }
 
   const startStr = `${year}-${String(month).padStart(2, '0')}-01 00:00:00`
@@ -666,14 +623,22 @@ export async function fillPedMonthForClient(
     },
     select: { date: true },
   })
-  const existingDates = new Set(items.map((i) => i.date.toISOString().slice(0, 10)))
+  const existingDates = items.map((i) => i.date.toISOString().slice(0, 10))
 
-  const dateKeys = getTargetDateKeysForContents(year, month, setting.contentsPerWeek)
-  const platforms = setting.platforms.length > 0 ? setting.platforms : ['INSTAGRAM']
+  const plan = planFillMonthDates({
+    year,
+    month,
+    targetCount: setting.contentsPerWeek,
+    publishingWeekdays: setting.publishingWeekdays ?? [],
+    existingDateKeys: existingDates,
+  })
+
+  if (!plan.ok) {
+    throw new Error(plan.message)
+  }
 
   let created = 0
-  for (const dateKey of dateKeys) {
-    if (existingDates.has(dateKey)) continue
+  for (const dateKey of plan.datesToCreate) {
     await createPedItem({
       clientId: setting.clientId,
       date: dateKey,
@@ -683,14 +648,18 @@ export async function fillPedMonthForClient(
       description: null,
       priority: 'MEDIUM',
       isExtra: false,
-      platforms,
+      platforms: [],
     })
-    existingDates.add(dateKey)
     created++
   }
+
   revalidatePath('/ped')
   revalidatePath(`/clients/${clientId}`)
-  return { created }
+  return {
+    created,
+    clientName: setting.client.name,
+    warning: plan.warning,
+  }
 }
 
 /** Svuota il mese nel PED generale: elimina tutte le task del mese (dell'utente). */
@@ -736,17 +705,25 @@ function isPlatformsColumnError(e: unknown): boolean {
 export async function upsertPedClientSetting(
   clientId: string,
   contentsPerWeek: number,
-  platforms?: string[]
+  options?: {
+    platforms?: string[]
+    publishingWeekdays?: number[]
+  }
 ) {
   const ownerId = await getOwnerId()
   if (!ownerId) throw new Error('Non autorizzato')
+
+  const platforms = options?.platforms
+  const publishingWeekdays = options?.publishingWeekdays
+    ? Array.from(new Set(options.publishingWeekdays.filter((d) => d >= 1 && d <= 7))).sort((a, b) => a - b)
+    : undefined
 
   const validated = pedClientSettingSchema.parse({
     clientId,
     contentsPerWeek,
     platforms: platforms?.length ? platforms : undefined,
+    publishingWeekdays,
   })
-  const platformsVal = (validated.platforms?.length ? validated.platforms : ['INSTAGRAM']) as string[]
 
   try {
     await prisma.pedClientSetting.upsert({
@@ -757,11 +734,15 @@ export async function upsertPedClientSetting(
         ownerId,
         clientId: validated.clientId,
         contentsPerWeek: validated.contentsPerWeek,
-        platforms: platformsVal,
+        publishingWeekdays: validated.publishingWeekdays ?? [],
+        platforms: validated.platforms ?? [],
       },
       update: {
         contentsPerWeek: validated.contentsPerWeek,
-        ...(validated.platforms && { platforms: platformsVal }),
+        ...(validated.publishingWeekdays !== undefined && {
+          publishingWeekdays: validated.publishingWeekdays,
+        }),
+        ...(validated.platforms !== undefined && { platforms: validated.platforms }),
       },
     })
   } catch (err) {
