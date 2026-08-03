@@ -14,7 +14,7 @@ import {
   type ClientShootingRow,
 } from '@/app/actions/client-shootings'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { showToast } from '@/lib/toast'
 
 const DATE_FMT = new Intl.DateTimeFormat('it-IT', {
@@ -364,13 +364,15 @@ export function ClientShootingsSection({
       )}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent aria-describedby="shooting-form-desc" className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingId ? 'Modifica shooting' : 'Aggiungi shooting'}</DialogTitle>
+            <DialogDescription>
+              {editingId
+                ? 'Modifica data, nome, luogo e argomenti Reel dello shooting.'
+                : 'Inserisci data, nome e argomenti Reel per il nuovo shooting.'}
+            </DialogDescription>
           </DialogHeader>
-          <p id="shooting-form-desc" className="sr-only">
-            Form per creare o modificare uno shooting e i relativi argomenti Reel.
-          </p>
           <div className="space-y-3">
             <label className="block text-sm text-white/70">
               Data shooting *

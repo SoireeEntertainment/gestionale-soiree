@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { LoadingButton } from '@/components/ui/loading-button'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { PED_ITEM_TYPE_LABELS } from '@/lib/ped-utils'
 import { PED_ITEM_KINDS, PED_ITEM_TYPES, PED_PLATFORMS } from '@/lib/validations'
 import { PED_LABELS, PED_LABEL_CONFIG, getEffectiveLabel, DEFAULT_LABEL, DONE_LABEL, type PedLabel } from '@/lib/pedLabels'
@@ -303,6 +303,11 @@ export function PedItemModal({
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto bg-dark border border-accent/20">
         <DialogHeader>
           <DialogTitle className="text-white">{editItem ? 'Modifica voce' : 'Aggiungi voce'}</DialogTitle>
+          <DialogDescription className="sr-only">
+            {editItem
+              ? 'Modifica i dettagli della voce del piano editoriale.'
+              : 'Crea una nuova voce nel piano editoriale.'}
+          </DialogDescription>
         </DialogHeader>
         {editItem && (
           <div className="flex justify-start border-b border-white/10 pb-3 mb-3">
