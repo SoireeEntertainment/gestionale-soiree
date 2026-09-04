@@ -1,22 +1,23 @@
 'use client'
 
-import Link from 'next/link'
-import { useClerk } from '@clerk/nextjs'
+import { useClerk, useAuth } from '@clerk/nextjs'
 import { useState } from 'react'
 
 export function NonAutorizzatoContent() {
+  const { isLoaded } = useAuth()
   const { signOut } = useClerk()
   const [signingOut, setSigningOut] = useState(false)
 
   const handleRealSignOut = async () => {
-    if (signingOut) return
+    if (signingOut || !isLoaded) return
     setSigningOut(true)
     try {
-      await signOut({ redirectUrl: '/login' })
+      // Sempre signOut Clerk: un semplice link a /login lascerebbe cookie di sessione
+      // obsoleti e potrebbe riattivare l'handshake in loop.
+      await signOut({ redirectUrl: '/sign-in' })
     } catch (e) {
       console.error('[non-autorizzato] signOut failed', e)
-      // Fallback hard redirect: evita loop client in caso di errore runtime.
-      window.location.href = '/login'
+      window.location.href = '/sign-in'
     } finally {
       setSigningOut(false)
     }
@@ -36,17 +37,19 @@ export function NonAutorizzatoContent() {
           <button
             type="button"
             onClick={() => void handleRealSignOut()}
-            disabled={signingOut}
+            disabled={signingOut || !isLoaded}
             className="px-4 py-2 rounded-md font-medium bg-white/10 text-white border border-white/20 hover:bg-white/20 disabled:opacity-60"
           >
             {signingOut ? 'Uscita in corso…' : 'Esci e accedi con un altro account'}
           </button>
-          <Link
-            href="/login"
-            className="px-4 py-2 rounded-md font-medium bg-accent text-dark hover:bg-accent/90 inline-block"
+          <button
+            type="button"
+            onClick={() => void handleRealSignOut()}
+            disabled={signingOut || !isLoaded}
+            className="px-4 py-2 rounded-md font-medium bg-accent text-dark hover:bg-accent/90 disabled:opacity-60"
           >
             Torna al login
-          </Link>
+          </button>
         </div>
       </div>
     </div>

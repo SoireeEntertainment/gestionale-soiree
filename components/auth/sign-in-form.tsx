@@ -26,7 +26,8 @@ export function SignInForm() {
   const { isSignedIn, isLoaded } = useAuth()
   const { signOut } = useClerk()
 
-  // Nessun redirect automatico a dashboard: evita loop (incognito/post-logout). Se già connesso mostriamo link.
+  // Aspetta sempre isLoaded: niente redirect mentre Clerk inizializza/rinnova.
+  // Nessun auto-redirect a dashboard se già signed-in (evita loop post-sessione rotta).
   if (clerkConfigured) {
     if (!isLoaded) {
       return (
@@ -49,7 +50,7 @@ export function SignInForm() {
               </Link>
               <button
                 type="button"
-                onClick={() => signOut({ redirectUrl: '/login' })}
+                onClick={() => void signOut({ redirectUrl: '/sign-in' })}
                 className="inline-block px-6 py-3 rounded-md font-medium bg-white/10 text-white border border-white/20 hover:bg-white/20"
               >
                 Esci e accedi con un altro account
@@ -62,8 +63,8 @@ export function SignInForm() {
     return (
       <div className="flex items-center justify-center min-h-screen bg-dark py-12">
         <SignIn
+          // Solo fallback: niente forceRedirectUrl (può riaprire il loop se la sessione è ambigua)
           fallbackRedirectUrl="/dashboard"
-          forceRedirectUrl="/dashboard"
           appearance={darkAppearance}
         />
       </div>
