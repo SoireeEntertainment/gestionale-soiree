@@ -32,11 +32,28 @@ Per rendere pubblico il gestionale con Clerk in produzione:
 
 - In Clerk, in **Production**, vai in **Paths** / **URLs** (o **Configure**)
 - **Allowed redirect URLs**: aggiungi l’URL del sito in produzione, es.  
-  `https://tuodominio.vercel.app/**`
-- **Sign-in URL**: es. `/sign-in`
-- **After sign-in URL**: es. `/dashboard`
+  `https://gestionale.soiree.it/**`
+- **Sign-in URL**: `/sign-in`
+- **After sign-in URL**: `/dashboard`
+- **After sign-out URL**: `/sign-in`
 
-Se usi un dominio custom (es. `app.soiree.it`), aggiungilo sia in Clerk che in Vercel (Domains).
+Se usi un **custom domain Clerk** (es. `clerk.gestionale.soiree.it`):
+
+1. Deve appartenere alla stessa istanza **Production** delle chiavi `pk_live_` / `sk_live_` su Vercel
+2. Non mescolare chiavi Development (`pk_test_`) con il dominio di produzione
+3. I CNAME DNS devono puntare all’istanza Clerk corretta (Dashboard → Domains)
+4. Dopo modifiche DNS/chiavi: Redeploy su Vercel e prova in **finestra incognito**
+
+### Loop handshake (`session_token_consumed`)
+
+Se Chrome con vecchia sessione resta in loop sul handshake Clerk mentre l’incognito funziona:
+
+- è tipicamente una sessione/cookie obsoleto non più recuperabile
+- l’app manda le sessioni non recuperabili a `/sign-in` (non ritenta il refresh sulla stessa pagina protetta)
+- logout deve sempre usare `signOut({ redirectUrl: '/sign-in' })` di Clerk
+- hard refresh o “Esci e accedi con un altro account” ripulisce lo stato
+
+Se usi un dominio custom (es. `gestionale.soiree.it`), aggiungilo sia in Clerk che in Vercel (Domains).
 
 ## 6. Utenti in produzione
 
