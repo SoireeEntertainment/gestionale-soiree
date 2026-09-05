@@ -71,4 +71,21 @@ assertEq(parseDomainFromServiceName('Dominio:   esempio.it'), 'esempio.it', 'leg
 assertEq(parseDomainFromServiceName('Dominio - esempio.it'), 'esempio.it', 'legacy dash')
 assertEq(parseDomainFromServiceName('Dominio'), null, 'Dominio alone has no parseable domain')
 
+// Obbligatorietà condizionale (logica UI/server)
+assert(serviceNameSuggestsDomain('Dominio'), 'Dominio requires domain')
+assert(serviceNameSuggestsDomain('Dominio sito'), 'Dominio sito requires domain')
+assert(serviceNameSuggestsDomain('Dominio principale'), 'Dominio principale requires domain')
+assert(serviceNameSuggestsDomain('Dominio: esempio.it'), 'Dominio: … requires domain')
+assert(!serviceNameSuggestsDomain('Iubenda'), 'Iubenda optional domain')
+assert(!serviceNameSuggestsDomain('Weglot'), 'Weglot optional domain')
+assert(!serviceNameSuggestsDomain('Redirect'), 'Redirect optional domain')
+assert(!serviceNameSuggestsDomain('Meta Ads'), 'Meta Ads optional domain')
+
+// Legacy prefill: Dominio: esempio.it + domain null → parser
+assertEq(
+  parseDomainFromServiceName('Dominio: esempio.it'),
+  'esempio.it',
+  'legacy open-edit prefill'
+)
+
 console.log('OK — tutti i test dominio renewals passati')
