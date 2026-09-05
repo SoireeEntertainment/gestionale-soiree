@@ -63,7 +63,7 @@ export function ClientsList({ clients, users, canWrite = true }: ClientsListProp
           placeholder="Cerca per nome, contatto, email, telefono..."
           className="flex-1 min-w-[200px] px-3 py-2 bg-dark border border-accent/20 rounded text-white placeholder-white/40"
         />
-        <DomainRenewalsAlertButton />
+        {canWrite && <DomainRenewalsAlertButton />}
         {canWrite && (
           <>
             <Link href="/clients/import-domains">

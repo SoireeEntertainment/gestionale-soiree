@@ -5,11 +5,10 @@ import * as Toast from '@radix-ui/react-toast'
 import { useToastStore, type ToastItem } from '@/lib/stores/toast-store'
 import { cn } from '@/lib/utils'
 
-const AUTO_DISMISS_MS: Record<ToastItem['type'], number> = {
+const AUTO_DISMISS_MS: Record<Exclude<ToastItem['type'], 'loading'>, number> = {
   success: 3200,
   error: 5000,
   info: 3200,
-  loading: 1200,
 }
 
 function ToastViewport() {
@@ -28,6 +27,8 @@ function ToastViewport() {
 
 function ToastItemView({ toast, onDismiss }: { toast: ToastItem; onDismiss: () => void }) {
   useEffect(() => {
+    // I toast "loading" restano finché dismissToast esplicito (es. fine request).
+    if (toast.type === 'loading') return
     const ms = AUTO_DISMISS_MS[toast.type]
     const timer = setTimeout(onDismiss, ms)
     return () => clearTimeout(timer)
