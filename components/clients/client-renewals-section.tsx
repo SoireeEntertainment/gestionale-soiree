@@ -19,7 +19,12 @@ import {
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { HelpTooltip } from '@/components/ui/help-tooltip'
-import { serviceNameSuggestsDomain } from '@/lib/domain-renewal-utils'
+import {
+  normalizeDomainInput,
+  parseDomainFromServiceName,
+  serviceNameSuggestsDomain,
+} from '@/lib/domain-renewal-utils'
+import { showToast } from '@/lib/toast'
 
 const RENEWAL_STATUS_LABELS: Record<string, string> = {
   DA_FARE: 'Da fare',
@@ -72,7 +77,10 @@ export function ClientRenewalsSection({
     status: 'DA_FARE' as string,
     notes: '',
   })
+  const [domainError, setDomainError] = useState<string | null>(null)
   const [filter30Days, setFilter30Days] = useState(false)
+
+  const isDomainService = serviceNameSuggestsDomain(form.serviceName)
 
   const refresh = async () => {
     const list = await getClientRenewals(clientId)
@@ -82,6 +90,7 @@ export function ClientRenewalsSection({
 
   const openCreate = () => {
     setEditing(null)
+    setDomainError(null)
     setForm({
       serviceName: '',
       domain: '',
@@ -95,9 +104,14 @@ export function ClientRenewalsSection({
 
   const openEdit = (r: ClientRenewalRow) => {
     setEditing(r)
+    setDomainError(null)
+    const legacyDomain =
+      r.domain?.trim() ||
+      parseDomainFromServiceName(r.serviceName) ||
+      ''
     setForm({
       serviceName: r.serviceName,
-      domain: r.domain ?? '',
+      domain: legacyDomain,
       renewalDate: toInputDate(new Date(r.renewalDate)),
       billingDate: r.billingDate ? toInputDate(new Date(r.billingDate)) : '',
       status: (r as { status?: string }).status ?? 'DA_FARE',
@@ -108,12 +122,24 @@ export function ClientRenewalsSection({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setDomainError(null)
+
+    const trimmedDomain = form.domain.trim()
+    if (isDomainService && !trimmedDomain) {
+      setDomainError('Inserisci il dominio associato a questo rinnovo.')
+      return
+    }
+    if (trimmedDomain && !normalizeDomainInput(trimmedDomain)) {
+      setDomainError('Inserisci un dominio valido, es. esempio.it')
+      return
+    }
+
     setLoading(true)
     try {
       if (editing) {
         await updateClientRenewal(editing.id, clientId, {
           serviceName: form.serviceName,
-          domain: form.domain.trim() || null,
+          domain: trimmedDomain || null,
           renewalDate: form.renewalDate,
           billingDate: form.billingDate.trim() || null,
           status: form.status,
@@ -122,7 +148,7 @@ export function ClientRenewalsSection({
       } else {
         await createClientRenewal(clientId, {
           serviceName: form.serviceName,
-          domain: form.domain.trim() || null,
+          domain: trimmedDomain || null,
           renewalDate: form.renewalDate,
           billingDate: form.billingDate.trim() || null,
           status: form.status,
@@ -132,7 +158,15 @@ export function ClientRenewalsSection({
       await refresh()
       setOpenModal(false)
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Errore')
+      const message = err instanceof Error ? err.message : 'Errore'
+      if (
+        message.includes('dominio associato') ||
+        message.includes('dominio valido')
+      ) {
+        setDomainError(message)
+      } else {
+        showToast(message, 'error')
+      }
     } finally {
       setLoading(false)
     }
@@ -271,29 +305,38 @@ export function ClientRenewalsSection({
                 type="text"
                 required
                 value={form.serviceName}
-                onChange={(e) => setForm({ ...form, serviceName: e.target.value })}
+                onChange={(e) => {
+                  setDomainError(null)
+                  setForm({ ...form, serviceName: e.target.value })
+                }}
                 placeholder="es. Meta Ads, Hosting, Canone social"
                 className="w-full px-3 py-2 bg-dark border border-accent/20 rounded-md text-white"
               />
             </div>
             <div>
-              <label
-                className={`mb-1 block text-sm font-medium ${
-                  serviceNameSuggestsDomain(form.serviceName) ? 'text-accent' : 'text-white'
-                }`}
-              >
-                Dominio
-                {serviceNameSuggestsDomain(form.serviceName) && (
-                  <span className="ml-2 text-xs font-normal text-accent/80">(consigliato)</span>
-                )}
+              <label className="mb-1 block text-sm font-medium text-white">
+                {isDomainService ? 'Dominio *' : 'Dominio'}
               </label>
               <input
                 type="text"
+                required={isDomainService}
                 value={form.domain}
-                onChange={(e) => setForm({ ...form, domain: e.target.value })}
+                onChange={(e) => {
+                  setDomainError(null)
+                  setForm({ ...form, domain: e.target.value })
+                }}
                 placeholder="es. legnamitavella.com"
-                className="w-full px-3 py-2 bg-dark border border-accent/20 rounded-md text-white"
+                aria-invalid={domainError ? true : undefined}
+                className={`w-full px-3 py-2 bg-dark rounded-md text-white border ${
+                  domainError ? 'border-red-400/70' : 'border-accent/20'
+                }`}
               />
+              {isDomainService && (
+                <p className="mt-1 text-xs text-white/50">Obbligatorio per i rinnovi dominio.</p>
+              )}
+              {domainError && (
+                <p className="mt-1 text-xs text-red-300">{domainError}</p>
+              )}
             </div>
             <div>
               <label className="mb-1 flex items-center gap-1.5 text-sm font-medium text-white">

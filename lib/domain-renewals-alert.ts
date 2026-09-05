@@ -13,6 +13,7 @@ export type DomainRenewalAlertItem = {
   clientName: string
   domain: string
   renewalDate: Date
+  billingDate: Date | null
   renewalId: string
 }
 
@@ -64,11 +65,16 @@ export async function getDomainRenewalsExpiringInNextTwoMonths(): Promise<Domain
       clientName: row.client.name,
       domain,
       renewalDate: row.renewalDate,
+      billingDate: row.billingDate ?? null,
       renewalId: row.id,
     })
   }
 
   return items
+}
+
+function formatBillingDate(date: Date | null): string {
+  return date ? formatDateOnlyIt(date) : '—'
 }
 
 export function buildDomainRenewalsAlertEmail(items: DomainRenewalAlertItem[]): {
@@ -110,13 +116,14 @@ export function buildDomainRenewalsAlertEmail(items: DomainRenewalAlertItem[]): 
         <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;">${escapeHtml(item.clientName)}</td>
         <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;">${escapeHtml(item.domain)}</td>
         <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;">${escapeHtml(formatRenewalDate(item.renewalDate))}</td>
+        <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;">${escapeHtml(formatBillingDate(item.billingDate))}</td>
       </tr>`
     )
     .join('')
 
   const html = `
   <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827;background:#f8fafc;padding:24px;">
-    <div style="max-width:720px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;padding:24px;">
+    <div style="max-width:820px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;padding:24px;">
       <h2 style="margin:0 0 12px 0;font-size:20px;">Domini in scadenza nei prossimi 2 mesi</h2>
       <p style="margin:0 0 20px 0;color:#374151;">Ecco l'elenco dei domini dei clienti con data di rinnovo compresa nei prossimi due mesi.</p>
       <table style="width:100%;border-collapse:collapse;font-size:14px;">
@@ -125,6 +132,7 @@ export function buildDomainRenewalsAlertEmail(items: DomainRenewalAlertItem[]): 
             <th style="padding:10px 12px;text-align:left;border-bottom:2px solid #e5e7eb;">Cliente</th>
             <th style="padding:10px 12px;text-align:left;border-bottom:2px solid #e5e7eb;">Dominio</th>
             <th style="padding:10px 12px;text-align:left;border-bottom:2px solid #e5e7eb;">Data rinnovo</th>
+            <th style="padding:10px 12px;text-align:left;border-bottom:2px solid #e5e7eb;">Data fatturazione</th>
           </tr>
         </thead>
         <tbody>${tableRows}</tbody>
@@ -143,7 +151,7 @@ export function buildDomainRenewalsAlertEmail(items: DomainRenewalAlertItem[]): 
     '',
     ...items.map(
       (item) =>
-        `${item.clientName} | ${item.domain} | ${formatRenewalDate(item.renewalDate)}`
+        `${item.clientName} | ${item.domain} | ${formatRenewalDate(item.renewalDate)} | ${formatBillingDate(item.billingDate)}`
     ),
     '',
     `Totale: ${items.length}`,

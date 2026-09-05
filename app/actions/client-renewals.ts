@@ -4,7 +4,10 @@ import { revalidatePath } from 'next/cache'
 import { getCurrentUser, canWrite } from '@/lib/auth-dev'
 import { prisma } from '@/lib/prisma'
 import { clientRenewalSchema, RENEWAL_STATUSES } from '@/lib/validations'
-import { normalizeDomainInput } from '@/lib/domain-renewal-utils'
+import {
+  normalizeDomainInput,
+  serviceNameSuggestsDomain,
+} from '@/lib/domain-renewal-utils'
 
 export type ClientRenewalRow = {
   id: string
@@ -84,6 +87,9 @@ export async function createClientRenewal(
     ? validated.status!
     : 'DA_FARE'
   const domain = resolveDomain(validated.domain ?? null)
+  if (serviceNameSuggestsDomain(validated.serviceName) && !domain) {
+    throw new Error('Inserisci il dominio associato a questo rinnovo.')
+  }
 
   const client = await prisma.client.findUnique({ where: { id: clientId } })
   if (!client) throw new Error('Cliente non trovato')
@@ -136,6 +142,9 @@ export async function updateClientRenewal(
     notes: data.notes ?? null,
   })
   const domain = resolveDomain(validated.domain ?? null)
+  if (serviceNameSuggestsDomain(validated.serviceName) && !domain) {
+    throw new Error('Inserisci il dominio associato a questo rinnovo.')
+  }
   const updateData: Record<string, unknown> = {
     serviceName: validated.serviceName,
     domain,
