@@ -8,18 +8,28 @@ export function logEmailEnvCheck(context: string): void {
     hasBrevoApiKey: Boolean(process.env.BREVO_API_KEY?.trim()),
     hasEmailFrom: Boolean(process.env.EMAIL_FROM?.trim()),
     hasAppUrl: Boolean(process.env.NEXT_PUBLIC_APP_URL?.trim()),
+    hasAlertRecipient: Boolean(process.env.DOMAIN_RENEWALS_ALERT_TO?.trim()),
   })
+}
+
+export function assertEmailEnvReady(): void {
+  const missing: string[] = []
+  if (!process.env.BREVO_API_KEY?.trim()) missing.push('BREVO_API_KEY')
+  if (!process.env.EMAIL_FROM?.trim()) missing.push('EMAIL_FROM')
+  if (missing.length > 0) {
+    throw new Error('Configurazione email incompleta.')
+  }
 }
 
 export function getBrevoApiKey(): string {
   const key = process.env.BREVO_API_KEY?.trim()
-  if (!key) throw new Error('BREVO_API_KEY non configurata')
+  if (!key) throw new Error('Configurazione email incompleta.')
   return key
 }
 
 export function getEmailFrom(): string {
   const from = process.env.EMAIL_FROM?.trim()
-  if (!from) throw new Error('EMAIL_FROM non configurata')
+  if (!from) throw new Error('Configurazione email incompleta.')
   return from
 }
 

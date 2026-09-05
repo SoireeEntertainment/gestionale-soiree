@@ -10,8 +10,15 @@ import {
   type ClientRenewalRow,
 } from '@/app/actions/client-renewals'
 import { RENEWAL_STATUSES } from '@/lib/validations'
+import {
+  diffDaysDateOnly,
+  formatDateOnlyIt,
+  toDateOnlyString,
+  todayDateOnlyLocal,
+} from '@/lib/date-only'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { HelpTooltip } from '@/components/ui/help-tooltip'
 
 const RENEWAL_STATUS_LABELS: Record<string, string> = {
   DA_FARE: 'Da fare',
@@ -26,25 +33,17 @@ const RENEWAL_STATUS_CLASS: Record<string, string> = {
   ANNULLATO: 'bg-white/10 text-white/50',
 }
 
-const DATE_FMT = new Intl.DateTimeFormat('it-IT', {
-  day: '2-digit',
-  month: '2-digit',
-  year: 'numeric',
-})
+const HELP_RENEWAL_DATE =
+  'Data in cui il servizio scade o si rinnova presso il fornitore. È la data operativa da monitorare.'
+const HELP_BILLING_DATE =
+  'Data in cui il rinnovo deve essere fatturato al cliente. Può essere diversa dalla data di rinnovo.'
 
 function toInputDate(d: Date): string {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
+  return toDateOnlyString(d)
 }
 
 function renewalStatus(renewalDate: Date): 'scaduto' | 'in_scadenza' | null {
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const rd = new Date(renewalDate)
-  rd.setHours(0, 0, 0, 0)
-  const diffDays = Math.floor((rd.getTime() - today.getTime()) / (24 * 60 * 60 * 1000))
+  const diffDays = diffDaysDateOnly(toDateOnlyString(renewalDate), todayDateOnlyLocal())
   if (diffDays < 0) return 'scaduto'
   if (diffDays <= 7) return 'in_scadenza'
   return null
@@ -83,7 +82,7 @@ export function ClientRenewalsSection({
     setEditing(null)
     setForm({
       serviceName: '',
-      renewalDate: toInputDate(new Date()),
+      renewalDate: todayDateOnlyLocal(),
       billingDate: '',
       status: 'DA_FARE',
       notes: '',
@@ -144,13 +143,8 @@ export function ClientRenewalsSection({
   }
 
   const in30Days = (d: Date) => {
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const limit = new Date(today)
-    limit.setDate(limit.getDate() + 30)
-    const rd = new Date(d)
-    rd.setHours(0, 0, 0, 0)
-    return rd >= today && rd <= limit
+    const diff = diffDaysDateOnly(toDateOnlyString(d), todayDateOnlyLocal())
+    return diff >= 0 && diff <= 30
   }
   const filteredRenewals = filter30Days
     ? renewals.filter((r) => in30Days(new Date(r.renewalDate)))
@@ -188,8 +182,18 @@ export function ClientRenewalsSection({
             <thead>
               <tr className="text-left text-white/60 border-b border-white/10">
                 <th className="pb-2 pr-4">Nome servizio</th>
-                <th className="pb-2 pr-4">Data rinnovo</th>
-                <th className="pb-2 pr-4">Data fatturazione</th>
+                <th className="pb-2 pr-4">
+                  <span className="inline-flex items-center gap-1.5">
+                    Data rinnovo
+                    <HelpTooltip label="Info su Data rinnovo" content={HELP_RENEWAL_DATE} />
+                  </span>
+                </th>
+                <th className="pb-2 pr-4">
+                  <span className="inline-flex items-center gap-1.5">
+                    Data fatturazione
+                    <HelpTooltip label="Info su Data fatturazione" content={HELP_BILLING_DATE} />
+                  </span>
+                </th>
                 <th className="pb-2 pr-4">Stato</th>
                 {canWrite && <th className="pb-2">Azioni</th>}
               </tr>
@@ -201,9 +205,9 @@ export function ClientRenewalsSection({
                 return (
                   <tr key={r.id} className="border-b border-white/5">
                     <td className="py-2 pr-4 text-white">{r.serviceName}</td>
-                    <td className="py-2 pr-4 text-white">{DATE_FMT.format(new Date(r.renewalDate))}</td>
+                    <td className="py-2 pr-4 text-white">{formatDateOnlyIt(new Date(r.renewalDate))}</td>
                     <td className="py-2 pr-4 text-white">
-                      {r.billingDate ? DATE_FMT.format(new Date(r.billingDate)) : '—'}
+                      {r.billingDate ? formatDateOnlyIt(new Date(r.billingDate)) : '—'}
                     </td>
                     <td className="py-2 pr-4">
                       <span className={`text-xs px-2 py-0.5 rounded ${RENEWAL_STATUS_CLASS[rowStatus] ?? RENEWAL_STATUS_CLASS.DA_FARE}`}>
@@ -260,7 +264,10 @@ export function ClientRenewalsSection({
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-white mb-1">Data rinnovo *</label>
+              <label className="mb-1 flex items-center gap-1.5 text-sm font-medium text-white">
+                Data rinnovo *
+                <HelpTooltip label="Info su Data rinnovo" content={HELP_RENEWAL_DATE} />
+              </label>
               <input
                 type="date"
                 required
@@ -270,7 +277,10 @@ export function ClientRenewalsSection({
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-white mb-1">Data fatturazione</label>
+              <label className="mb-1 flex items-center gap-1.5 text-sm font-medium text-white">
+                Data fatturazione
+                <HelpTooltip label="Info su Data fatturazione" content={HELP_BILLING_DATE} />
+              </label>
               <input
                 type="date"
                 value={form.billingDate}

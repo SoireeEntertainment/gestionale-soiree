@@ -19,7 +19,17 @@ export const LoadingButton = React.forwardRef<HTMLButtonElement, LoadingButtonPr
         className={cn(loading && 'opacity-90', className)}
         {...props}
       >
-        {loading ? (loadingText ?? 'Caricamento…') : children}
+        {loading ? (
+          <span className="inline-flex items-center gap-2">
+            <span
+              className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-r-transparent"
+              aria-hidden
+            />
+            {loadingText ?? 'Caricamento…'}
+          </span>
+        ) : (
+          children
+        )}
       </Button>
     )
   }

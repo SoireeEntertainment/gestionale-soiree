@@ -12,6 +12,7 @@ function isAuthorized(request: NextRequest): boolean {
 
 export async function GET(request: NextRequest) {
   if (!isAuthorized(request)) {
+    console.error('[cron/domain-renewals-alert] unauthorized (missing/invalid CRON_SECRET)')
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -20,10 +21,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(result)
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Internal error'
-    console.error('[cron/domain-renewals-alert]', {
-      message,
-      stack: err instanceof Error ? err.stack : undefined,
-    })
+    console.error('[cron/domain-renewals-alert] FAILED', { message })
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }

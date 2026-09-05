@@ -1,7 +1,7 @@
-import { addMonths, endOfDay, format, startOfDay } from 'date-fns'
-import { it } from 'date-fns/locale'
+import { addMonths, endOfDay, startOfDay } from 'date-fns'
 import { sendEmail } from '@/lib/email/brevo'
-import { logEmailEnvCheck } from '@/lib/email-env'
+import { assertEmailEnvReady, logEmailEnvCheck } from '@/lib/email-env'
+import { formatDateOnlyIt } from '@/lib/date-only'
 import { isDomainRenewalService, parseDomainFromServiceName } from '@/lib/domain-renewal-utils'
 import { prisma } from '@/lib/prisma'
 
@@ -31,17 +31,7 @@ function getAppUrl(): string {
 }
 
 function formatRenewalDate(date: Date): string {
-  return format(date, 'dd/MM/yyyy', { locale: it })
-}
-
-function logDomainRenewalsError(err: unknown, phase: string): void {
-  const error = err instanceof Error ? err : new Error(String(err))
-  console.error('[DomainRenewalsAlert] error', {
-    phase,
-    message: error.message,
-    stack: error.stack,
-    cause: error.cause,
-  })
+  return formatDateOnlyIt(date)
 }
 
 /** Domini con rinnovo tra oggi e oggi + 2 mesi (inclusi). */
@@ -49,29 +39,18 @@ export async function getDomainRenewalsExpiringInNextTwoMonths(): Promise<Domain
   const rangeStart = startOfDay(new Date())
   const rangeEnd = endOfDay(addMonths(rangeStart, 2))
 
-  let rows: {
-    id: string
-    serviceName: string
-    renewalDate: Date
-    client: { id: string; name: string }
-  }[]
-  try {
-    rows = await prisma.clientRenewal.findMany({
-      where: {
-        renewalDate: {
-          gte: rangeStart,
-          lte: rangeEnd,
-        },
+  const rows = await prisma.clientRenewal.findMany({
+    where: {
+      renewalDate: {
+        gte: rangeStart,
+        lte: rangeEnd,
       },
-      include: {
-        client: { select: { id: true, name: true } },
-      },
-      orderBy: { renewalDate: 'asc' },
-    })
-  } catch (err) {
-    logDomainRenewalsError(err, 'query')
-    throw new Error('Errore lettura rinnovi domini')
-  }
+    },
+    include: {
+      client: { select: { id: true, name: true } },
+    },
+    orderBy: { renewalDate: 'asc' },
+  })
 
   const items: DomainRenewalAlertItem[] = []
 
@@ -180,29 +159,40 @@ export async function sendDomainRenewalsAlertEmail(): Promise<{
   count: number
   sentTo: string
 }> {
-  logEmailEnvCheck('DomainRenewalsAlert')
+  let phase = 'start'
+  console.log('[DomainRenewalsAlert] START')
 
-  const sentTo = DOMAIN_RENEWALS_ALERT_RECIPIENT
+  try {
+    phase = 'env'
+    logEmailEnvCheck('DomainRenewalsAlert')
+    assertEmailEnvReady()
+    console.log('[DomainRenewalsAlert] ENV_OK')
 
-  const items = await getDomainRenewalsExpiringInNextTwoMonths()
-  console.log('[DomainRenewalsAlert] renewals found', items.length)
+    const sentTo = DOMAIN_RENEWALS_ALERT_RECIPIENT
 
-  const { subject, html, text } = buildDomainRenewalsAlertEmail(items)
-  console.log('[DomainRenewalsAlert] email template ready', { subject, recipient: sentTo })
+    phase = 'query'
+    const items = await getDomainRenewalsExpiringInNextTwoMonths()
+    console.log(`[DomainRenewalsAlert] QUERY_OK count=${items.length}`)
 
-  const { messageId } = await sendEmail({
-    to: sentTo,
-    subject,
-    html,
-    text,
-  })
+    phase = 'email_build'
+    const { subject, html, text } = buildDomainRenewalsAlertEmail(items)
+    console.log('[DomainRenewalsAlert] EMAIL_BUILD_OK')
 
-  console.info('[DomainRenewalsAlert] sent', {
-    sentTo,
-    count: items.length,
-    messageId,
-    at: new Date().toISOString(),
-  })
+    phase = 'brevo_send'
+    console.log('[DomainRenewalsAlert] BREVO_SEND_START')
+    const { messageId } = await sendEmail({
+      to: sentTo,
+      subject,
+      html,
+      text,
+    })
 
-  return { success: true, count: items.length, sentTo }
+    console.log(`[DomainRenewalsAlert] SENT messageId=${messageId ?? 'n/a'}`)
+
+    return { success: true, count: items.length, sentTo }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error(`[DomainRenewalsAlert] FAILED phase=${phase}`, { message })
+    throw err instanceof Error ? err : new Error(message)
+  }
 }
