@@ -137,6 +137,8 @@ model ClientRenewal {
   id           String    @id @default(cuid())
   clientId     String
   serviceName  String
+  /// Dominio dedicato (opzionale). Se null, fallback al parser legacy su serviceName.
+  domain       String?
   renewalDate  DateTime
   billingDate  DateTime?
   status       String    @default("DA_FARE") // DA_FARE, IN_CORSO, COMPLETATO, ANNULLATO

@@ -4,11 +4,13 @@ import { revalidatePath } from 'next/cache'
 import { getCurrentUser, canWrite } from '@/lib/auth-dev'
 import { prisma } from '@/lib/prisma'
 import { clientRenewalSchema, RENEWAL_STATUSES } from '@/lib/validations'
+import { normalizeDomainInput } from '@/lib/domain-renewal-utils'
 
 export type ClientRenewalRow = {
   id: string
   clientId: string
   serviceName: string
+  domain: string | null
   renewalDate: Date
   billingDate: Date | null
   status?: string
@@ -23,6 +25,17 @@ function toDate(s: string): Date {
   return d
 }
 
+function resolveDomain(raw: string | null | undefined): string | null {
+  if (raw == null) return null
+  const trimmed = String(raw).trim()
+  if (!trimmed) return null
+  const normalized = normalizeDomainInput(trimmed)
+  if (!normalized) {
+    throw new Error('Inserisci un dominio valido, es. esempio.it')
+  }
+  return normalized
+}
+
 export async function getClientRenewals(
   clientId: string
 ): Promise<ClientRenewalRow[]> {
@@ -34,7 +47,11 @@ export async function getClientRenewals(
       where: { clientId },
       orderBy: { renewalDate: 'asc' },
     })
-    return rows.map((r) => ({ ...r, status: (r as { status?: string }).status ?? 'DA_FARE' }))
+    return rows.map((r) => ({
+      ...r,
+      domain: (r as { domain?: string | null }).domain ?? null,
+      status: (r as { status?: string }).status ?? 'DA_FARE',
+    }))
   } catch (err) {
     console.warn('[getClientRenewals] Query failed (migration may be missing):', err instanceof Error ? err.message : err)
     return []
@@ -43,19 +60,30 @@ export async function getClientRenewals(
 
 export async function createClientRenewal(
   clientId: string,
-  data: { serviceName: string; renewalDate: string; billingDate?: string | null; status?: string; notes?: string | null }
+  data: {
+    serviceName: string
+    domain?: string | null
+    renewalDate: string
+    billingDate?: string | null
+    status?: string
+    notes?: string | null
+  }
 ) {
   const user = await getCurrentUser()
   if (!user || !canWrite(user)) throw new Error('Non autorizzato')
 
   const validated = clientRenewalSchema.parse({
     serviceName: data.serviceName,
+    domain: data.domain ?? null,
     renewalDate: data.renewalDate,
     billingDate: data.billingDate ?? '',
     status: data.status ?? 'DA_FARE',
     notes: data.notes ?? null,
   })
-  const status = (RENEWAL_STATUSES as readonly string[]).includes(validated.status ?? '') ? validated.status! : 'DA_FARE'
+  const status = (RENEWAL_STATUSES as readonly string[]).includes(validated.status ?? '')
+    ? validated.status!
+    : 'DA_FARE'
+  const domain = resolveDomain(validated.domain ?? null)
 
   const client = await prisma.client.findUnique({ where: { id: clientId } })
   if (!client) throw new Error('Cliente non trovato')
@@ -64,6 +92,7 @@ export async function createClientRenewal(
     data: {
       clientId,
       serviceName: validated.serviceName,
+      domain,
       renewalDate: toDate(validated.renewalDate),
       billingDate:
         validated.billingDate && validated.billingDate.trim() !== ''
@@ -81,7 +110,14 @@ export async function createClientRenewal(
 export async function updateClientRenewal(
   id: string,
   clientId: string,
-  data: { serviceName: string; renewalDate: string; billingDate?: string | null; status?: string; notes?: string | null }
+  data: {
+    serviceName: string
+    domain?: string | null
+    renewalDate: string
+    billingDate?: string | null
+    status?: string
+    notes?: string | null
+  }
 ) {
   const user = await getCurrentUser()
   if (!user || !canWrite(user)) throw new Error('Non autorizzato')
@@ -93,13 +129,16 @@ export async function updateClientRenewal(
 
   const validated = clientRenewalSchema.parse({
     serviceName: data.serviceName,
+    domain: data.domain ?? null,
     renewalDate: data.renewalDate,
     billingDate: data.billingDate ?? '',
     status: (data as { status?: string }).status ?? undefined,
     notes: data.notes ?? null,
   })
+  const domain = resolveDomain(validated.domain ?? null)
   const updateData: Record<string, unknown> = {
     serviceName: validated.serviceName,
+    domain,
     renewalDate: toDate(validated.renewalDate),
     billingDate:
       validated.billingDate && validated.billingDate.trim() !== ''

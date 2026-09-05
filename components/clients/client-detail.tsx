@@ -43,7 +43,17 @@ export interface ClientDetailProps {
   currentUserId?: string
   metaBusinessSuiteUrl?: string | null
   gestioneInserzioniUrl?: string | null
-  renewals?: { id: string; clientId: string; serviceName: string; renewalDate: Date; billingDate: Date | null; notes: string | null; createdAt: Date; updatedAt: Date }[]
+  renewals?: {
+    id: string
+    clientId: string
+    serviceName: string
+    domain: string | null
+    renewalDate: Date
+    billingDate: Date | null
+    notes: string | null
+    createdAt: Date
+    updatedAt: Date
+  }[]
   pedTaskCounts?: { monthCount: number; totalCount: number }
   clientInPed?: boolean
   categoryOverview?: { categoryId: string; categoryName: string; completed: number; total: number }[]
