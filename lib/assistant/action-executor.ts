@@ -590,6 +590,7 @@ export async function executeAssistantAction(
         const p = createClientRenewalPayloadSchema.parse(payload)
         const { id } = await createClientRenewal(p.clientId, {
           serviceName: p.serviceName,
+          domain: p.domain ?? null,
           renewalDate: p.renewalDate,
           billingDate: p.billingDate ?? null,
           status: p.status,
@@ -611,6 +612,7 @@ export async function executeAssistantAction(
         const p = updateClientRenewalPayloadSchema.parse(payload)
         await updateClientRenewal(p.renewalId, p.clientId, {
           serviceName: p.serviceName,
+          domain: p.domain ?? null,
           renewalDate: p.renewalDate,
           billingDate: p.billingDate ?? null,
           status: p.status,

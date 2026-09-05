@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { normalizeDomainInput } from '@/lib/domain-renewal-utils'
 
 const optionalUrl = z
   .string()
@@ -21,8 +22,28 @@ export const clientSchema = z.object({
 })
 
 export const RENEWAL_STATUSES = ['DA_FARE', 'IN_CORSO', 'COMPLETATO', 'ANNULLATO'] as const
+
+const domainFieldSchema = z
+  .union([z.string(), z.null(), z.undefined()])
+  .transform((v) => {
+    if (v == null) return null
+    const trimmed = String(v).trim()
+    return trimmed === '' ? null : trimmed
+  })
+  .superRefine((v, ctx) => {
+    if (v == null) return
+    if (!normalizeDomainInput(v)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Inserisci un dominio valido, es. esempio.it',
+      })
+    }
+  })
+  .transform((v) => (v == null ? null : normalizeDomainInput(v)))
+
 export const clientRenewalSchema = z.object({
   serviceName: z.string().min(1, 'Nome servizio obbligatorio'),
+  domain: domainFieldSchema.optional(),
   renewalDate: z.string().min(1, 'Data rinnovo obbligatoria'),
   billingDate: z.string().optional().or(z.literal('')),
   status: z.enum(RENEWAL_STATUSES).optional(),

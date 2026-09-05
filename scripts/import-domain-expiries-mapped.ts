@@ -151,7 +151,7 @@ async function main() {
     if (existing) {
       await prisma.clientRenewal.update({
         where: { id: existing.id },
-        data: { renewalDate, notes: IMPORT_NOTES },
+        data: { renewalDate, domain: row.domain.toLowerCase(), notes: IMPORT_NOTES },
       })
       updated++
     } else {
@@ -159,6 +159,7 @@ async function main() {
         data: {
           clientId,
           serviceName,
+          domain: row.domain.toLowerCase(),
           renewalDate,
           billingDate: null,
           notes: IMPORT_NOTES,

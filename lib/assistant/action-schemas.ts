@@ -128,6 +128,7 @@ export const markWorkStepPayloadSchema = z.object({
 export const createClientRenewalPayloadSchema = z.object({
   clientId: z.string().min(1),
   serviceName: z.string().min(1),
+  domain: z.string().optional().nullable(),
   renewalDate: z.string().min(1),
   billingDate: z.string().optional().nullable(),
   status: z.string().optional(),
@@ -138,6 +139,7 @@ export const updateClientRenewalPayloadSchema = z.object({
   renewalId: z.string().min(1),
   clientId: z.string().min(1),
   serviceName: z.string().min(1),
+  domain: z.string().optional().nullable(),
   renewalDate: z.string().min(1),
   billingDate: z.string().optional().nullable(),
   status: z.string().optional(),

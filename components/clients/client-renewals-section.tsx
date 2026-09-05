@@ -19,6 +19,10 @@ import {
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { HelpTooltip } from '@/components/ui/help-tooltip'
+import {
+  resolveRenewalDomain,
+  serviceNameSuggestsDomain,
+} from '@/lib/domain-renewal-utils'
 
 const RENEWAL_STATUS_LABELS: Record<string, string> = {
   DA_FARE: 'Da fare',
@@ -65,6 +69,7 @@ export function ClientRenewalsSection({
   const [loading, setLoading] = useState(false)
   const [form, setForm] = useState({
     serviceName: '',
+    domain: '',
     renewalDate: '',
     billingDate: '',
     status: 'DA_FARE' as string,
@@ -82,6 +87,7 @@ export function ClientRenewalsSection({
     setEditing(null)
     setForm({
       serviceName: '',
+      domain: '',
       renewalDate: todayDateOnlyLocal(),
       billingDate: '',
       status: 'DA_FARE',
@@ -94,6 +100,7 @@ export function ClientRenewalsSection({
     setEditing(r)
     setForm({
       serviceName: r.serviceName,
+      domain: r.domain ?? '',
       renewalDate: toInputDate(new Date(r.renewalDate)),
       billingDate: r.billingDate ? toInputDate(new Date(r.billingDate)) : '',
       status: (r as { status?: string }).status ?? 'DA_FARE',
@@ -109,6 +116,7 @@ export function ClientRenewalsSection({
       if (editing) {
         await updateClientRenewal(editing.id, clientId, {
           serviceName: form.serviceName,
+          domain: form.domain.trim() || null,
           renewalDate: form.renewalDate,
           billingDate: form.billingDate.trim() || null,
           status: form.status,
@@ -117,6 +125,7 @@ export function ClientRenewalsSection({
       } else {
         await createClientRenewal(clientId, {
           serviceName: form.serviceName,
+          domain: form.domain.trim() || null,
           renewalDate: form.renewalDate,
           billingDate: form.billingDate.trim() || null,
           status: form.status,
@@ -182,6 +191,7 @@ export function ClientRenewalsSection({
             <thead>
               <tr className="text-left text-white/60 border-b border-white/10">
                 <th className="pb-2 pr-4">Nome servizio</th>
+                <th className="pb-2 pr-4">Dominio</th>
                 <th className="pb-2 pr-4">
                   <span className="inline-flex items-center gap-1.5">
                     Data rinnovo
@@ -205,6 +215,7 @@ export function ClientRenewalsSection({
                 return (
                   <tr key={r.id} className="border-b border-white/5">
                     <td className="py-2 pr-4 text-white">{r.serviceName}</td>
+                    <td className="py-2 pr-4 text-white">{resolveRenewalDomain(r) ?? '—'}</td>
                     <td className="py-2 pr-4 text-white">{formatDateOnlyIt(new Date(r.renewalDate))}</td>
                     <td className="py-2 pr-4 text-white">
                       {r.billingDate ? formatDateOnlyIt(new Date(r.billingDate)) : '—'}
@@ -260,6 +271,25 @@ export function ClientRenewalsSection({
                 value={form.serviceName}
                 onChange={(e) => setForm({ ...form, serviceName: e.target.value })}
                 placeholder="es. Meta Ads, Hosting, Canone social"
+                className="w-full px-3 py-2 bg-dark border border-accent/20 rounded-md text-white"
+              />
+            </div>
+            <div>
+              <label
+                className={`mb-1 block text-sm font-medium ${
+                  serviceNameSuggestsDomain(form.serviceName) ? 'text-accent' : 'text-white'
+                }`}
+              >
+                Dominio
+                {serviceNameSuggestsDomain(form.serviceName) && (
+                  <span className="ml-2 text-xs font-normal text-accent/80">(consigliato)</span>
+                )}
+              </label>
+              <input
+                type="text"
+                value={form.domain}
+                onChange={(e) => setForm({ ...form, domain: e.target.value })}
+                placeholder="es. legnamitavella.com"
                 className="w-full px-3 py-2 bg-dark border border-accent/20 rounded-md text-white"
               />
             </div>

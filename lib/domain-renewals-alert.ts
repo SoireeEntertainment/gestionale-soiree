@@ -2,7 +2,7 @@ import { addMonths, endOfDay, startOfDay } from 'date-fns'
 import { sendEmail } from '@/lib/email/brevo'
 import { assertEmailEnvReady, logEmailEnvCheck } from '@/lib/email-env'
 import { formatDateOnlyIt } from '@/lib/date-only'
-import { isDomainRenewalService, parseDomainFromServiceName } from '@/lib/domain-renewal-utils'
+import { isDomainRenewalRecord, resolveRenewalDomain } from '@/lib/domain-renewal-utils'
 import { prisma } from '@/lib/prisma'
 
 export const DOMAIN_RENEWALS_ALERT_RECIPIENT =
@@ -55,8 +55,8 @@ export async function getDomainRenewalsExpiringInNextTwoMonths(): Promise<Domain
   const items: DomainRenewalAlertItem[] = []
 
   for (const row of rows) {
-    if (!isDomainRenewalService(row.serviceName)) continue
-    const domain = parseDomainFromServiceName(row.serviceName)
+    if (!isDomainRenewalRecord(row)) continue
+    const domain = resolveRenewalDomain(row)
     if (!domain) continue
 
     items.push({
