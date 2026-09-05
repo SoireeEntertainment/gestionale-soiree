@@ -139,6 +139,7 @@ export const pedItemCreateSchema = z.object({
   isExtra: z.boolean().optional(),
   assignedToUserId: z.string().optional().nullable(),
   platforms: z.array(z.enum(PED_PLATFORMS)).optional(),
+  shootingReelId: z.string().min(1).optional().nullable(),
 })
 
 export const pedItemUpdateSchema = pedItemCreateSchema.partial().extend({
@@ -148,5 +149,31 @@ export const pedItemUpdateSchema = pedItemCreateSchema.partial().extend({
 export const pedItemSetLabelSchema = z.object({
   id: z.string().min(1),
   label: z.enum(PED_LABELS),
+})
+
+export const clientShootingSchema = z.object({
+  clientId: z.string().min(1),
+  date: z.string().min(1, 'Data shooting obbligatoria'),
+  name: z.string().min(1, 'Nome shooting obbligatorio'),
+  location: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
+  topics: z.array(z.string().min(1)).min(1, 'Aggiungi almeno un argomento Reel'),
+})
+
+export const clientShootingUpdateSchema = z.object({
+  date: z.string().min(1).optional(),
+  name: z.string().min(1).optional(),
+  location: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
+  topics: z.array(z.string().min(1)).optional(),
+})
+
+export const shootingReelCreateSchema = z.object({
+  topic: z.string().min(1, 'Argomento obbligatorio'),
+})
+
+export const shootingReelUpdateSchema = z.object({
+  topic: z.string().min(1).optional(),
+  published: z.boolean().optional(),
 })
 

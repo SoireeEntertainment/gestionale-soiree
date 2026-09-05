@@ -4,12 +4,14 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { LoadingButton } from '@/components/ui/loading-button'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { PED_ITEM_TYPE_LABELS } from '@/lib/ped-utils'
 import { PED_ITEM_KINDS, PED_ITEM_TYPES, PED_PLATFORMS } from '@/lib/validations'
 import { PED_LABELS, PED_LABEL_CONFIG, getEffectiveLabel, DEFAULT_LABEL, DONE_LABEL, type PedLabel } from '@/lib/pedLabels'
 import { createPedItem, updatePedItem, deletePedItem, togglePedItemDone, duplicatePedItem } from '@/app/actions/ped'
+import { getClientShootingsForPed } from '@/app/actions/client-shootings'
 import { createClient } from '@/app/actions/clients'
+import { showToast } from '@/lib/toast'
 import Link from 'next/link'
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths, isSameMonth, parseISO, startOfWeek, endOfWeek } from 'date-fns'
 import { it } from 'date-fns/locale'
@@ -17,6 +19,12 @@ import { it } from 'date-fns/locale'
 type Client = { id: string; name: string }
 type Work = { id: string; title: string }
 type User = { id: string; name: string }
+type PedShootingInfo = {
+  id: string
+  topic: string
+  published: boolean
+  shooting: { id: string; name: string; date: string | Date; location: string | null }
+}
 type PedItem = {
   id: string
   date: string
@@ -33,9 +41,13 @@ type PedItem = {
   assignedToUserId?: string | null
   assignedTo?: { id: string; name: string } | null
   platforms?: string[]
+  shootingReelId?: string | null
+  shootingReel?: PedShootingInfo | null
   client: { id: string; name: string }
   work?: { id: string; title: string } | null
 }
+
+type PedShootingOption = Awaited<ReturnType<typeof getClientShootingsForPed>>[number]
 
 export function PedItemModal({
   open,
@@ -80,6 +92,10 @@ export function PedItemModal({
   const [isExtra, setIsExtra] = useState(false)
   const [assignedToUserId, setAssignedToUserId] = useState('')
   const [platforms, setPlatforms] = useState<string[]>(['INSTAGRAM'])
+  const [shootingId, setShootingId] = useState('')
+  const [shootingReelId, setShootingReelId] = useState('')
+  const [shootings, setShootings] = useState<PedShootingOption[]>([])
+  const [loadingShootings, setLoadingShootings] = useState(false)
   const [saving, setSaving] = useState(false)
   const [modalDateKey, setModalDateKey] = useState('')
   const [calendarOpen, setCalendarOpen] = useState(false)
@@ -108,6 +124,8 @@ export function PedItemModal({
       setIsExtra(Boolean(editItem.isExtra))
       setAssignedToUserId(editItem.assignedToUserId ?? editItem.assignedTo?.id ?? currentUserId)
       setPlatforms(editItem.platforms ?? [])
+      setShootingReelId(editItem.shootingReelId ?? editItem.shootingReel?.id ?? '')
+      setShootingId(editItem.shootingReel?.shooting?.id ?? '')
     } else {
       const dateKeyVal = dateKey ?? format(new Date(), 'yyyy-MM-dd')
       setModalDateKey(dateKeyVal)
@@ -125,8 +143,39 @@ export function PedItemModal({
       setIsExtra(initialIsExtra)
       setAssignedToUserId(currentUserId)
       setPlatforms(['INSTAGRAM'])
+      setShootingId('')
+      setShootingReelId('')
     }
   }, [editItem, initialIsExtra, initialClientId, clients, currentUserId, open, dateKey])
+
+  useEffect(() => {
+    if (!open || !clientId || type !== 'REEL') {
+      if (type !== 'REEL') {
+        setShootings([])
+      }
+      return
+    }
+    let cancelled = false
+    setLoadingShootings(true)
+    getClientShootingsForPed(clientId)
+      .then((rows) => {
+        if (cancelled) return
+        setShootings(rows)
+        if (shootingReelId && !shootingId) {
+          const found = rows.find((s) => s.reels.some((r) => r.id === shootingReelId))
+          if (found) setShootingId(found.id)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setShootings([])
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingShootings(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open, clientId, type])
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -150,6 +199,8 @@ export function PedItemModal({
     setClientId(c.id)
     setClientSearch(c.name)
     setClientDropdownOpen(false)
+    setShootingId('')
+    setShootingReelId('')
   }
 
   const handleCreateClient = async () => {
@@ -178,40 +229,36 @@ export function PedItemModal({
     if (!title.trim() || !clientId || !modalDateKey) return
     setSaving(true)
     try {
+      const payload = {
+        clientId,
+        date: modalDateKey,
+        kind,
+        type,
+        title: title.trim(),
+        description: description.trim() || null,
+        label,
+        workId: workId || null,
+        isExtra,
+        assignedToUserId: assignedToUserId || (editItem ? null : currentUserId),
+        platforms,
+        shootingReelId: type === 'REEL' ? shootingReelId || null : null,
+      }
       if (editItem) {
         await updatePedItem(editItem.id, {
-          clientId,
-          date: modalDateKey,
-          kind,
-          type,
-          title: title.trim(),
-          description: description.trim() || null,
-          label,
+          ...payload,
           status: label === DONE_LABEL ? 'DONE' : 'TODO',
-          workId: workId || null,
-          isExtra,
           assignedToUserId: assignedToUserId || null,
-          platforms,
         })
       } else {
         await createPedItem({
-          clientId,
-          date: modalDateKey,
-          kind,
-          type,
-          title: title.trim(),
-          description: description.trim() || null,
-          label,
-          workId: workId || null,
-          isExtra,
+          ...payload,
           assignedToUserId: assignedToUserId || currentUserId,
-          platforms,
         })
       }
       onClose()
       onSuccess ? onSuccess() : router.refresh()
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Errore')
+      showToast(e instanceof Error ? e.message : 'Errore', 'error')
     } finally {
       setSaving(false)
     }
@@ -256,6 +303,11 @@ export function PedItemModal({
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto bg-dark border border-accent/20">
         <DialogHeader>
           <DialogTitle className="text-white">{editItem ? 'Modifica voce' : 'Aggiungi voce'}</DialogTitle>
+          <DialogDescription className="sr-only">
+            {editItem
+              ? 'Modifica i dettagli della voce del piano editoriale.'
+              : 'Crea una nuova voce nel piano editoriale.'}
+          </DialogDescription>
         </DialogHeader>
         {editItem && (
           <div className="flex justify-start border-b border-white/10 pb-3 mb-3">
@@ -381,12 +433,102 @@ export function PedItemModal({
           </div>
           <div>
             <label className="block text-sm text-white/70 mb-1">Tipologia</label>
-            <select value={type} onChange={(e) => setType(e.target.value)} className="w-full px-3 py-2 bg-dark border border-accent/20 rounded text-white">
+            <select
+              value={type}
+              onChange={(e) => {
+                const next = e.target.value
+                if (type === 'REEL' && next !== 'REEL' && (shootingId || shootingReelId)) {
+                  if (
+                    !confirm(
+                      'Cambiando tipologia il collegamento allo shooting verrà rimosso. Continuare?'
+                    )
+                  ) {
+                    return
+                  }
+                  setShootingId('')
+                  setShootingReelId('')
+                }
+                setType(next)
+              }}
+              className="w-full px-3 py-2 bg-dark border border-accent/20 rounded text-white"
+            >
               {PED_ITEM_TYPES.map((t) => (
                 <option key={t} value={t}>{PED_ITEM_TYPE_LABELS[t] ?? t}</option>
               ))}
             </select>
           </div>
+          {clientId && type === 'REEL' && (
+            <div className="space-y-3 rounded-lg border border-accent/20 p-3 bg-white/5">
+              <div className="text-sm font-medium text-white">Shooting collegato</div>
+              <div>
+                <label className="block text-xs text-white/60 mb-1">Shooting collegato</label>
+                <select
+                  value={shootingId}
+                  onChange={(e) => {
+                    setShootingId(e.target.value)
+                    setShootingReelId('')
+                  }}
+                  className="w-full px-3 py-2 bg-dark border border-accent/20 rounded text-white text-sm"
+                  disabled={loadingShootings}
+                >
+                  <option value="">Nessuno shooting</option>
+                  {shootings.map((s) => {
+                    const dateLabel = format(parseISO(s.date), 'dd/MM/yyyy')
+                    const loc = s.location ? ` — ${s.location}` : ''
+                    return (
+                      <option key={s.id} value={s.id}>
+                        {dateLabel} — {s.name}{loc}
+                      </option>
+                    )
+                  })}
+                </select>
+              </div>
+              {shootingId ? (
+                <div>
+                  <label className="block text-xs text-white/60 mb-1">Argomento del Reel</label>
+                  <select
+                    value={shootingReelId}
+                    onChange={(e) => setShootingReelId(e.target.value)}
+                    className="w-full px-3 py-2 bg-dark border border-accent/20 rounded text-white text-sm"
+                  >
+                    <option value="">Seleziona l&apos;argomento</option>
+                    {(shootings.find((s) => s.id === shootingId)?.reels ?? []).map((r) => {
+                      const linkedElsewhere =
+                        !!r.linkedPedItemId && r.linkedPedItemId !== editItem?.id
+                      const disabled = linkedElsewhere
+                      const badges = [
+                        r.published ? 'Pubblicato' : null,
+                        linkedElsewhere ? 'Già collegato' : null,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')
+                      return (
+                        <option key={r.id} value={r.id} disabled={disabled}>
+                          {r.topic}{badges ? ` (${badges})` : ''}
+                        </option>
+                      )
+                    })}
+                  </select>
+                </div>
+              ) : null}
+              {editItem?.shootingReel && (
+                <div className="text-xs text-white/60 space-y-0.5">
+                  <div>
+                    Collegamento attuale:{' '}
+                    <span className="text-white">
+                      {editItem.shootingReel.shooting.name} — {editItem.shootingReel.topic}
+                    </span>
+                  </div>
+                  <div>
+                    Pubblicazione:{' '}
+                    <span className={editItem.shootingReel.published ? 'text-accent' : 'text-white/50'}>
+                      {editItem.shootingReel.published ? 'Pubblicato' : 'Non pubblicato'}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           <div>
             <label className="block text-sm text-white/70 mb-1">Piattaforme</label>
             <div className="flex flex-wrap gap-3">

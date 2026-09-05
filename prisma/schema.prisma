@@ -113,6 +113,7 @@ model Client {
   pedItems          PedItem[]
   credentials       ClientCredential[]
   renewals          ClientRenewal[]
+  shootings         ClientShooting[]
 
   @@map("clients")
 }
@@ -358,6 +359,39 @@ model PedClientSetting {
   @@map("ped_client_settings")
 }
 
+model ClientShooting {
+  id        String   @id @default(cuid())
+  clientId  String
+  date      DateTime
+  name      String
+  location  String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  client Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  reels  ShootingReel[]
+
+  @@index([clientId, date])
+  @@map("client_shootings")
+}
+
+model ShootingReel {
+  id          String    @id @default(cuid())
+  shootingId  String
+  topic       String
+  published   Boolean   @default(false)
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  shooting ClientShooting @relation(fields: [shootingId], references: [id], onDelete: Cascade)
+  pedTasks PedItem[]
+
+  @@index([shootingId])
+  @@map("shooting_reels")
+}
+
 /// Task PED: la data (`date`) è la single source of truth per la colonna/giorno in cui la task è mostrata. Aggiornata al move (drag o menu).
 model PedItem {
   id               String   @id @default(cuid())
@@ -376,17 +410,20 @@ model PedItem {
   isExtra          Boolean  @default(false) // mostra in colonna Extra della settimana
   sortOrder        Int      @default(0)      // ordine dentro il giorno / stessa etichetta
   platforms        String[] @default(["INSTAGRAM"]) // INSTAGRAM | LINKEDIN | TIKTOK
+  shootingReelId   String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  owner      User    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  assignedTo User?   @relation("AssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull)
-  client     Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  work       Work?   @relation(fields: [workId], references: [id], onDelete: SetNull)
+  owner        User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  assignedTo   User?         @relation("AssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  client       Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  work         Work?         @relation(fields: [workId], references: [id], onDelete: SetNull)
+  shootingReel ShootingReel? @relation(fields: [shootingReelId], references: [id], onDelete: SetNull)
 
   @@index([ownerId, date])
   @@index([assignedToUserId, date])
   @@index([clientId, date])
   @@index([ownerId, status])
+  @@index([shootingReelId])
   @@map("ped_items")
 }

@@ -15,7 +15,7 @@ import { getEffectiveLabel, DEFAULT_LABEL, DONE_LABEL, type PedLabel } from '@/l
 import { computePedStatsFromItems } from '@/lib/ped-stats'
 import { WORK_STATUS_META, normalizeWorkStatus, getWorkStatusMeta } from '@/lib/work-status'
 import { showToast } from '@/lib/toast'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
 const PedCalendar = dynamic(
   () => import('./ped-calendar').then((m) => ({ default: m.PedCalendar })),
@@ -59,6 +59,13 @@ type PedItem = {
   assignedTo?: { id: string; name: string } | null
   client: { id: string; name: string }
   work?: { id: string; title: string } | null
+  shootingReelId?: string | null
+  shootingReel?: {
+    id: string
+    topic: string
+    published: boolean
+    shooting: { id: string; name: string; date: string | Date; location: string | null }
+  } | null
 }
 type ComputedStats = {
   dailyStats: Record<string, { total: number; done: number; remainingPct: number; remainingCount?: number }>
@@ -965,6 +972,9 @@ export function PedView({
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Dettaglio lavoro</DialogTitle>
+            <DialogDescription>
+              Visualizza e modifica i dettagli del lavoro selezionato dal PED.
+            </DialogDescription>
           </DialogHeader>
           {selectedWork && workEditDraft && (
             <div className="space-y-4">

@@ -30,6 +30,13 @@ type PedItem = {
   owner?: { id: string; name: string } | null
   client: { id: string; name: string }
   work?: { id: string; title: string } | null
+  shootingReelId?: string | null
+  shootingReel?: {
+    id: string
+    topic: string
+    published: boolean
+    shooting: { id: string; name: string; date: string | Date; location: string | null }
+  } | null
 }
 
 type DayCell = {
@@ -813,6 +820,16 @@ function PedCalendarInner({
                             >
                               <span className="font-bold">{item.client.name}</span> · {PED_ITEM_TYPE_LABELS[item.type] ?? item.type} · {item.title}
                             </span>
+                            {item.shootingReel && (
+                              <span
+                                className="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-white/15 text-white/80"
+                                title={`${item.shootingReel.topic} · ${typeof item.shootingReel.shooting.date === 'string' ? item.shootingReel.shooting.date.slice(0, 10) : new Date(item.shootingReel.shooting.date).toISOString().slice(0, 10)}`}
+                              >
+                                🎥 {typeof item.shootingReel.shooting.date === 'string'
+                                  ? item.shootingReel.shooting.date.slice(5, 10).replace('-', '/')
+                                  : new Date(item.shootingReel.shooting.date).toISOString().slice(5, 10).replace('-', '/')}
+                              </span>
+                            )}
                             {item.owner?.name && (
                               <span className="shrink-0 text-[10px] text-white/60" title={`Creato da: ${item.owner.name}`}>
                                 Dal PED di {item.owner.name}
@@ -955,6 +972,14 @@ function PedCalendarInner({
                           >
                             <span className="font-bold">{item.client.name}</span> · {item.title}
                           </span>
+                          {item.shootingReel && (
+                            <span
+                              className="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-white/15 text-white/80"
+                              title={item.shootingReel.topic}
+                            >
+                              🎥
+                            </span>
+                          )}
                           {item.owner?.name && (
                             <span className="shrink-0 text-[10px] text-white/60" title={`Creato da: ${item.owner.name}`}>
                               Dal PED di {item.owner.name}
