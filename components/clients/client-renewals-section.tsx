@@ -19,10 +19,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { HelpTooltip } from '@/components/ui/help-tooltip'
-import {
-  resolveRenewalDomain,
-  serviceNameSuggestsDomain,
-} from '@/lib/domain-renewal-utils'
+import { serviceNameSuggestsDomain } from '@/lib/domain-renewal-utils'
 
 const RENEWAL_STATUS_LABELS: Record<string, string> = {
   DA_FARE: 'Da fare',
@@ -191,7 +188,6 @@ export function ClientRenewalsSection({
             <thead>
               <tr className="text-left text-white/60 border-b border-white/10">
                 <th className="pb-2 pr-4">Nome servizio</th>
-                <th className="pb-2 pr-4">Dominio</th>
                 <th className="pb-2 pr-4">
                   <span className="inline-flex items-center gap-1.5">
                     Data rinnovo
@@ -214,8 +210,14 @@ export function ClientRenewalsSection({
                 const rowStatus = (r as { status?: string }).status ?? 'DA_FARE'
                 return (
                   <tr key={r.id} className="border-b border-white/5">
-                    <td className="py-2 pr-4 text-white">{r.serviceName}</td>
-                    <td className="py-2 pr-4 text-white">{resolveRenewalDomain(r) ?? '—'}</td>
+                    <td className="py-2 pr-4 text-white">
+                      <div className="leading-tight">
+                        <div>{r.serviceName}</div>
+                        {r.domain ? (
+                          <div className="mt-0.5 text-xs text-white/50">{r.domain}</div>
+                        ) : null}
+                      </div>
+                    </td>
                     <td className="py-2 pr-4 text-white">{formatDateOnlyIt(new Date(r.renewalDate))}</td>
                     <td className="py-2 pr-4 text-white">
                       {r.billingDate ? formatDateOnlyIt(new Date(r.billingDate)) : '—'}
