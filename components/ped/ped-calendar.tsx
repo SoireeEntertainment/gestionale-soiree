@@ -617,8 +617,18 @@ function PedCalendarInner({
   itemsByDayRef.current = itemsByDay
   extraItemsByWeekRef.current = extraItemsByWeek
 
+  const weekRowsPrevRef = useRef<
+    {
+      weekStartKey: string
+      days: PedDayCellData[]
+      extraItems: PedItem[]
+      weekendWorks: WorkDeadlineItem[]
+      isCurrentWeek: boolean
+    }[]
+  >([])
+
   const weekRows = useMemo(() => {
-    return grid.map((week) => {
+    const next = grid.map((week) => {
       const weekStartKey = getISOWeekStartKey(week[0].dateKey)
       const days: PedDayCellData[] = week.map((cell) => {
         const stats = dailyStats[cell.dateKey] ?? { total: 0, done: 0, remainingPct: 0, remainingCount: 0 }
@@ -642,6 +652,41 @@ function PedCalendarInner({
         isCurrentWeek: weekStartKey === currentWeekStart,
       }
     })
+
+    const prev = weekRowsPrevRef.current
+    const stabilized = next.map((row, wi) => {
+      const prevRow = prev[wi]
+      if (!prevRow || prevRow.weekStartKey !== row.weekStartKey) return row
+      const days = row.days.map((day, di) => {
+        const prevDay = prevRow.days[di]
+        if (
+          prevDay &&
+          prevDay.dateKey === day.dateKey &&
+          prevDay.dayNum === day.dayNum &&
+          prevDay.isCurrentMonth === day.isCurrentMonth &&
+          prevDay.items === day.items &&
+          prevDay.works === day.works &&
+          prevDay.remainingCount === day.remainingCount &&
+          prevDay.remainingPct === day.remainingPct &&
+          prevDay.total === day.total &&
+          prevDay.done === day.done
+        ) {
+          return prevDay
+        }
+        return day
+      })
+      if (
+        prevRow.extraItems === row.extraItems &&
+        prevRow.weekendWorks === row.weekendWorks &&
+        prevRow.isCurrentWeek === row.isCurrentWeek &&
+        days.every((d, i) => d === prevRow.days[i])
+      ) {
+        return prevRow
+      }
+      return { ...row, days }
+    })
+    weekRowsPrevRef.current = stabilized
+    return stabilized
   }, [
     grid,
     itemsByDay,
