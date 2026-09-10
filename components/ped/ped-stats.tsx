@@ -1,5 +1,7 @@
 'use client'
 
+import { memo } from 'react'
+
 const MONTH_SHORT = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic']
 
 type Stats = {
@@ -93,7 +95,7 @@ function formatDayLabel(dateKey: string): string {
   return `${d} ${MONTH_SHORT[m - 1]} ${y}`
 }
 
-export function PedStats({
+function PedStatsInner({
   stats,
   selectedDateKey,
   year,
@@ -104,6 +106,8 @@ export function PedStats({
   year: number
   month: number
 }) {
+  void year
+  void month
   const dayStat = selectedDateKey ? stats.dailyStats[selectedDateKey] : null
   const currentWeek = selectedDateKey
     ? stats.weeklyStats.find((w) => selectedDateKey >= w.weekStart && selectedDateKey <= w.weekEnd)
@@ -115,14 +119,12 @@ export function PedStats({
     <div className="bg-dark border border-accent/20 rounded-xl p-4">
       <h2 className="text-lg font-semibold text-white mb-4">Statistiche</h2>
 
-      {/* Riferimento settimana */}
       {weekToShow && (
         <p className="text-sm text-accent/90 font-medium mb-4">
           Settimana visualizzata: <span className="text-white">{weekRangeLabel}</span>
         </p>
       )}
 
-      {/* Grafici a torta: giorno selezionato, settimana, mese */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
         {dayStat && (
           <div className="flex flex-col items-center p-3 rounded-lg bg-white/5">
@@ -162,3 +164,5 @@ export function PedStats({
     </div>
   )
 }
+
+export const PedStats = memo(PedStatsInner)

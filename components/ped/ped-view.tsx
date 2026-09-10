@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useRef, useEffect, useCallback, startTransition } from 'react'
+import { useState, useMemo, useRef, useEffect, useCallback, startTransition, useDeferredValue } from 'react'
 import dynamic from 'next/dynamic'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
@@ -231,7 +231,13 @@ export function PedView({
 
   // Lista usata per il rendering: date is derived from column (single source of truth dal DB, qui con optimistic update)
   const itemsWithDateString = items
-  const computedStats = useMemo(() => computePedStatsFromItems(itemsWithDateString), [itemsWithDateString])
+  const itemsRef = useRef(items)
+  itemsRef.current = items
+
+  // Stats charts can lag a tick; calendar items update immediately via optimistic state.
+  const deferredItems = useDeferredValue(itemsWithDateString)
+  const calendarStats = useMemo(() => computePedStatsFromItems(itemsWithDateString), [itemsWithDateString])
+  const deferredStats = useMemo(() => computePedStatsFromItems(deferredItems), [deferredItems])
   const workDeadlines = initialData.assignedWorkDeadlines ?? []
 
   const handleOpenAdd = useCallback((dateKey: string) => {
@@ -265,13 +271,13 @@ export function PedView({
   }, [])
 
   const handleToggleDone = useCallback(async (id: string) => {
-    const item = itemsWithDateString.find((i) => i.id === id)
+    const item = itemsRef.current.find((i) => i.id === id)
     if (!item) return
     setUndoEntry({ type: 'toggleDone', itemId: id, previousStatus: item.status, previousLabel: getEffectiveLabel(item) })
 
     const newStatus = item.status === 'DONE' ? 'TODO' : 'DONE'
     const newLabel = newStatus === 'DONE' ? DONE_LABEL : DEFAULT_LABEL
-    const previousItems = items
+    const previousItems = itemsRef.current
     setItems((prev) =>
       prev.map((i) => (i.id === id ? { ...i, status: newStatus, label: newLabel } : i))
     )
@@ -282,10 +288,10 @@ export function PedView({
       setUndoEntry(null)
       showToast(result.error ?? 'Errore', 'error')
     }
-  }, [itemsWithDateString, items])
+  }, [])
 
   const handleMoveItem = useCallback(async (itemId: string, targetDate: string, targetIsExtra: boolean) => {
-    const item = itemsWithDateString.find((i) => i.id === itemId)
+    const item = itemsRef.current.find((i) => i.id === itemId)
     const dateStr = item?.date?.slice(0, 10)
     if (!item) return
     if (dateStr === targetDate && Boolean(item.isExtra) === targetIsExtra) return
@@ -294,7 +300,7 @@ export function PedView({
       return
     }
     if (dateStr != null) setUndoEntry({ type: 'move', itemId, date: dateStr, isExtra: Boolean(item.isExtra) })
-    const previousItems = items
+    const previousItems = itemsRef.current
     setItems((prev) =>
       prev.map((i) => (i.id === itemId ? { ...i, date: targetDate, isExtra: targetIsExtra } : i))
     )
@@ -305,7 +311,7 @@ export function PedView({
       setUndoEntry(null)
       showToast(e instanceof Error ? e.message : 'Errore durante lo spostamento', 'error')
     }
-  }, [itemsWithDateString, items])
+  }, [])
 
   const handleDuplicateItem = useCallback(async (itemId: string, targetDate: string, targetIsExtra: boolean) => {
     try {
@@ -317,7 +323,7 @@ export function PedView({
   }, [schedulePedDataRefresh])
 
   const handleDeleteItem = useCallback(async (itemId: string) => {
-    const item = itemsWithDateString.find((i) => i.id === itemId)
+    const item = itemsRef.current.find((i) => i.id === itemId)
     if (item) {
       const dateStr = typeof item.date === 'string' ? item.date.slice(0, 10) : ''
       setUndoEntry({
@@ -338,7 +344,7 @@ export function PedView({
         },
       })
     }
-    const previousItems = items
+    const previousItems = itemsRef.current
     setItems((prev) => prev.filter((i) => i.id !== itemId))
     try {
       await deletePedItem(itemId)
@@ -347,19 +353,20 @@ export function PedView({
       setUndoEntry(null)
       showToast(e instanceof Error ? e.message : 'Errore', 'error')
     }
-  }, [itemsWithDateString, items])
+  }, [])
 
   const getCurrentOrderForDay = useCallback((dateKey: string, isExtra: boolean): string[] => {
+    const list = itemsRef.current
     if (isExtra) {
-      return itemsWithDateString.filter((i) => getISOWeekStartKey(i.date.slice(0, 10)) === dateKey && i.isExtra).map((i) => i.id)
+      return list.filter((i) => getISOWeekStartKey(i.date.slice(0, 10)) === dateKey && i.isExtra).map((i) => i.id)
     }
-    return itemsWithDateString.filter((i) => i.date.slice(0, 10) === dateKey && !i.isExtra).map((i) => i.id)
-  }, [itemsWithDateString])
+    return list.filter((i) => i.date.slice(0, 10) === dateKey && !i.isExtra).map((i) => i.id)
+  }, [])
 
   const handleReorderInDay = useCallback(async (dateKey: string, isExtra: boolean, orderedItemIds: string[]) => {
     const previousOrder = getCurrentOrderForDay(dateKey, isExtra)
     setUndoEntry({ type: 'reorder', dateKey, isExtra, orderedItemIds: previousOrder })
-    const previousItems = items
+    const previousItems = itemsRef.current
     setItems((prev) => {
       const isInDay = (i: PedItem) => {
         const key = isExtra ? getISOWeekStartKey(i.date.slice(0, 10)) : i.date.slice(0, 10)
@@ -391,7 +398,7 @@ export function PedView({
       setUndoEntry(null)
       showToast(e instanceof Error ? e.message : 'Errore', 'error')
     }
-  }, [getCurrentOrderForDay, items])
+  }, [getCurrentOrderForDay])
 
   const handleCloseModal = useCallback(() => {
     setModalOpen(false)
@@ -401,7 +408,7 @@ export function PedView({
   }, [])
 
   const handleSetLabel = useCallback(async (id: string, label: string) => {
-    const previousItems = items
+    const previousItems = itemsRef.current
     const pedLabel = label as PedLabel
     const newStatus = pedLabel === DONE_LABEL ? 'DONE' : 'TODO'
     setItems((prev) =>
@@ -412,11 +419,11 @@ export function PedView({
       setItems(previousItems)
       showToast(result.error ?? 'Errore', 'error')
     }
-  }, [items])
+  }, [])
 
   const handleUpdateTitle = useCallback(async (id: string, title: string) => {
     const trimmed = title.trim()
-    const previousItems = items
+    const previousItems = itemsRef.current
     setItems((prev) => prev.map((i) => (i.id === id ? { ...i, title: trimmed } : i)))
     try {
       await updatePedItem(id, { title: trimmed })
@@ -424,12 +431,13 @@ export function PedView({
       setItems(previousItems)
       showToast(e instanceof Error ? e.message : 'Errore', 'error')
     }
-  }, [items])
+  }, [])
 
   const handleMoveItems = useCallback(async (itemIds: string[], targetDate: string, targetIsExtra: boolean) => {
-    const previousItems = items
+    const previousItems = itemsRef.current
+    const idSet = new Set(itemIds)
     setItems((prev) =>
-      prev.map((i) => (itemIds.includes(i.id) ? { ...i, date: targetDate, isExtra: targetIsExtra } : i))
+      prev.map((i) => (idSet.has(i.id) ? { ...i, date: targetDate, isExtra: targetIsExtra } : i))
     )
     try {
       const { applied, error } = await bulkMovePedItems(itemIds, targetDate, targetIsExtra)
@@ -438,18 +446,20 @@ export function PedView({
         showToast(error, 'error')
         return
       }
+      void applied
     } catch (e) {
       setItems(previousItems)
       showToast(e instanceof Error ? e.message : 'Errore durante lo spostamento', 'error')
     }
-  }, [items])
+  }, [])
 
   const handleBulkSetLabel = useCallback(async (ids: string[], label: string) => {
-    const previousItems = items
+    const previousItems = itemsRef.current
     const pedLabel = label as PedLabel
     const newStatus = pedLabel === DONE_LABEL ? 'DONE' : 'TODO'
+    const idSet = new Set(ids)
     setItems((prev) =>
-      prev.map((i) => (ids.includes(i.id) ? { ...i, label: pedLabel, status: newStatus } : i))
+      prev.map((i) => (idSet.has(i.id) ? { ...i, label: pedLabel, status: newStatus } : i))
     )
     try {
       const { applied, error } = await bulkSetPedItemLabel(ids, label)
@@ -463,14 +473,15 @@ export function PedView({
       setItems(previousItems)
       showToast(e instanceof Error ? e.message : 'Errore', 'error')
     }
-  }, [items])
+  }, [])
 
   const handleBulkToggleDone = useCallback(async (ids: string[], done: boolean) => {
-    const previousItems = items
+    const previousItems = itemsRef.current
     const newStatus = done ? 'DONE' : 'TODO'
     const newLabel = done ? DONE_LABEL : DEFAULT_LABEL
+    const idSet = new Set(ids)
     setItems((prev) =>
-      prev.map((i) => (ids.includes(i.id) ? { ...i, status: newStatus, label: newLabel } : i))
+      prev.map((i) => (idSet.has(i.id) ? { ...i, status: newStatus, label: newLabel } : i))
     )
     try {
       const { applied, error } = await bulkTogglePedItemDone(ids, done)
@@ -484,11 +495,12 @@ export function PedView({
       setItems(previousItems)
       showToast(e instanceof Error ? e.message : 'Errore', 'error')
     }
-  }, [items])
+  }, [])
 
   const handleBulkDelete = useCallback(async (ids: string[]) => {
-    const previousItems = items
-    setItems((prev) => prev.filter((i) => !ids.includes(i.id)))
+    const previousItems = itemsRef.current
+    const idSet = new Set(ids)
+    setItems((prev) => prev.filter((i) => !idSet.has(i.id)))
     try {
       const { applied, error } = await bulkDeletePedItems(ids)
       if (error) {
@@ -501,7 +513,15 @@ export function PedView({
       setItems(previousItems)
       showToast(e instanceof Error ? e.message : 'Errore', 'error')
     }
-  }, [items])
+  }, [])
+
+  const handleOpenWork = useCallback((work: WorkDeadlineItem) => {
+    setSelectedWork(work)
+  }, [])
+
+  const handleWorkContextMenu = useCallback((x: number, y: number, work: WorkDeadlineItem) => {
+    setWorkContextMenu({ x, y, work })
+  }, [])
 
   const [filling, setFilling] = useState(false)
   const [emptying, setEmptying] = useState(false)
@@ -849,7 +869,7 @@ export function PedView({
                 month={month}
                 items={itemsWithDateString}
                 workDeadlines={workDeadlines}
-                dailyStats={computedStats.dailyStats}
+                dailyStats={calendarStats.dailyStats}
                 currentUserId={currentUserId}
                 viewAsUserId={viewAsUserId}
                 readOnly={isViewingOtherUser}
@@ -868,8 +888,8 @@ export function PedView({
                 onReorderInDay={handleReorderInDay}
                 onSelectDay={setSelectedDateKey}
                 onUpdateTitle={handleUpdateTitle}
-                onOpenWork={(work) => setSelectedWork(work)}
-                onWorkContextMenu={(x, y, work) => setWorkContextMenu({ x, y, work })}
+                onOpenWork={handleOpenWork}
+                onWorkContextMenu={handleWorkContextMenu}
                 filterClientId={filterClientId}
                 filterType={filterType}
               />
@@ -879,7 +899,7 @@ export function PedView({
 
         {/* Statistiche */}
         <PedStats
-          stats={computedStats}
+          stats={deferredStats}
           selectedDateKey={selectedDateKey}
           year={year}
           month={month}
