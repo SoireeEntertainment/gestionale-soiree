@@ -1,67 +1,51 @@
 'use client'
 
 import { useMemo, useState, useEffect, useRef, useCallback, memo, startTransition } from 'react'
-import { PED_ITEM_TYPE_LABELS, PED_DELEGATED_STYLE, toDateString, getCurrentWeekStartString, getISOWeekStartKey } from '@/lib/ped-utils'
-import { getItemLabelStyle, PED_LABELS, PED_LABEL_CONFIG } from '@/lib/pedLabels'
-import { getWorkStatusMeta } from '@/lib/work-status'
+import { createPortal } from 'react-dom'
+import { toDateString, getCurrentWeekStartString, getISOWeekStartKey } from '@/lib/ped-utils'
+import { PED_LABELS, PED_LABEL_CONFIG } from '@/lib/pedLabels'
+import type { PedItem, WorkDeadlineItem, PedDayCellData } from './ped-types'
+import { PedWeekRow } from './ped-week-row'
+import { DRAG_TYPE } from './ped-task-card'
+
+export type { PedItem, WorkDeadlineItem } from './ped-types'
+export { DRAG_TYPE }
 
 const STORAGE_KEY_COLUMNS = 'ped-calendar-column-widths'
 const DEFAULT_COL_WIDTH = 160
 const DEFAULT_EXTRA_WIDTH = 140
 const MIN_COL_WIDTH = 80
-const ROW_HEIGHT = 100
 
-type PedItem = {
-  id: string
-  date: string
-  clientId: string
-  kind: string
-  type: string
-  title: string
-  priority?: string
-  label?: string | null
-  status: string
-  description?: string | null
-  workId?: string | null
-  isExtra?: boolean
-  assignedToUserId?: string | null
-  assignedTo?: { id: string; name: string } | null
-  ownerId?: string
-  owner?: { id: string; name: string } | null
-  client: { id: string; name: string }
-  work?: { id: string; title: string } | null
-}
-
-type DayCell = {
-  dateKey: string
-  dayNum: number
-  isCurrentMonth: boolean
-  items: PedItem[]
-  remainingPct: number
-  remainingCount: number
-  total: number
-  done: number
-}
-
-type WorkDeadlineItem = {
-  id: string
-  title: string
-  description?: string | null
-  status: string
-  priority?: string | null
-  date: string
-  deadline: string
-  clientId: string
-  categoryId: string
-  assignedToUserId?: string | null
-  assigneeUserIds: string[]
-  client: { id: string; name: string }
-  category: { id: string; name: string }
-}
+const EMPTY_ITEMS = [] as PedItem[]
+const EMPTY_WORKS = [] as WorkDeadlineItem[]
 
 const WEEKDAY_LABELS = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Extra']
 
 const DEFAULT_COLUMN_WIDTHS = [...Array(5).fill(DEFAULT_COL_WIDTH), DEFAULT_EXTRA_WIDTH] as number[]
+
+/** Reuse previous array references when item identity (===) sequence is unchanged. */
+function stabilizeRecordArrays<T>(
+  next: Record<string, T[]>,
+  prevRef: { current: Record<string, T[]> }
+): Record<string, T[]> {
+  const prev = prevRef.current
+  const result: Record<string, T[]> = {}
+  for (const key of Object.keys(next)) {
+    const nextArr = next[key]
+    const prevArr = prev[key]
+    if (
+      prevArr &&
+      prevArr.length === nextArr.length &&
+      prevArr.every((item, i) => item === nextArr[i])
+    ) {
+      result[key] = prevArr
+    } else {
+      result[key] = nextArr
+    }
+  }
+  prevRef.current = result
+  return result
+}
 
 function loadColumnWidthsFromStorage(): number[] | null {
   if (typeof window === 'undefined') return null
@@ -113,11 +97,11 @@ function buildCalendarGrid(year: number, month: number): { dateKey: string; dayN
   return weeks.map((w) => w.slice(0, 5))
 }
 
-const DRAG_TYPE = 'application/x-ped-item'
-
 type ContextMenuState = { x: number; y: number; item: PedItem } | null
 type InlineEditTitleState = { item: PedItem; x: number; y: number } | null
 type MarqueeRect = { startX: number; startY: number; endX: number; endY: number }
+
+type DragPayload = { id?: string; ids?: string[]; date: string; isExtra: boolean; copyMode?: boolean }
 
 /** Id dell'utente di cui si sta visualizzando il PED (per stile "delegated": usa i suoi colori, non quelli del loggato). */
 function PedCalendarInner({
@@ -182,10 +166,13 @@ function PedCalendarInner({
   filterType: string
 }) {
   const effectiveViewerId = viewAsUserId ?? currentUserId
-  const showAsDelegated = (item: PedItem) =>
-    !alwaysUsePriorityStyle &&
-    item.assignedToUserId != null &&
-    (item.assignedToUserId !== effectiveViewerId || item.ownerId !== effectiveViewerId)
+  const showAsDelegated = useCallback(
+    (item: PedItem) =>
+      !alwaysUsePriorityStyle &&
+      item.assignedToUserId != null &&
+      (item.assignedToUserId !== effectiveViewerId || item.ownerId !== effectiveViewerId),
+    [alwaysUsePriorityStyle, effectiveViewerId]
+  )
   const [columnWidths, setColumnWidths] = useState<number[]>(DEFAULT_COLUMN_WIDTHS)
   const [resizingCol, setResizingCol] = useState<number | null>(null)
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(null)
@@ -193,6 +180,9 @@ function PedCalendarInner({
   const [inlineEditValue, setInlineEditValue] = useState('')
   const inlineEditInputRef = useRef<HTMLInputElement>(null)
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set())
+  const selectedItemIdsRef = useRef(selectedItemIds)
+  selectedItemIdsRef.current = selectedItemIds
+  const getSelectedIds = useCallback(() => Array.from(selectedItemIdsRef.current), [])
   const [marquee, setMarquee] = useState<MarqueeRect | null>(null)
   const marqueeStartRef = useRef<{ x: number; y: number } | null>(null)
   const marqueeRectRef = useRef<MarqueeRect | null>(null)
@@ -201,6 +191,11 @@ function PedCalendarInner({
   const mayPersistRef = useRef(false)
   const itemIdOrderRef = useRef<string[]>([])
   const didAutoScrollRef = useRef(false)
+  const itemsByDayPrevRef = useRef<Record<string, PedItem[]>>({})
+  const workDeadlinesByDayPrevRef = useRef<Record<string, WorkDeadlineItem[]>>({})
+  const weekendWorkDeadlinesByWeekPrevRef = useRef<Record<string, WorkDeadlineItem[]>>({})
+  const extraItemsByWeekPrevRef = useRef<Record<string, PedItem[]>>({})
+  const portalReady = typeof document !== 'undefined'
   itemIdOrderRef.current = items.map((i) => i.id)
 
   // Settimana corrente (ISO lunedì) per marcare la riga e auto-scroll una tantum
@@ -334,7 +329,7 @@ function PedCalendarInner({
     return () => clearTimeout(t)
   }, [])
 
-  const handleItemClick = (e: React.MouseEvent, item: PedItem) => {
+  const handleItemClick = useCallback((e: React.MouseEvent, item: PedItem) => {
     if (justDraggedRef.current) return
     if (e.metaKey || e.ctrlKey) {
       setSelectedItemIds((prev) => {
@@ -367,14 +362,18 @@ function PedCalendarInner({
       return
     }
     setSelectedItemIds((prev) => (prev.has(item.id) && prev.size === 1 ? new Set() : new Set([item.id])))
-  }
+  }, [])
 
-  const handleDragOver = (e: React.DragEvent) => {
+  const handleOpenContextMenu = useCallback((e: React.MouseEvent, item: PedItem) => {
+    e.preventDefault()
+    startTransition(() => setContextMenu({ x: e.clientX, y: e.clientY, item }))
+  }, [])
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     e.dataTransfer.dropEffect = e.altKey ? 'copy' : 'move'
-  }
+  }, [])
 
-  type DragPayload = { id?: string; ids?: string[]; date: string; isExtra: boolean; copyMode?: boolean }
   const parseDragPayload = (raw: string): DragPayload | null => {
     try {
       return JSON.parse(raw) as DragPayload
@@ -383,113 +382,145 @@ function PedCalendarInner({
     }
   }
 
-  const handleDropOnDay = (targetDateKey: string) => (e: React.DragEvent) => {
-    e.preventDefault()
-    if (readOnly) return
-    const raw = e.dataTransfer.getData(DRAG_TYPE)
-    if (!raw) return
-    const payload = parseDragPayload(raw)
-    if (!payload) return
-    const { date, isExtra, copyMode } = payload
-    if (payload.ids && payload.ids.length > 0) {
-      if (copyMode) return // bulk copy not implemented
-      if (typeof onMoveItems === 'function') {
-        queueMicrotask(() => { onMoveItems(payload.ids!, targetDateKey, false) })
-      }
-      return
-    }
-    const id = payload.id
-    if (!id) return
-    if (copyMode) {
-      if (typeof onDuplicateItem === 'function') {
-        queueMicrotask(() => { onDuplicateItem(id, targetDateKey, false) })
-      }
-      return
-    }
-    if (targetDateKey === date && !isExtra) return
-    if (typeof onMoveItem === 'function') {
-      queueMicrotask(() => { onMoveItem(id, targetDateKey, false) })
-    }
-  }
-
-  const handleDropOnExtra = (weekStartKey: string) => (e: React.DragEvent) => {
-    e.preventDefault()
-    if (readOnly) return
-    const raw = e.dataTransfer.getData(DRAG_TYPE)
-    if (!raw) return
-    const payload = parseDragPayload(raw)
-    if (!payload) return
-    const { date, isExtra, copyMode } = payload
-    if (payload.ids && payload.ids.length > 0) {
-      if (copyMode) return
-      if (typeof onMoveItems === 'function') {
-        queueMicrotask(() => { onMoveItems(payload.ids!, weekStartKey, true) })
-      }
-      return
-    }
-    const id = payload.id
-    if (!id) return
-    if (copyMode) {
-      if (typeof onDuplicateItem === 'function') {
-        queueMicrotask(() => { onDuplicateItem(id, weekStartKey, true) })
-      }
-      return
-    }
-    const currentWeek = getISOWeekStartKey(date)
-    if (currentWeek === weekStartKey && isExtra) return
-    if (typeof onMoveItem === 'function') {
-      queueMicrotask(() => { onMoveItem(id, weekStartKey, true) })
-    }
-  }
-
-  const handleReorderInDay = (
-    dateKey: string,
-    isExtra: boolean,
-    items: PedItem[],
-    dropIndex: number
-  ) => (e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    if (readOnly) return
-    const raw = e.dataTransfer.getData(DRAG_TYPE)
-    if (!raw) return
-    const payload = parseDragPayload(raw)
-    if (!payload) return
-    const { date, isExtra: dragIsExtra, copyMode } = payload
-    if (copyMode || dragIsExtra !== isExtra) return
-    if (isExtra) {
-      if (getISOWeekStartKey(date) !== dateKey) return
-    } else {
-      if (date !== dateKey && !payload.ids?.length) return
-    }
-    const currentIds = items.map((i) => i.id)
-    if (payload.ids && payload.ids.length > 0) {
-      const toInsert = payload.ids
-      const needMove = toInsert.some((id) => !currentIds.includes(id))
-      if (needMove) {
+  const handleDropOnDay = useCallback(
+    (targetDateKey: string, e: React.DragEvent) => {
+      e.preventDefault()
+      if (readOnly) return
+      const raw = e.dataTransfer.getData(DRAG_TYPE)
+      if (!raw) return
+      const payload = parseDragPayload(raw)
+      if (!payload) return
+      const { date, isExtra, copyMode } = payload
+      if (payload.ids && payload.ids.length > 0) {
+        if (copyMode) return // bulk copy not implemented
         if (typeof onMoveItems === 'function') {
-          queueMicrotask(() => { onMoveItems(toInsert, dateKey, isExtra) })
+          queueMicrotask(() => {
+            onMoveItems(payload.ids!, targetDateKey, false)
+          })
         }
         return
       }
-      const newOrder = currentIds.filter((x) => !toInsert.includes(x))
-      newOrder.splice(dropIndex, 0, ...toInsert)
-      const orderToSave = isExtra ? newOrder.filter((id) => items.find((i) => i.id === id)?.isExtra) : newOrder
-      if (orderToSave.length > 0 && typeof onReorderInDay === 'function') {
-        queueMicrotask(() => { onReorderInDay(dateKey, isExtra, orderToSave) })
+      const id = payload.id
+      if (!id) return
+      if (copyMode) {
+        if (typeof onDuplicateItem === 'function') {
+          queueMicrotask(() => {
+            onDuplicateItem(id, targetDateKey, false)
+          })
+        }
+        return
       }
-      return
-    }
-    const id = payload.id
-    if (!id) return
-    if (!currentIds.includes(id)) return
-    const newOrder = currentIds.filter((x) => x !== id)
-    newOrder.splice(dropIndex, 0, id)
-    const orderToSave = isExtra ? newOrder.filter((id) => items.find((i) => i.id === id)?.isExtra) : newOrder
-    if (orderToSave.length > 0 && typeof onReorderInDay === 'function') {
-      queueMicrotask(() => { onReorderInDay(dateKey, isExtra, orderToSave) })
-    }
-  }
+      if (targetDateKey === date && !isExtra) return
+      if (typeof onMoveItem === 'function') {
+        queueMicrotask(() => {
+          onMoveItem(id, targetDateKey, false)
+        })
+      }
+    },
+    [readOnly, onMoveItems, onDuplicateItem, onMoveItem]
+  )
+
+  const handleDropOnExtra = useCallback(
+    (weekStartKey: string, e: React.DragEvent) => {
+      e.preventDefault()
+      if (readOnly) return
+      const raw = e.dataTransfer.getData(DRAG_TYPE)
+      if (!raw) return
+      const payload = parseDragPayload(raw)
+      if (!payload) return
+      const { date, isExtra, copyMode } = payload
+      if (payload.ids && payload.ids.length > 0) {
+        if (copyMode) return
+        if (typeof onMoveItems === 'function') {
+          queueMicrotask(() => {
+            onMoveItems(payload.ids!, weekStartKey, true)
+          })
+        }
+        return
+      }
+      const id = payload.id
+      if (!id) return
+      if (copyMode) {
+        if (typeof onDuplicateItem === 'function') {
+          queueMicrotask(() => {
+            onDuplicateItem(id, weekStartKey, true)
+          })
+        }
+        return
+      }
+      const currentWeek = getISOWeekStartKey(date)
+      if (currentWeek === weekStartKey && isExtra) return
+      if (typeof onMoveItem === 'function') {
+        queueMicrotask(() => {
+          onMoveItem(id, weekStartKey, true)
+        })
+      }
+    },
+    [readOnly, onMoveItems, onDuplicateItem, onMoveItem]
+  )
+
+  const itemsByDayRef = useRef<Record<string, PedItem[]>>({})
+  const extraItemsByWeekRef = useRef<Record<string, PedItem[]>>({})
+
+  const handleReorderAtIndex = useCallback(
+    (dateKey: string, isExtra: boolean, dropIndex: number, e: React.DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      if (readOnly) return
+      const raw = e.dataTransfer.getData(DRAG_TYPE)
+      if (!raw) return
+      const payload = parseDragPayload(raw)
+      if (!payload) return
+      const { date, isExtra: dragIsExtra, copyMode } = payload
+      if (copyMode || dragIsExtra !== isExtra) return
+      if (isExtra) {
+        if (getISOWeekStartKey(date) !== dateKey) return
+      } else {
+        if (date !== dateKey && !payload.ids?.length) return
+      }
+      const dayItems = isExtra
+        ? (extraItemsByWeekRef.current[dateKey] ?? EMPTY_ITEMS)
+        : (itemsByDayRef.current[dateKey] ?? EMPTY_ITEMS)
+      const currentIds = dayItems.map((i) => i.id)
+      if (payload.ids && payload.ids.length > 0) {
+        const toInsert = payload.ids
+        const needMove = toInsert.some((id) => !currentIds.includes(id))
+        if (needMove) {
+          if (typeof onMoveItems === 'function') {
+            queueMicrotask(() => {
+              onMoveItems(toInsert, dateKey, isExtra)
+            })
+          }
+          return
+        }
+        const newOrder = currentIds.filter((x) => !toInsert.includes(x))
+        newOrder.splice(dropIndex, 0, ...toInsert)
+        const orderToSave = isExtra
+          ? newOrder.filter((id) => dayItems.find((i) => i.id === id)?.isExtra)
+          : newOrder
+        if (orderToSave.length > 0 && typeof onReorderInDay === 'function') {
+          queueMicrotask(() => {
+            onReorderInDay(dateKey, isExtra, orderToSave)
+          })
+        }
+        return
+      }
+      const id = payload.id
+      if (!id) return
+      if (!currentIds.includes(id)) return
+      const newOrder = currentIds.filter((x) => x !== id)
+      newOrder.splice(dropIndex, 0, id)
+      const orderToSave = isExtra
+        ? newOrder.filter((id) => dayItems.find((i) => i.id === id)?.isExtra)
+        : newOrder
+      if (orderToSave.length > 0 && typeof onReorderInDay === 'function') {
+        queueMicrotask(() => {
+          onReorderInDay(dateKey, isExtra, orderToSave)
+        })
+      }
+    },
+    [readOnly, onMoveItems, onReorderInDay]
+  )
 
   const onColResizeStart = (colIndex: number) => (e: React.MouseEvent) => {
     e.preventDefault()
@@ -529,7 +560,7 @@ function PedCalendarInner({
       if (!map[dateKey]) map[dateKey] = []
       map[dateKey].push(item)
     }
-    return map
+    return stabilizeRecordArrays(map, itemsByDayPrevRef)
   }, [items, filterClientId, filterType])
 
   const workDeadlinesByDay = useMemo(() => {
@@ -543,7 +574,7 @@ function PedCalendarInner({
       if (!map[dateKey]) map[dateKey] = []
       map[dateKey].push(work)
     }
-    return map
+    return stabilizeRecordArrays(map, workDeadlinesByDayPrevRef)
   }, [workDeadlines, filterClientId])
 
   const weekendWorkDeadlinesByWeek = useMemo(() => {
@@ -558,7 +589,7 @@ function PedCalendarInner({
       if (!map[weekStart]) map[weekStart] = []
       map[weekStart].push(work)
     }
-    return map
+    return stabilizeRecordArrays(map, weekendWorkDeadlinesByWeekPrevRef)
   }, [workDeadlines, filterClientId])
 
   const extraItemsByWeek = useMemo(() => {
@@ -580,32 +611,233 @@ function PedCalendarInner({
       weekend.sort((a, b) => a.date.slice(0, 10).localeCompare(b.date.slice(0, 10)))
       map[weekStart] = [...weekend, ...extra]
     }
-    return map
+    return stabilizeRecordArrays(map, extraItemsByWeekPrevRef)
   }, [items, filterClientId, filterType])
 
-  const cells: DayCell[][] = useMemo(
-    () =>
-      grid.map((week) =>
-        week.map((cell) => {
-          const dayItems = itemsByDay[cell.dateKey] ?? []
-          const stats = dailyStats[cell.dateKey] ?? { total: 0, done: 0, remainingPct: 0, remainingCount: 0 }
-          return {
-            ...cell,
-            items: dayItems,
-            remainingPct: stats.remainingPct,
-            remainingCount: stats.remainingCount ?? (stats.total - stats.done),
-            total: stats.total,
-            done: stats.done,
-          }
-        })
-      ),
-    [grid, itemsByDay, dailyStats]
-  )
+  itemsByDayRef.current = itemsByDay
+  extraItemsByWeekRef.current = extraItemsByWeek
+
+  const weekRows = useMemo(() => {
+    return grid.map((week) => {
+      const weekStartKey = getISOWeekStartKey(week[0].dateKey)
+      const days: PedDayCellData[] = week.map((cell) => {
+        const stats = dailyStats[cell.dateKey] ?? { total: 0, done: 0, remainingPct: 0, remainingCount: 0 }
+        return {
+          dateKey: cell.dateKey,
+          dayNum: cell.dayNum,
+          isCurrentMonth: cell.isCurrentMonth,
+          items: itemsByDay[cell.dateKey] ?? EMPTY_ITEMS,
+          works: workDeadlinesByDay[cell.dateKey] ?? EMPTY_WORKS,
+          remainingPct: stats.remainingPct,
+          remainingCount: stats.remainingCount ?? stats.total - stats.done,
+          total: stats.total,
+          done: stats.done,
+        }
+      })
+      return {
+        weekStartKey,
+        days,
+        extraItems: extraItemsByWeek[weekStartKey] ?? EMPTY_ITEMS,
+        weekendWorks: weekendWorkDeadlinesByWeek[weekStartKey] ?? EMPTY_WORKS,
+        isCurrentWeek: weekStartKey === currentWeekStart,
+      }
+    })
+  }, [
+    grid,
+    itemsByDay,
+    workDeadlinesByDay,
+    extraItemsByWeek,
+    weekendWorkDeadlinesByWeek,
+    dailyStats,
+    currentWeekStart,
+  ])
+
+  const contextMenuPortal =
+    contextMenu && !readOnly && portalReady
+      ? createPortal(
+          (() => {
+            const isBulk = selectedItemIds.size >= 2 && selectedItemIds.has(contextMenu.item.id)
+            const bulkIds = isBulk ? Array.from(selectedItemIds) : []
+            return (
+              <div
+                className="fixed z-50 min-w-[220px] py-1 bg-dark border border-accent/20 rounded-lg shadow-lg"
+                style={{ left: contextMenu.x, top: contextMenu.y }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="px-2 py-1.5 text-xs font-semibold text-white/60 uppercase tracking-wide border-b border-white/10 mb-1">
+                  {isBulk ? `${bulkIds.length} task selezionate` : 'Imposta etichetta'}
+                </div>
+                {PED_LABELS.map((labelKey) => {
+                  const config = PED_LABEL_CONFIG[labelKey]
+                  return (
+                    <button
+                      key={labelKey}
+                      type="button"
+                      className="w-full text-left px-4 py-2 text-sm flex items-center gap-2 text-white hover:bg-white/10"
+                      onClick={() => {
+                        if (isBulk && typeof onBulkSetLabel === 'function') {
+                          queueMicrotask(() => {
+                            onBulkSetLabel(bulkIds, labelKey)
+                          })
+                        } else if (!isBulk && typeof onSetLabel === 'function') {
+                          queueMicrotask(() => {
+                            onSetLabel(contextMenu.item.id, labelKey)
+                          })
+                        }
+                        setContextMenu(null)
+                      }}
+                    >
+                      <span
+                        className="w-3 h-3 rounded-full shrink-0"
+                        style={{ backgroundColor: config.backgroundColor }}
+                      />
+                      {config.label}
+                    </button>
+                  )
+                })}
+                <div className="border-t border-white/10 my-1" />
+                {isBulk && typeof onBulkToggleDone === 'function' && (
+                  <>
+                    <button
+                      type="button"
+                      className="w-full text-left px-4 py-2 text-sm text-white hover:bg-accent/10"
+                      onClick={() => {
+                        queueMicrotask(() => {
+                          onBulkToggleDone(bulkIds, true)
+                        })
+                        setContextMenu(null)
+                      }}
+                    >
+                      Segna come fatto
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full text-left px-4 py-2 text-sm text-white hover:bg-accent/10"
+                      onClick={() => {
+                        queueMicrotask(() => {
+                          onBulkToggleDone(bulkIds, false)
+                        })
+                        setContextMenu(null)
+                      }}
+                    >
+                      Segna come non fatto
+                    </button>
+                  </>
+                )}
+                {!isBulk && typeof onUpdateTitle === 'function' && (
+                  <button
+                    type="button"
+                    className="w-full text-left px-4 py-2 text-sm text-white hover:bg-accent/10"
+                    onClick={() => {
+                      setInlineEditTitle({ item: contextMenu.item, x: contextMenu.x, y: contextMenu.y })
+                      setContextMenu(null)
+                    }}
+                  >
+                    Modifica
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="w-full text-left px-4 py-2 text-sm text-white hover:bg-accent/10"
+                  onClick={() => {
+                    if (isBulk && typeof onDuplicateItem === 'function') {
+                      const dateKey = contextMenu.item.date.slice(0, 10)
+                      const isExtra = Boolean(contextMenu.item.isExtra)
+                      bulkIds.forEach((id) => {
+                        onDuplicateItem(id, dateKey, isExtra)
+                      })
+                    } else if (!isBulk && typeof onDuplicateItem === 'function') {
+                      const dateKey = contextMenu.item.date.slice(0, 10)
+                      onDuplicateItem(contextMenu.item.id, dateKey, Boolean(contextMenu.item.isExtra))
+                    }
+                    setContextMenu(null)
+                  }}
+                >
+                  Duplica
+                </button>
+                <button
+                  type="button"
+                  className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-red-500/20"
+                  onClick={() => {
+                    const idsToDelete = isBulk ? bulkIds : [contextMenu.item.id]
+                    const singleId = contextMenu.item.id
+                    // Close menu first so UI responds immediately, then confirm + delete
+                    setContextMenu(null)
+                    if (idsToDelete.length === 0) return
+                    if (
+                      confirm(
+                        idsToDelete.length > 1
+                          ? `Stai eliminando ${idsToDelete.length} task. Continuare?`
+                          : 'Eliminare questa voce?'
+                      )
+                    ) {
+                      if (typeof onBulkDelete === 'function') {
+                        onBulkDelete(idsToDelete)
+                      } else {
+                        onDeleteItem(singleId)
+                      }
+                      setSelectedItemIds(new Set())
+                    }
+                  }}
+                >
+                  Elimina
+                </button>
+              </div>
+            )
+          })(),
+          document.body
+        )
+      : null
+
+  const inlineEditPortal =
+    inlineEditTitle && typeof onUpdateTitle === 'function' && portalReady
+      ? createPortal(
+          <div
+            className="fixed z-[60] min-w-[240px] p-2 bg-dark border border-accent/20 rounded-lg shadow-lg"
+            style={{ left: inlineEditTitle.x, top: inlineEditTitle.y }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-xs text-white/70 mb-1.5">Modifica titolo</div>
+            <input
+              ref={inlineEditInputRef}
+              type="text"
+              value={inlineEditValue}
+              onChange={(e) => setInlineEditValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  const title = inlineEditValue.trim()
+                  if (title) {
+                    onUpdateTitle(inlineEditTitle.item.id, title)
+                    setInlineEditTitle(null)
+                  }
+                }
+                if (e.key === 'Escape') {
+                  setInlineEditTitle(null)
+                }
+              }}
+              onBlur={() => {
+                const title = inlineEditValue.trim()
+                if (title && title !== inlineEditTitle.item.title) {
+                  onUpdateTitle(inlineEditTitle.item.id, title)
+                }
+                setInlineEditTitle(null)
+              }}
+              className="w-full px-3 py-2 bg-white/10 border border-accent/20 rounded text-white text-sm"
+              placeholder="Titolo"
+            />
+          </div>,
+          document.body
+        )
+      : null
 
   return (
     <div className="flex flex-col h-full min-h-0 [font-size:1.15em]">
       <div className="flex items-center gap-4 mb-2 pb-2 border-b border-white/10 flex-shrink-0 flex-wrap">
-        <span className="text-white/40 text-xs">Trascina il bordo destro di un’intestazione di colonna per ridimensionarla. Alt+trascina per duplicare una voce. Tasto destro sulla voce per menu.</span>
+        <span className="text-white/40 text-xs">
+          Trascina il bordo destro di un’intestazione di colonna per ridimensionarla. Alt+trascina per
+          duplicare una voce. Tasto destro sulla voce per menu.
+        </span>
         {selectedItemIds.size > 0 && (
           <span className="flex items-center gap-2 text-accent text-sm font-medium">
             <span>{selectedItemIds.size} selezionate</span>
@@ -637,504 +869,64 @@ function PedCalendarInner({
         )}
         <table className="w-full border-collapse" style={{ tableLayout: 'fixed' }}>
           <thead className="sticky top-0 z-10">
-          <tr className="bg-accent/10">
-            {WEEKDAY_LABELS.map((label, i) => (
-              <th
-                key={label}
-                className="p-2 text-left text-xs font-medium text-accent uppercase border border-white/10 relative select-none bg-accent/10"
-                style={{ width: columnWidths[i], minWidth: MIN_COL_WIDTH }}
-              >
-                {label}
-                {i < 6 && (
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    onMouseDown={onColResizeStart(i)}
-                    className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-accent/60 active:bg-accent rounded-sm transition-colors"
-                    title="Trascina per ridimensionare la colonna"
-                    aria-label="Ridimensiona colonna"
-                  />
-                )}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {cells.map((week, wi) => {
-            const weekStartKey = getISOWeekStartKey(week[0].dateKey)
-            const extraItems = extraItemsByWeek[weekStartKey] ?? []
-            const weekendWorks = weekendWorkDeadlinesByWeek[weekStartKey] ?? []
-            const isCurrentWeek = weekStartKey === currentWeekStart
-            return (
-              <tr
-                key={wi}
-                style={{ minHeight: ROW_HEIGHT }}
-                data-week-start={weekStartKey}
-                {...(isCurrentWeek ? { 'data-current-week': 'true' as const } : {})}
-              >
-                {week.map((cell, colIndex) => (
-                  <td
-                    key={cell.dateKey}
-                    className={`align-top border border-white/10 p-2 cursor-pointer ${
-                      cell.isCurrentMonth ? 'bg-dark' : 'bg-white/5'
-                    }`}
-                    style={{
-                      width: columnWidths[colIndex],
-                      minWidth: MIN_COL_WIDTH,
-                      minHeight: ROW_HEIGHT,
-                      verticalAlign: 'top',
-                    }}
-                    onDragOver={handleDragOver}
-                    onDrop={handleDropOnDay(cell.dateKey)}
-                    onClick={
-                      onOpenAdd && !readOnly
-                        ? (e) => {
-                            if (!(e.target as HTMLElement).closest('li')) onOpenAdd(cell.dateKey)
-                          }
-                        : undefined
-                    }
-                  >
-                    <div className="flex justify-between items-center mb-1">
-                      <span
-                        role={onSelectDay ? 'button' : undefined}
-                        onClick={onSelectDay ? (e) => { e.stopPropagation(); onSelectDay(cell.dateKey) } : undefined}
-                        className={`text-sm font-medium ${cell.isCurrentMonth ? 'text-white' : 'text-white/40'} ${onSelectDay ? 'cursor-pointer hover:underline' : ''}`}
-                      >
-                        {cell.dayNum}
-                      </span>
-                      {onOpenAdd && !readOnly && (
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); onOpenAdd(cell.dateKey) }}
-                          className="text-accent hover:underline text-xs"
-                        >
-                          +
-                        </button>
-                      )}
-                    </div>
-                    {cell.total > 0 && (
-                      <p className="text-xs text-white/60 mb-1">
-                        Rimanenti: {cell.remainingCount} · {cell.remainingPct}%
-                      </p>
-                    )}
-                    <ul className="space-y-1.5">
-                      {(workDeadlinesByDay[cell.dateKey] ?? []).map((work) => {
-                        const statusMeta = getWorkStatusMeta(work.status)
-                        return (
-                          <li
-                            key={`work-${work.id}`}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              onOpenWork?.(work)
-                            }}
-                            onContextMenu={(e) => {
-                              e.preventDefault()
-                              e.stopPropagation()
-                              onWorkContextMenu?.(e.clientX, e.clientY, work)
-                            }}
-                            className="text-xs rounded px-2 py-1.5 border bg-cyan-500/15 border-cyan-500/40 text-cyan-200 cursor-pointer hover:bg-cyan-500/20"
-                          >
-                            <div className="flex items-center gap-1.5 mb-0.5">
-                              <span className="inline-flex items-center rounded-full border border-cyan-400/50 bg-cyan-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-cyan-100">
-                                Lavoro
-                              </span>
-                              <span className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] ${statusMeta.badgeClassName}`}>
-                                {statusMeta.label}
-                              </span>
-                            </div>
-                            <div className="font-medium truncate">{work.title}</div>
-                            <div className="text-[10px] text-cyan-100/80 truncate">{work.client.name}</div>
-                          </li>
-                        )
-                      })}
-                      {cell.items.map((item, index) => {
-                        const isDelegated = showAsDelegated(item)
-                        const labelStyle = getItemLabelStyle(item)
-                        const itemStyle = isDelegated
-                          ? PED_DELEGATED_STYLE
-                          : { backgroundColor: labelStyle.backgroundColor, color: labelStyle.color }
-                        const itemDate = item.date.slice(0, 10)
-                        return (
-                          <li
-                            key={item.id}
-                            data-ped-item-id={item.id}
-                            draggable={!readOnly}
-                            onClick={readOnly ? undefined : (e) => handleItemClick(e, item)}
-                            onDragOver={readOnly ? undefined : (e) => {
-                              e.preventDefault()
-                              e.stopPropagation()
-                              e.dataTransfer.dropEffect = 'move'
-                            }}
-                            onDrop={readOnly ? undefined : handleReorderInDay(cell.dateKey, false, cell.items, index)}
-                            onDragStart={readOnly ? undefined : (e) => {
-                              const copyMode = e.altKey
-                              const ids = selectedItemIds.has(item.id) && selectedItemIds.size > 1
-                                ? Array.from(selectedItemIds)
-                                : [item.id]
-                              const payload = ids.length > 1
-                                ? { ids, date: itemDate, isExtra: Boolean(item.isExtra), copyMode }
-                                : { id: item.id, date: itemDate, isExtra: Boolean(item.isExtra), copyMode }
-                              e.dataTransfer.setData(DRAG_TYPE, JSON.stringify(payload))
-                              e.dataTransfer.effectAllowed = copyMode ? 'copy' : 'move'
-                              if (ids.length > 1) {
-                                e.dataTransfer.setData('text/plain', `${ids.length} task`)
-                              }
-                              justDraggedRef.current = true
-                            }}
-                            onDragEnd={readOnly ? undefined : () => {
-                              setTimeout(() => { justDraggedRef.current = false }, 150)
-                            }}
-                            onContextMenu={readOnly ? undefined : (e) => {
-                              e.preventDefault()
-                              startTransition(() => setContextMenu({ x: e.clientX, y: e.clientY, item }))
-                            }}
-                            className={`text-xs flex items-center gap-2 rounded px-2 py-1.5 ${readOnly ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'} ${selectedItemIds.has(item.id) ? 'ring-2 ring-accent ring-offset-1 ring-offset-dark' : ''}`}
-                            style={itemStyle}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={item.status === 'DONE'}
-                              disabled={readOnly}
-                              onChange={readOnly ? undefined : (ev) => { ev.stopPropagation(); onToggleDone(item.id) }}
-                              className="shrink-0 border-white/50"
-                              aria-label={item.status === 'DONE' ? 'Fatto' : 'Da fare'}
-                            />
-                            {isDelegated && (
-                              <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide opacity-90">Delegato</span>
-                            )}
-                            <span
-                              className={`text-left truncate flex-1 min-w-0 font-medium ${readOnly ? '' : 'cursor-pointer hover:underline'}`}
-                              onDoubleClick={readOnly ? undefined : (ev) => {
-                                ev.stopPropagation()
-                                if (justDraggedRef.current) return
-                                onOpenEdit(item)
-                              }}
-                              role={readOnly ? undefined : 'button'}
-                            >
-                              <span className="font-bold">{item.client.name}</span> · {PED_ITEM_TYPE_LABELS[item.type] ?? item.type} · {item.title}
-                            </span>
-                            {item.owner?.name && (
-                              <span className="shrink-0 text-[10px] text-white/60" title={`Creato da: ${item.owner.name}`}>
-                                Dal PED di {item.owner.name}
-                              </span>
-                            )}
-                          </li>
-                        )
-                      })}
-                      <li
-                        className="min-h-2 rounded border border-transparent border-dashed hover:border-accent/30 transition-colors list-none"
-                        onDragOver={(e) => {
-                          e.preventDefault()
-                          e.stopPropagation()
-                          e.dataTransfer.dropEffect = 'move'
-                        }}
-                        onDrop={handleReorderInDay(cell.dateKey, false, cell.items, cell.items.length)}
-                        aria-hidden
-                      />
-                    </ul>
-                  </td>
-                ))}
-                {/* Colonna Extra per la settimana */}
-                <td
-                  className="align-top border border-white/10 p-2 bg-white/5"
-                  style={{
-                    width: columnWidths[5],
-                    minWidth: MIN_COL_WIDTH,
-                    minHeight: ROW_HEIGHT,
-                    verticalAlign: 'top',
-                  }}
-                  onDragOver={handleDragOver}
-                  onDrop={handleDropOnExtra(weekStartKey)}
+            <tr className="bg-accent/10">
+              {WEEKDAY_LABELS.map((label, i) => (
+                <th
+                  key={label}
+                  className="p-2 text-left text-xs font-medium text-accent uppercase border border-white/10 relative select-none bg-accent/10"
+                  style={{ width: columnWidths[i], minWidth: MIN_COL_WIDTH }}
                 >
-                  <div className="flex justify-between items-center mb-1">
-                    <span className="text-xs font-medium text-accent/90">Extra</span>
-                    {onOpenAddExtra && !readOnly && (
-                      <button
-                        type="button"
-                        onClick={() => onOpenAddExtra(weekStartKey)}
-                        className="text-accent hover:underline text-xs"
-                      >
-                        +
-                      </button>
-                    )}
-                  </div>
-                  <ul className="space-y-1.5">
-                    {weekendWorks.map((work) => {
-                      const statusMeta = getWorkStatusMeta(work.status)
-                      const dayLabel = new Date(work.date + 'T00:00:00.000Z').toLocaleDateString('it-IT', { weekday: 'short', day: '2-digit' })
-                      return (
-                        <li
-                          key={`work-${work.id}`}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            onOpenWork?.(work)
-                          }}
-                          onContextMenu={(e) => {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            onWorkContextMenu?.(e.clientX, e.clientY, work)
-                          }}
-                          className="text-xs rounded px-2 py-1.5 border bg-cyan-500/15 border-cyan-500/40 text-cyan-200 cursor-pointer hover:bg-cyan-500/20"
-                        >
-                          <div className="flex items-center gap-1.5 mb-0.5">
-                            <span className="inline-flex items-center rounded-full border border-cyan-400/50 bg-cyan-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-cyan-100">
-                              Lavoro
-                            </span>
-                            <span className="text-[10px] text-cyan-100/75">{dayLabel}</span>
-                          </div>
-                          <div className="font-medium truncate">{work.title}</div>
-                          <div className={`inline-flex mt-1 items-center rounded-full border px-1.5 py-0.5 text-[10px] ${statusMeta.badgeClassName}`}>
-                            {statusMeta.label}
-                          </div>
-                        </li>
-                      )
-                    })}
-                    {extraItems.map((item, index) => {
-                      const isDelegated = showAsDelegated(item)
-                      const labelStyle = getItemLabelStyle(item)
-                      const itemStyle = isDelegated
-                        ? PED_DELEGATED_STYLE
-                        : { backgroundColor: labelStyle.backgroundColor, color: labelStyle.color }
-                      const itemDate = item.date.slice(0, 10)
-                      return (
-                        <li
-                          key={item.id}
-                          data-ped-item-id={item.id}
-                          draggable={!readOnly}
-                          onClick={readOnly ? undefined : (e) => handleItemClick(e, item)}
-                          onDragOver={readOnly ? undefined : (e) => {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            e.dataTransfer.dropEffect = 'move'
-                          }}
-                          onDrop={readOnly ? undefined : handleReorderInDay(weekStartKey, true, extraItems, index)}
-                          onDragStart={readOnly ? undefined : (e) => {
-                            const copyMode = e.altKey
-                            const ids = selectedItemIds.has(item.id) && selectedItemIds.size > 1
-                              ? Array.from(selectedItemIds)
-                              : [item.id]
-                            const payload = ids.length > 1
-                              ? { ids, date: itemDate, isExtra: Boolean(item.isExtra), copyMode }
-                              : { id: item.id, date: itemDate, isExtra: Boolean(item.isExtra), copyMode }
-                            e.dataTransfer.setData(DRAG_TYPE, JSON.stringify(payload))
-                            e.dataTransfer.effectAllowed = copyMode ? 'copy' : 'move'
-                            if (ids.length > 1) {
-                              e.dataTransfer.setData('text/plain', `${ids.length} task`)
-                            }
-                            justDraggedRef.current = true
-                          }}
-                          onDragEnd={readOnly ? undefined : () => {
-                            setTimeout(() => { justDraggedRef.current = false }, 150)
-                          }}
-                          onContextMenu={readOnly ? undefined : (e) => {
-                            e.preventDefault()
-                            startTransition(() => setContextMenu({ x: e.clientX, y: e.clientY, item }))
-                          }}
-                          className={`text-xs flex items-center gap-2 rounded px-2 py-1.5 ${readOnly ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'} ${selectedItemIds.has(item.id) ? 'ring-2 ring-accent ring-offset-1 ring-offset-dark' : ''}`}
-                          style={itemStyle}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={item.status === 'DONE'}
-                            disabled={readOnly}
-                            onChange={readOnly ? undefined : (ev) => { ev.stopPropagation(); onToggleDone(item.id) }}
-                            className="shrink-0 border-white/50"
-                            aria-label={item.status === 'DONE' ? 'Fatto' : 'Da fare'}
-                          />
-                          {isDelegated && (
-                            <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide opacity-90">Delegato</span>
-                          )}
-                          <span
-                            className={`text-left truncate flex-1 min-w-0 font-medium ${readOnly ? '' : 'cursor-pointer hover:underline'}`}
-                            onDoubleClick={readOnly ? undefined : (ev) => {
-                              ev.stopPropagation()
-                              if (justDraggedRef.current) return
-                              onOpenEdit(item)
-                            }}
-                            role={readOnly ? undefined : 'button'}
-                          >
-                            <span className="font-bold">{item.client.name}</span> · {item.title}
-                          </span>
-                          {item.owner?.name && (
-                            <span className="shrink-0 text-[10px] text-white/60" title={`Creato da: ${item.owner.name}`}>
-                              Dal PED di {item.owner.name}
-                            </span>
-                          )}
-                        </li>
-                      )
-                    })}
-                    <li
-                      className="min-h-2 rounded border border-transparent border-dashed hover:border-accent/30 transition-colors list-none"
-                      onDragOver={(e) => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        e.dataTransfer.dropEffect = 'move'
-                      }}
-                      onDrop={handleReorderInDay(weekStartKey, true, extraItems, extraItems.length)}
-                      aria-hidden
+                  {label}
+                  {i < 6 && (
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      onMouseDown={onColResizeStart(i)}
+                      className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-accent/60 active:bg-accent rounded-sm transition-colors"
+                      title="Trascina per ridimensionare la colonna"
+                      aria-label="Ridimensiona colonna"
                     />
-                  </ul>
-                </td>
-              </tr>
-            )
-          })}
-        </tbody>
+                  )}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {weekRows.map((row) => (
+              <PedWeekRow
+                key={row.weekStartKey}
+                weekStartKey={row.weekStartKey}
+                isCurrentWeek={row.isCurrentWeek}
+                days={row.days}
+                extraItems={row.extraItems}
+                weekendWorks={row.weekendWorks}
+                columnWidths={columnWidths}
+                readOnly={readOnly}
+                selectedItemIds={selectedItemIds}
+                onDragOver={handleDragOver}
+                onDropOnDay={handleDropOnDay}
+                onDropOnExtra={handleDropOnExtra}
+                onOpenAdd={onOpenAdd}
+                onOpenAddExtra={onOpenAddExtra}
+                onSelectDay={onSelectDay}
+                onOpenWork={onOpenWork}
+                onWorkContextMenu={onWorkContextMenu}
+                onToggleDone={onToggleDone}
+                onOpenEdit={onOpenEdit}
+                onItemClick={handleItemClick}
+                onOpenContextMenu={handleOpenContextMenu}
+                onReorderAtIndex={handleReorderAtIndex}
+                showAsDelegated={showAsDelegated}
+                getSelectedIds={getSelectedIds}
+                justDraggedRef={justDraggedRef}
+              />
+            ))}
+          </tbody>
         </table>
       </div>
 
-      {contextMenu && !readOnly && (() => {
-        const isBulk = selectedItemIds.size >= 2 && selectedItemIds.has(contextMenu.item.id)
-        const bulkIds = isBulk ? Array.from(selectedItemIds) : []
-        return (
-          <div
-            className="fixed z-50 min-w-[220px] py-1 bg-dark border border-accent/20 rounded-lg shadow-lg"
-            style={{ left: contextMenu.x, top: contextMenu.y }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="px-2 py-1.5 text-xs font-semibold text-white/60 uppercase tracking-wide border-b border-white/10 mb-1">
-              {isBulk ? `${bulkIds.length} task selezionate` : 'Imposta etichetta'}
-            </div>
-            {PED_LABELS.map((labelKey) => {
-              const config = PED_LABEL_CONFIG[labelKey]
-              return (
-                <button
-                  key={labelKey}
-                  type="button"
-                  className="w-full text-left px-4 py-2 text-sm flex items-center gap-2 text-white hover:bg-white/10"
-                  onClick={() => {
-                    if (isBulk && typeof onBulkSetLabel === 'function') {
-                      queueMicrotask(() => { onBulkSetLabel(bulkIds, labelKey) })
-                    } else if (!isBulk && typeof onSetLabel === 'function') {
-                      queueMicrotask(() => { onSetLabel(contextMenu.item.id, labelKey) })
-                    }
-                    setContextMenu(null)
-                  }}
-                >
-                  <span
-                    className="w-3 h-3 rounded-full shrink-0"
-                    style={{ backgroundColor: config.backgroundColor }}
-                  />
-                  {config.label}
-                </button>
-              )
-            })}
-            <div className="border-t border-white/10 my-1" />
-            {isBulk && typeof onBulkToggleDone === 'function' && (
-              <>
-                <button
-                  type="button"
-                  className="w-full text-left px-4 py-2 text-sm text-white hover:bg-accent/10"
-                  onClick={() => {
-                    queueMicrotask(() => { onBulkToggleDone(bulkIds, true) })
-                    setContextMenu(null)
-                  }}
-                >
-                  Segna come fatto
-                </button>
-                <button
-                  type="button"
-                  className="w-full text-left px-4 py-2 text-sm text-white hover:bg-accent/10"
-                  onClick={() => {
-                    queueMicrotask(() => { onBulkToggleDone(bulkIds, false) })
-                    setContextMenu(null)
-                  }}
-                >
-                  Segna come non fatto
-                </button>
-              </>
-            )}
-            {!isBulk && typeof onUpdateTitle === 'function' && (
-              <button
-                type="button"
-                className="w-full text-left px-4 py-2 text-sm text-white hover:bg-accent/10"
-                onClick={() => {
-                  setInlineEditTitle({ item: contextMenu.item, x: contextMenu.x, y: contextMenu.y })
-                  setContextMenu(null)
-                }}
-              >
-                Modifica
-              </button>
-            )}
-            <button
-              type="button"
-              className="w-full text-left px-4 py-2 text-sm text-white hover:bg-accent/10"
-              onClick={() => {
-                if (isBulk && typeof onDuplicateItem === 'function') {
-                  const dateKey = contextMenu.item.date.slice(0, 10)
-                  const isExtra = Boolean(contextMenu.item.isExtra)
-                  bulkIds.forEach((id) => { onDuplicateItem(id, dateKey, isExtra) })
-                } else if (!isBulk && typeof onDuplicateItem === 'function') {
-                  const dateKey = contextMenu.item.date.slice(0, 10)
-                  onDuplicateItem(contextMenu.item.id, dateKey, Boolean(contextMenu.item.isExtra))
-                }
-                setContextMenu(null)
-              }}
-            >
-              Duplica
-            </button>
-            <button
-              type="button"
-              className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-red-500/20"
-              onClick={() => {
-                const idsToDelete = isBulk ? bulkIds : [contextMenu.item.id]
-                if (idsToDelete.length === 0) {
-                  setContextMenu(null)
-                  return
-                }
-                if (confirm(idsToDelete.length > 1 ? `Stai eliminando ${idsToDelete.length} task. Continuare?` : 'Eliminare questa voce?')) {
-                  if (typeof onBulkDelete === 'function') {
-                    onBulkDelete(idsToDelete)
-                  } else {
-                    onDeleteItem(contextMenu.item.id)
-                  }
-                  setSelectedItemIds(new Set())
-                }
-                setContextMenu(null)
-              }}
-            >
-              Elimina
-            </button>
-          </div>
-        )
-      })()}
-
-      {inlineEditTitle && typeof onUpdateTitle === 'function' && (
-        <div
-          className="fixed z-[60] min-w-[240px] p-2 bg-dark border border-accent/20 rounded-lg shadow-lg"
-          style={{ left: inlineEditTitle.x, top: inlineEditTitle.y }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="text-xs text-white/70 mb-1.5">Modifica titolo</div>
-          <input
-            ref={inlineEditInputRef}
-            type="text"
-            value={inlineEditValue}
-            onChange={(e) => setInlineEditValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                const title = inlineEditValue.trim()
-                if (title) {
-                  onUpdateTitle(inlineEditTitle.item.id, title)
-                  setInlineEditTitle(null)
-                }
-              }
-              if (e.key === 'Escape') {
-                setInlineEditTitle(null)
-              }
-            }}
-            onBlur={() => {
-              const title = inlineEditValue.trim()
-              if (title && title !== inlineEditTitle.item.title) {
-                onUpdateTitle(inlineEditTitle.item.id, title)
-              }
-              setInlineEditTitle(null)
-            }}
-            className="w-full px-3 py-2 bg-white/10 border border-accent/20 rounded text-white text-sm"
-            placeholder="Titolo"
-          />
-        </div>
-      )}
+      {contextMenuPortal}
+      {inlineEditPortal}
     </div>
   )
 }
