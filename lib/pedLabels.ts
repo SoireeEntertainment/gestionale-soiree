@@ -88,6 +88,26 @@ export function getLabelStyle(label: string | null | undefined) {
   return PED_LABEL_CONFIG[DEFAULT_LABEL]
 }
 
+/** Inline style objects stabili (stessa reference per etichetta) — evita allocazioni per-task. */
+export const PED_LABEL_CHIP_STYLE: Record<PedLabel, { backgroundColor: string; color: string }> = {
+  IN_APPROVAZIONE: {
+    backgroundColor: PED_LABEL_CONFIG.IN_APPROVAZIONE.backgroundColor,
+    color: PED_LABEL_CONFIG.IN_APPROVAZIONE.color,
+  },
+  DA_FARE: {
+    backgroundColor: PED_LABEL_CONFIG.DA_FARE.backgroundColor,
+    color: PED_LABEL_CONFIG.DA_FARE.color,
+  },
+  PRONTO_NON_PUBBLICATO: {
+    backgroundColor: PED_LABEL_CONFIG.PRONTO_NON_PUBBLICATO.backgroundColor,
+    color: PED_LABEL_CONFIG.PRONTO_NON_PUBBLICATO.color,
+  },
+  FATTO: {
+    backgroundColor: PED_LABEL_CONFIG.FATTO.backgroundColor,
+    color: PED_LABEL_CONFIG.FATTO.color,
+  },
+}
+
 /** Per uso in UI: dato un item con eventuale priority/status legacy, ritorna config. */
 export function getItemLabelStyle(item: {
   label?: string | null
@@ -96,4 +116,13 @@ export function getItemLabelStyle(item: {
 }) {
   const effective = getEffectiveLabel(item)
   return PED_LABEL_CONFIG[effective]
+}
+
+/** Chip style stabile per calendario (stessa reference per etichetta). */
+export function getItemLabelChipStyle(item: {
+  label?: string | null
+  priority?: string | null
+  status?: string | null
+}): { backgroundColor: string; color: string } {
+  return PED_LABEL_CHIP_STYLE[getEffectiveLabel(item)]
 }

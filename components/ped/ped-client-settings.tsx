@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, memo } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { upsertPedClientSetting, removePedClientSetting, fillPedMonthForClient } from '@/app/actions/ped'
@@ -28,7 +28,7 @@ type Setting = {
   client: { id: string; name: string }
 }
 
-export function PedClientSettings({
+export function PedClientSettingsInner({
   settings,
   clients,
   userName,
@@ -336,3 +336,5 @@ export function PedClientSettings({
     </div>
   )
 }
+
+export const PedClientSettings = memo(PedClientSettingsInner)

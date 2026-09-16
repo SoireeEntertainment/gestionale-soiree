@@ -234,9 +234,9 @@ export function PedView({
   const itemsRef = useRef(items)
   itemsRef.current = items
 
-  // Stats charts can lag a tick; calendar items update immediately via optimistic state.
+  // Stats (and calendar remaining counts) compute only on deferred items — off the urgent paint path.
+  // Task chips still update immediately via optimistic `items`.
   const deferredItems = useDeferredValue(itemsWithDateString)
-  const calendarStats = useMemo(() => computePedStatsFromItems(itemsWithDateString), [itemsWithDateString])
   const deferredStats = useMemo(() => computePedStatsFromItems(deferredItems), [deferredItems])
   const workDeadlines = initialData.assignedWorkDeadlines ?? []
 
@@ -273,14 +273,19 @@ export function PedView({
   const handleToggleDone = useCallback(async (id: string) => {
     const item = itemsRef.current.find((i) => i.id === id)
     if (!item) return
-    setUndoEntry({ type: 'toggleDone', itemId: id, previousStatus: item.status, previousLabel: getEffectiveLabel(item) })
+    const previousStatus = item.status
+    const previousLabel = getEffectiveLabel(item)
 
     const newStatus = item.status === 'DONE' ? 'TODO' : 'DONE'
     const newLabel = newStatus === 'DONE' ? DONE_LABEL : DEFAULT_LABEL
     const previousItems = itemsRef.current
+    // Urgent: chip updates immediately. Undo UI can lag a frame.
     setItems((prev) =>
       prev.map((i) => (i.id === id ? { ...i, status: newStatus, label: newLabel } : i))
     )
+    startTransition(() => {
+      setUndoEntry({ type: 'toggleDone', itemId: id, previousStatus, previousLabel })
+    })
 
     const result = await togglePedItemDone(id)
     if (!result.ok) {
@@ -324,28 +329,31 @@ export function PedView({
 
   const handleDeleteItem = useCallback(async (itemId: string) => {
     const item = itemsRef.current.find((i) => i.id === itemId)
+    const previousItems = itemsRef.current
+    // Urgent paint: remove chip immediately. Undo metadata is non-urgent.
+    setItems((prev) => prev.filter((i) => i.id !== itemId))
     if (item) {
       const dateStr = typeof item.date === 'string' ? item.date.slice(0, 10) : ''
-      setUndoEntry({
-        type: 'delete',
-        item: {
-          clientId: item.clientId,
-          date: dateStr,
-          kind: item.kind,
-          type: item.type,
-          title: item.title,
-          description: item.description ?? null,
-          priority: item.priority ?? 'MEDIUM',
-          label: getEffectiveLabel(item),
-          status: item.status,
-          workId: item.workId ?? null,
-          isExtra: item.isExtra,
-          assignedToUserId: item.assignedToUserId ?? null,
-        },
+      startTransition(() => {
+        setUndoEntry({
+          type: 'delete',
+          item: {
+            clientId: item.clientId,
+            date: dateStr,
+            kind: item.kind,
+            type: item.type,
+            title: item.title,
+            description: item.description ?? null,
+            priority: item.priority ?? 'MEDIUM',
+            label: getEffectiveLabel(item),
+            status: item.status,
+            workId: item.workId ?? null,
+            isExtra: item.isExtra,
+            assignedToUserId: item.assignedToUserId ?? null,
+          },
+        })
       })
     }
-    const previousItems = itemsRef.current
-    setItems((prev) => prev.filter((i) => i.id !== itemId))
     try {
       await deletePedItem(itemId)
     } catch (e) {
@@ -869,7 +877,7 @@ export function PedView({
                 month={month}
                 items={itemsWithDateString}
                 workDeadlines={workDeadlines}
-                dailyStats={calendarStats.dailyStats}
+                dailyStats={deferredStats.dailyStats}
                 currentUserId={currentUserId}
                 viewAsUserId={viewAsUserId}
                 readOnly={isViewingOtherUser}

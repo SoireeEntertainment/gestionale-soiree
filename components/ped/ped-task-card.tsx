@@ -2,7 +2,7 @@
 
 import { memo, type MutableRefObject, type MouseEvent, type DragEvent } from 'react'
 import { PED_ITEM_TYPE_LABELS, PED_DELEGATED_STYLE } from '@/lib/ped-utils'
-import { getItemLabelStyle } from '@/lib/pedLabels'
+import { getItemLabelChipStyle } from '@/lib/pedLabels'
 import type { PedItem } from './ped-types'
 
 export const DRAG_TYPE = 'application/x-ped-item'
@@ -40,10 +40,7 @@ function PedTaskCardInner({
   getSelectedIds,
   justDraggedRef,
 }: PedTaskCardProps) {
-  const labelStyle = getItemLabelStyle(item)
-  const itemStyle = isDelegated
-    ? PED_DELEGATED_STYLE
-    : { backgroundColor: labelStyle.backgroundColor, color: labelStyle.color }
+  const itemStyle = isDelegated ? PED_DELEGATED_STYLE : getItemLabelChipStyle(item)
   const itemDate = item.date.slice(0, 10)
 
   return (
@@ -151,6 +148,7 @@ function pedTaskCardPropsAreEqual(prev: PedTaskCardProps, next: PedTaskCardProps
     prev.item.status === next.item.status &&
     prev.item.label === next.item.label &&
     prev.item.title === next.item.title &&
+    prev.item.date === next.item.date &&
     prev.item.client.name === next.item.client.name &&
     prev.item.owner?.name === next.item.owner?.name &&
     prev.item.type === next.item.type &&
@@ -158,7 +156,9 @@ function pedTaskCardPropsAreEqual(prev: PedTaskCardProps, next: PedTaskCardProps
     prev.isSelected === next.isSelected &&
     prev.isDelegated === next.isDelegated &&
     prev.readOnly === next.readOnly &&
-    prev.index === next.index
+    prev.index === next.index &&
+    prev.dateKey === next.dateKey &&
+    prev.isExtra === next.isExtra
   )
 }
 
