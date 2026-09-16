@@ -4,6 +4,14 @@ import { useMemo, useState, useEffect, useRef, useCallback, memo, startTransitio
 import { createPortal } from 'react-dom'
 import { toDateString, getCurrentWeekStartString, getISOWeekStartKey } from '@/lib/ped-utils'
 import { PED_LABELS, PED_LABEL_CONFIG } from '@/lib/pedLabels'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import type { PedItem, WorkDeadlineItem, PedDayCellData } from './ped-types'
 import { PedCalendarGrid } from './ped-calendar-grid'
 import { DRAG_TYPE } from './ped-task-card'
@@ -100,6 +108,7 @@ function buildCalendarGrid(year: number, month: number): { dateKey: string; dayN
 type ContextMenuState = { x: number; y: number; item: PedItem } | null
 type InlineEditTitleState = { item: PedItem; x: number; y: number } | null
 type MarqueeRect = { startX: number; startY: number; endX: number; endY: number }
+type PendingDelete = { ids: string[]; singleId: string } | null
 
 type DragPayload = { id?: string; ids?: string[]; date: string; isExtra: boolean; copyMode?: boolean }
 
@@ -176,6 +185,7 @@ function PedCalendarInner({
   const [columnWidths, setColumnWidths] = useState<number[]>(DEFAULT_COLUMN_WIDTHS)
   const [resizingCol, setResizingCol] = useState<number | null>(null)
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(null)
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete>(null)
   const [inlineEditTitle, setInlineEditTitle] = useState<InlineEditTitleState>(null)
   const [inlineEditValue, setInlineEditValue] = useState('')
   const inlineEditInputRef = useRef<HTMLInputElement>(null)
@@ -847,27 +857,16 @@ function PedCalendarInner({
                   type="button"
                   className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-red-500/20"
                   onClick={() => {
-                    const idsToDelete = isBulk ? bulkIds : [contextMenu.item.id]
-                    const singleId = contextMenu.item.id
-                    // Close menu first so UI responds immediately, then confirm + delete
-                    setContextMenu(null)
-                    if (idsToDelete.length === 0) return
-                    if (
-                      confirm(
-                        idsToDelete.length > 1
-                          ? `Stai eliminando ${idsToDelete.length} task. Continuare?`
-                          : 'Eliminare questa voce?'
-                      )
-                    ) {
-                      if (typeof onBulkDelete === 'function') {
-                        onBulkDelete(idsToDelete)
-                      } else {
-                        onDeleteItem(singleId)
-                      }
-                      startTransition(() => {
-                        clearSelection()
-                      })
+                    const ids = isBulk ? bulkIds : [contextMenu.item.id]
+                    if (ids.length === 0) {
+                      setContextMenu(null)
+                      return
                     }
+                    setPendingDelete({
+                      ids,
+                      singleId: contextMenu.item.id,
+                    })
+                    setContextMenu(null)
                   }}
                 >
                   Elimina
@@ -921,6 +920,23 @@ function PedCalendarInner({
         )
       : null
 
+  const handleConfirmDelete = useCallback(() => {
+    const pending = pendingDelete
+    setPendingDelete(null)
+    if (!pending || pending.ids.length === 0) return
+    if (pending.ids.length > 1 && typeof onBulkDelete === 'function') {
+      void onBulkDelete(pending.ids)
+    } else {
+      void onDeleteItem(pending.singleId)
+    }
+    startTransition(() => {
+      clearSelection()
+    })
+  }, [pendingDelete, onBulkDelete, onDeleteItem, clearSelection])
+
+  const deleteCount = pendingDelete?.ids.length ?? 0
+  const isBulkDelete = deleteCount > 1
+
   return (
     <div className="flex flex-col h-full min-h-0 [font-size:1.15em]">
       <PedCalendarGrid
@@ -954,6 +970,34 @@ function PedCalendarInner({
 
       {contextMenuPortal}
       {inlineEditPortal}
+
+      <Dialog
+        open={pendingDelete != null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null)
+        }}
+      >
+        <DialogContent className="max-w-md" hideClose>
+          <DialogHeader>
+            <DialogTitle>
+              {isBulkDelete ? `Eliminare ${deleteCount} task?` : 'Eliminare questa task?'}
+            </DialogTitle>
+            <DialogDescription>
+              {isBulkDelete
+                ? 'Le task selezionate verranno rimosse dal PED.'
+                : 'Questa azione rimuoverà la task dal PED.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="ghost" onClick={() => setPendingDelete(null)}>
+              Annulla
+            </Button>
+            <Button type="button" variant="danger" onClick={handleConfirmDelete} autoFocus>
+              Elimina
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
