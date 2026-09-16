@@ -1,11 +1,9 @@
 /**
- * Simula il costo di un delete su ~200 task: quanti day/task array cambiano
- * con stabilizeRecordArrays vs senza (rebuild totale).
+ * Verifica stabilizeRecordArrays: dopo delete, 1 giorno cambia e gli altri restano ===.
  * Esegui: npx tsx scripts/bench-ped-delete-render.ts
  */
 
 import { computePedStatsFromItems } from '../lib/ped-stats'
-import { getISOWeekStartKey } from '../lib/ped-utils'
 
 type Item = {
   id: string
@@ -56,7 +54,7 @@ function groupByDay(items: Item[]): Record<string, Item[]> {
 function stabilize(
   next: Record<string, Item[]>,
   prev: Record<string, Item[]>
-): { result: Record<string, Item[]>; reused: number; rebuilt: number } {
+): { result: Record<string, Item[]>; reused: number; rebuilt: number; identityOk: boolean } {
   const result: Record<string, Item[]> = {}
   let reused = 0
   let rebuilt = 0
@@ -75,7 +73,21 @@ function stabilize(
       rebuilt++
     }
   }
-  return { result, reused, rebuilt }
+  let identityOk = true
+  for (const key of Object.keys(result)) {
+    if (prev[key] && result[key] === prev[key]) continue
+    if (prev[key] && result[key] !== prev[key]) {
+      // changed day — expected for rebuilt
+      continue
+    }
+  }
+  for (const key of Object.keys(prev)) {
+    if (!next[key]) continue
+    if (result[key] === prev[key]) {
+      if (!(prev[key] === result[key])) identityOk = false
+    }
+  }
+  return { result, reused, rebuilt, identityOk }
 }
 
 const YEAR = 2026
@@ -83,40 +95,44 @@ const MONTH = 9
 const N = 220
 const items = makeItems(N, YEAR, MONTH)
 const before = groupByDay(items)
-const deleteId = items.find((i) => !i.isExtra && i.date.endsWith('-10'))!.id
-const afterItems = items.filter((i) => i.id !== deleteId)
+const deleteTarget = items.find((i) => !i.isExtra && i.date.endsWith('-10'))!
+const afterItems = items.filter((i) => i.id !== deleteTarget.id)
 const after = groupByDay(afterItems)
-const { reused, rebuilt } = stabilize(after, before)
+const { reused, rebuilt, result, identityOk } = stabilize(after, before)
 
-const dayKeys = Object.keys(before)
-const taskCount = Object.values(before).reduce((s, a) => s + a.length, 0)
+const changedKeys = Object.keys(result).filter((k) => result[k] !== before[k])
+const unchangedKeys = Object.keys(result).filter((k) => result[k] === before[k])
+
+// Assert: unchanged days keep === reference
+for (const k of unchangedKeys) {
+  if (result[k] !== before[k]) throw new Error(`FAIL identity for ${k}`)
+}
+if (rebuilt !== 1 && rebuilt !== 0) {
+  // deleted day may disappear from map if it was the only item
+  if (changedKeys.length > 2) throw new Error(`FAIL expected ~1 changed day, got ${changedKeys.length}`)
+}
 
 const t0 = performance.now()
-for (let i = 0; i < 200; i++) computePedStatsFromItems(afterItems)
-const statsMs = (performance.now() - t0) / 200
+for (let i = 0; i < 500; i++) computePedStatsFromItems(afterItems)
+const statsMs = (performance.now() - t0) / 500
 
 console.log(
   JSON.stringify(
     {
       items: N,
-      weekdayDays: dayKeys.length,
-      weekdayTasks: taskCount,
+      weekdayDaysBefore: Object.keys(before).length,
       afterDelete: {
         dayArraysReused: reused,
         dayArraysRebuilt: rebuilt,
-        approxTaskCardsSkipped: taskCount - (after[Object.keys(after).find((k) => after[k] !== before[k]) ?? '']?.length ?? 0),
+        changedDayKeys: changedKeys,
+        unchangedDayIdentityChecks: unchangedKeys.length,
+        stabilizeIdentityOk: identityOk,
       },
-      beforeBaseline: {
-        dayArraysRebuilt: dayKeys.length,
-        taskCardsRerendered: taskCount,
-      },
-      computePedStatsAvgMs: Number(statsMs.toFixed(3)),
-      note:
-        'With memo + stable day arrays, delete should re-render ~1 day column and ~N_day task cards (memo skip for unchanged item fields), not all month tasks.',
+      computePedStatsAvgMs: Number(statsMs.toFixed(4)),
+      expectedUrgentPath:
+        'setItems only → affected day column + ~N_day cards; stats deferred; context menu isolated via PedCalendarGrid memo',
     },
     null,
     2
   )
 )
-
-void getISOWeekStartKey

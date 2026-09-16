@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom'
 import { toDateString, getCurrentWeekStartString, getISOWeekStartKey } from '@/lib/ped-utils'
 import { PED_LABELS, PED_LABEL_CONFIG } from '@/lib/pedLabels'
 import type { PedItem, WorkDeadlineItem, PedDayCellData } from './ped-types'
-import { PedWeekRow } from './ped-week-row'
+import { PedCalendarGrid } from './ped-calendar-grid'
 import { DRAG_TYPE } from './ped-task-card'
 
 export type { PedItem, WorkDeadlineItem } from './ped-types'
@@ -18,8 +18,8 @@ const MIN_COL_WIDTH = 80
 
 const EMPTY_ITEMS = [] as PedItem[]
 const EMPTY_WORKS = [] as WorkDeadlineItem[]
-
-const WEEKDAY_LABELS = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Extra']
+/** Shared empty selection — never mutate. */
+const EMPTY_SELECTION: Set<string> = new Set()
 
 const DEFAULT_COLUMN_WIDTHS = [...Array(5).fill(DEFAULT_COL_WIDTH), DEFAULT_EXTRA_WIDTH] as number[]
 
@@ -179,10 +179,13 @@ function PedCalendarInner({
   const [inlineEditTitle, setInlineEditTitle] = useState<InlineEditTitleState>(null)
   const [inlineEditValue, setInlineEditValue] = useState('')
   const inlineEditInputRef = useRef<HTMLInputElement>(null)
-  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set())
+  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(EMPTY_SELECTION)
   const selectedItemIdsRef = useRef(selectedItemIds)
   selectedItemIdsRef.current = selectedItemIds
   const getSelectedIds = useCallback(() => Array.from(selectedItemIdsRef.current), [])
+  const clearSelection = useCallback(() => {
+    setSelectedItemIds((prev) => (prev.size === 0 ? prev : EMPTY_SELECTION))
+  }, [])
   const [marquee, setMarquee] = useState<MarqueeRect | null>(null)
   const marqueeStartRef = useRef<{ x: number; y: number } | null>(null)
   const marqueeRectRef = useRef<MarqueeRect | null>(null)
@@ -237,20 +240,20 @@ function PedCalendarInner({
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setSelectedItemIds(new Set())
+      if (e.key === 'Escape') clearSelection()
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [])
+  }, [clearSelection])
 
-  const handleMarqueeStart = (e: React.MouseEvent) => {
+  const handleMarqueeStart = useCallback((e: React.MouseEvent) => {
     if (readOnly || resizingCol !== null) return
     const target = e.target as HTMLElement
     if (target.closest('li[data-ped-item-id]') || target.closest('th')) return
     e.preventDefault()
     marqueeStartRef.current = { x: e.clientX, y: e.clientY }
     setMarquee({ startX: e.clientX, startY: e.clientY, endX: e.clientX, endY: e.clientY })
-  }
+  }, [readOnly, resizingCol])
 
   const handleMarqueeMove = useMemo(() => {
     let raf = 0
@@ -291,7 +294,7 @@ function PedCalendarInner({
       if (r.right < minX || r.left > maxX || r.bottom < minY || r.top > maxY) return
       ids.add(id)
     })
-    setSelectedItemIds(ids)
+    setSelectedItemIds(ids.size === 0 ? EMPTY_SELECTION : ids)
   }, [])
 
   useEffect(() => {
@@ -361,7 +364,7 @@ function PedCalendarInner({
       })
       return
     }
-    setSelectedItemIds((prev) => (prev.has(item.id) && prev.size === 1 ? new Set() : new Set([item.id])))
+    setSelectedItemIds((prev) => (prev.has(item.id) && prev.size === 1 ? EMPTY_SELECTION : new Set([item.id])))
   }, [])
 
   const handleOpenContextMenu = useCallback((e: React.MouseEvent, item: PedItem) => {
@@ -522,11 +525,14 @@ function PedCalendarInner({
     [readOnly, onMoveItems, onReorderInDay]
   )
 
-  const onColResizeStart = (colIndex: number) => (e: React.MouseEvent) => {
+  const columnWidthsRef = useRef(columnWidths)
+  columnWidthsRef.current = columnWidths
+
+  const onColResizeStart = useCallback((colIndex: number) => (e: React.MouseEvent) => {
     e.preventDefault()
     setResizingCol(colIndex)
     const startX = e.clientX
-    const startW = columnWidths[colIndex]
+    const startW = columnWidthsRef.current[colIndex]
     const onMove = (move: MouseEvent) => {
       const newW = Math.max(MIN_COL_WIDTH, startW + (move.clientX - startX))
       setColumnWidths((prev) => {
@@ -542,7 +548,7 @@ function PedCalendarInner({
     }
     document.addEventListener('mousemove', onMove)
     document.addEventListener('mouseup', onUp)
-  }
+  }, [])
 
   const grid = useMemo(() => buildCalendarGrid(year, month), [year, month])
 
@@ -617,6 +623,31 @@ function PedCalendarInner({
   itemsByDayRef.current = itemsByDay
   extraItemsByWeekRef.current = extraItemsByWeek
 
+  const dailyStatsPrevRef = useRef<
+    Record<string, { total: number; done: number; remainingPct: number; remainingCount?: number }>
+  >({})
+  const stabilizedDailyStats = useMemo(() => {
+    const prev = dailyStatsPrevRef.current
+    const result: typeof prev = {}
+    for (const key of Object.keys(dailyStats)) {
+      const n = dailyStats[key]
+      const p = prev[key]
+      if (
+        p &&
+        p.total === n.total &&
+        p.done === n.done &&
+        p.remainingPct === n.remainingPct &&
+        (p.remainingCount ?? p.total - p.done) === (n.remainingCount ?? n.total - n.done)
+      ) {
+        result[key] = p
+      } else {
+        result[key] = n
+      }
+    }
+    dailyStatsPrevRef.current = result
+    return result
+  }, [dailyStats])
+
   const weekRowsPrevRef = useRef<
     {
       weekStartKey: string
@@ -631,7 +662,12 @@ function PedCalendarInner({
     const next = grid.map((week) => {
       const weekStartKey = getISOWeekStartKey(week[0].dateKey)
       const days: PedDayCellData[] = week.map((cell) => {
-        const stats = dailyStats[cell.dateKey] ?? { total: 0, done: 0, remainingPct: 0, remainingCount: 0 }
+        const stats = stabilizedDailyStats[cell.dateKey] ?? {
+          total: 0,
+          done: 0,
+          remainingPct: 0,
+          remainingCount: 0,
+        }
         return {
           dateKey: cell.dateKey,
           dayNum: cell.dayNum,
@@ -686,6 +722,13 @@ function PedCalendarInner({
       return { ...row, days }
     })
     weekRowsPrevRef.current = stabilized
+    if (
+      prev.length === stabilized.length &&
+      prev.length > 0 &&
+      stabilized.every((row, i) => row === prev[i])
+    ) {
+      return prev
+    }
     return stabilized
   }, [
     grid,
@@ -693,7 +736,7 @@ function PedCalendarInner({
     workDeadlinesByDay,
     extraItemsByWeek,
     weekendWorkDeadlinesByWeek,
-    dailyStats,
+    stabilizedDailyStats,
     currentWeekStart,
   ])
 
@@ -821,7 +864,9 @@ function PedCalendarInner({
                       } else {
                         onDeleteItem(singleId)
                       }
-                      setSelectedItemIds(new Set())
+                      startTransition(() => {
+                        clearSelection()
+                      })
                     }
                   }}
                 >
@@ -878,97 +923,34 @@ function PedCalendarInner({
 
   return (
     <div className="flex flex-col h-full min-h-0 [font-size:1.15em]">
-      <div className="flex items-center gap-4 mb-2 pb-2 border-b border-white/10 flex-shrink-0 flex-wrap">
-        <span className="text-white/40 text-xs">
-          Trascina il bordo destro di un’intestazione di colonna per ridimensionarla. Alt+trascina per
-          duplicare una voce. Tasto destro sulla voce per menu.
-        </span>
-        {selectedItemIds.size > 0 && (
-          <span className="flex items-center gap-2 text-accent text-sm font-medium">
-            <span>{selectedItemIds.size} selezionate</span>
-            <button
-              type="button"
-              onClick={() => setSelectedItemIds(new Set())}
-              className="px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-white text-xs"
-            >
-              Deseleziona
-            </button>
-          </span>
-        )}
-      </div>
-      <div
-        ref={calendarScrollRef}
-        className="flex-1 min-h-0 overflow-auto relative"
-        onMouseDown={handleMarqueeStart}
-      >
-        {marquee && (
-          <div
-            className="pointer-events-none fixed border-2 border-accent/80 bg-accent/10 z-20"
-            style={{
-              left: Math.min(marquee.startX, marquee.endX),
-              top: Math.min(marquee.startY, marquee.endY),
-              width: Math.abs(marquee.endX - marquee.startX),
-              height: Math.abs(marquee.endY - marquee.startY),
-            }}
-          />
-        )}
-        <table className="w-full border-collapse" style={{ tableLayout: 'fixed' }}>
-          <thead className="sticky top-0 z-10">
-            <tr className="bg-accent/10">
-              {WEEKDAY_LABELS.map((label, i) => (
-                <th
-                  key={label}
-                  className="p-2 text-left text-xs font-medium text-accent uppercase border border-white/10 relative select-none bg-accent/10"
-                  style={{ width: columnWidths[i], minWidth: MIN_COL_WIDTH }}
-                >
-                  {label}
-                  {i < 6 && (
-                    <span
-                      role="button"
-                      tabIndex={0}
-                      onMouseDown={onColResizeStart(i)}
-                      className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-accent/60 active:bg-accent rounded-sm transition-colors"
-                      title="Trascina per ridimensionare la colonna"
-                      aria-label="Ridimensiona colonna"
-                    />
-                  )}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {weekRows.map((row) => (
-              <PedWeekRow
-                key={row.weekStartKey}
-                weekStartKey={row.weekStartKey}
-                isCurrentWeek={row.isCurrentWeek}
-                days={row.days}
-                extraItems={row.extraItems}
-                weekendWorks={row.weekendWorks}
-                columnWidths={columnWidths}
-                readOnly={readOnly}
-                selectedItemIds={selectedItemIds}
-                onDragOver={handleDragOver}
-                onDropOnDay={handleDropOnDay}
-                onDropOnExtra={handleDropOnExtra}
-                onOpenAdd={onOpenAdd}
-                onOpenAddExtra={onOpenAddExtra}
-                onSelectDay={onSelectDay}
-                onOpenWork={onOpenWork}
-                onWorkContextMenu={onWorkContextMenu}
-                onToggleDone={onToggleDone}
-                onOpenEdit={onOpenEdit}
-                onItemClick={handleItemClick}
-                onOpenContextMenu={handleOpenContextMenu}
-                onReorderAtIndex={handleReorderAtIndex}
-                showAsDelegated={showAsDelegated}
-                getSelectedIds={getSelectedIds}
-                justDraggedRef={justDraggedRef}
-              />
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <PedCalendarGrid
+        weekRows={weekRows}
+        columnWidths={columnWidths}
+        selectedCount={selectedItemIds.size}
+        selectedItemIds={selectedItemIds}
+        readOnly={readOnly}
+        marquee={marquee}
+        calendarScrollRef={calendarScrollRef}
+        onMarqueeStart={handleMarqueeStart}
+        onColResizeStart={onColResizeStart}
+        onClearSelection={clearSelection}
+        onDragOver={handleDragOver}
+        onDropOnDay={handleDropOnDay}
+        onDropOnExtra={handleDropOnExtra}
+        onOpenAdd={onOpenAdd}
+        onOpenAddExtra={onOpenAddExtra}
+        onSelectDay={onSelectDay}
+        onOpenWork={onOpenWork}
+        onWorkContextMenu={onWorkContextMenu}
+        onToggleDone={onToggleDone}
+        onOpenEdit={onOpenEdit}
+        onItemClick={handleItemClick}
+        onOpenContextMenu={handleOpenContextMenu}
+        onReorderAtIndex={handleReorderAtIndex}
+        showAsDelegated={showAsDelegated}
+        getSelectedIds={getSelectedIds}
+        justDraggedRef={justDraggedRef}
+      />
 
       {contextMenuPortal}
       {inlineEditPortal}
