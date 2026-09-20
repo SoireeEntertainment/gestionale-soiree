@@ -8,6 +8,7 @@ import { ClientForm } from './client-form'
 import { ClientPreventiviSection } from './client-preventivi-section'
 import { ClientCredentialsSection } from './client-credentials-section'
 import { ClientRenewalsSection } from './client-renewals-section'
+import { ClientShootingsSection } from './client-shootings-section'
 import { ClientPedSection } from './client-ped-section'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
@@ -258,6 +259,11 @@ export function ClientDetail({ client, allCategories, users, canWrite = true, sh
         <ClientRenewalsSection
           clientId={client.id}
           initialRenewals={renewals}
+          canWrite={canWrite ?? false}
+        />
+
+        <ClientShootingsSection
+          clientId={client.id}
           canWrite={canWrite ?? false}
         />
 
