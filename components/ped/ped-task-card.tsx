@@ -109,6 +109,11 @@ function PedTaskCardInner({
       {isDelegated && (
         <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide opacity-90">Delegato</span>
       )}
+      {item.shootingReelId ? (
+        <span className="shrink-0 opacity-70" title="Collegato a shooting Reel" aria-label="Collegato a shooting">
+          🎥
+        </span>
+      ) : null}
       <span
         className={`text-left truncate flex-1 min-w-0 font-medium ${readOnly ? '' : 'cursor-pointer hover:underline'}`}
         onDoubleClick={
@@ -153,6 +158,7 @@ function pedTaskCardPropsAreEqual(prev: PedTaskCardProps, next: PedTaskCardProps
     prev.item.owner?.name === next.item.owner?.name &&
     prev.item.type === next.item.type &&
     prev.item.assignedToUserId === next.item.assignedToUserId &&
+    prev.item.shootingReelId === next.item.shootingReelId &&
     prev.isSelected === next.isSelected &&
     prev.isDelegated === next.isDelegated &&
     prev.readOnly === next.readOnly &&

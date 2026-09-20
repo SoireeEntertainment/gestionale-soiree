@@ -17,6 +17,18 @@ export type PedItem = {
   owner?: { id: string; name: string } | null
   client: { id: string; name: string }
   work?: { id: string; title: string } | null
+  shootingReelId?: string | null
+  shootingReel?: {
+    id: string
+    topic: string
+    published: boolean
+    shooting: {
+      id: string
+      name: string
+      date: string | Date
+      location: string | null
+    }
+  } | null
 }
 
 export type WorkDeadlineItem = {
