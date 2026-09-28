@@ -1,18 +1,16 @@
 'use client'
 
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 
 export function ErroreTemporaneoContent() {
-  const router = useRouter()
   const [retrying, setRetrying] = useState(false)
 
   const handleRetry = () => {
     setRetrying(true)
-    router.refresh()
-    // Torna alla dashboard: la sessione Clerk resta attiva
-    window.location.href = '/dashboard'
+    // Soft reload della pagina corrente (o di questa route se aperta direttamente).
+    // Non effettua logout: la sessione Clerk resta intatta.
+    window.location.reload()
   }
 
   return (
@@ -22,9 +20,11 @@ export function ErroreTemporaneoContent() {
     >
       <div className="max-w-md w-full text-center">
         <h1 className="text-2xl font-bold text-white mb-3">Errore temporaneo</h1>
+        <p className="text-white/70 text-sm mb-2">
+          Si è verificato un problema temporaneo.
+        </p>
         <p className="text-white/70 text-sm mb-6">
-          Si è verificato un problema momentaneo nel caricamento del tuo profilo. La sessione è ancora
-          attiva: riprova senza effettuare di nuovo l’accesso.
+          Riprova tra qualche secondo. La sessione resta attiva: non serve effettuare di nuovo l’accesso.
         </p>
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
           <button

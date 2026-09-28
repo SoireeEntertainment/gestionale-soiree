@@ -24,7 +24,7 @@
     "assistant:parse-smoke": "tsx scripts/assistant-parse-smoke.ts"
   },
   "dependencies": {
-    "@clerk/nextjs": "^5.7.5",
+    "@clerk/nextjs": "5.7.6",
     "@getbrevo/brevo": "^5.0.4",
     "@prisma/client": "^5.22.0",
     "@radix-ui/react-dialog": "^1.1.15",
