@@ -79,8 +79,10 @@ function isTransientInfrastructureError(error: unknown): boolean {
  */
 const clerkHandler = clerkMiddleware(async (auth, req) => {
   if (!isPublicRoute(req)) {
+    // Next.js middleware richiede URL assoluti per NextResponse.redirect.
+    // Un path relativo (es. "/sign-in") lancia "URL is malformed" → MIDDLEWARE_INVOCATION_FAILED.
     await auth().protect({
-      unauthenticatedUrl: SIGN_IN_PATH,
+      unauthenticatedUrl: new URL(SIGN_IN_PATH, req.url).href,
     })
   }
 })
@@ -96,12 +98,19 @@ export default async function middleware(req: NextRequest, event: NextFetchEvent
   try {
     return await clerkHandler(req, event)
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+
     // Logging minimo: niente cookie, token, Authorization, secret, query
     console.error('[Middleware]', {
       pathname: req.nextUrl.pathname,
-      message: error instanceof Error ? error.message : String(error),
+      message,
       name: error instanceof Error ? error.name : undefined,
     })
+
+    // Difesa: redirect relativo malformato → sign-in assoluto (niente bypass auth).
+    if (message.includes('URL is malformed') || message.includes('only absolute URLs')) {
+      return NextResponse.redirect(new URL(SIGN_IN_PATH, req.url))
+    }
 
     // Fallback UX solo per fallimenti infrastrutturali distinguibili.
     // Non bypassa auth: non chiama NextResponse.next() sulla route protetta.
