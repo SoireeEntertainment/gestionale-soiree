@@ -72,7 +72,7 @@ export default async function ProfiloPage() {
 
   return (
     <div className="profilo-page min-h-screen bg-dark p-6">
-      <div className="w-[90vw] max-w-[90vw] mx-auto">
+      <div className="w-full px-4 md:w-[90vw] md:max-w-[90vw] md:px-6 mx-auto">
         <h1 className="text-3xl font-bold text-white mb-2">Area operativa personale</h1>
         <p className="text-white/60 mb-6">Overview lavori, calendario e strumenti rapidi.</p>
 

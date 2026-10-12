@@ -289,3 +289,22 @@ nav div[style*="flex"] a {
   }
 }
 
+/* ========== Mobile-only helpers (< 768px) ========== */
+@media (max-width: 767px) {
+  /* Evita zoom automatico Safari su focus input */
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+
+  .profilo-page {
+    padding: 1rem;
+  }
+
+  .profilo-page [class*='rounded-xl'] {
+    padding: 1rem;
+    margin-bottom: 1.25rem;
+  }
+}
+

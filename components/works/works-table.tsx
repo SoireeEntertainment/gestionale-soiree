@@ -62,88 +62,142 @@ export function WorksTable({ works, returnTo, filters }: WorksTableProps) {
   }
 
   return (
-    <div className="bg-dark border border-accent/20 rounded-lg overflow-hidden">
-      <table className="w-full">
-        <thead className="bg-accent/10">
-          <tr>
-            <th className="px-6 py-3 text-left text-xs font-medium text-accent uppercase" aria-sort={ariaSort('title')}>
-              <button type="button" onClick={() => toggleSort('title')} className="inline-flex items-center gap-1 hover:text-white transition-colors">
-                Titolo <span className="text-[10px]">{sortIndicator('title')}</span>
-              </button>
-            </th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-accent uppercase" aria-sort={ariaSort('client')}>
-              <button type="button" onClick={() => toggleSort('client')} className="inline-flex items-center gap-1 hover:text-white transition-colors">
-                Cliente <span className="text-[10px]">{sortIndicator('client')}</span>
-              </button>
-            </th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-accent uppercase" aria-sort={ariaSort('category')}>
-              <button type="button" onClick={() => toggleSort('category')} className="inline-flex items-center gap-1 hover:text-white transition-colors">
-                Categoria <span className="text-[10px]">{sortIndicator('category')}</span>
-              </button>
-            </th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-accent uppercase" aria-sort={ariaSort('status')}>
-              <button type="button" onClick={() => toggleSort('status')} className="inline-flex items-center gap-1 hover:text-white transition-colors">
-                Stato <span className="text-[10px]">{sortIndicator('status')}</span>
-              </button>
-            </th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-accent uppercase" aria-sort={ariaSort('deadline')}>
-              <button type="button" onClick={() => toggleSort('deadline')} className="inline-flex items-center gap-1 hover:text-white transition-colors">
-                Scadenza <span className="text-[10px]">{sortIndicator('deadline')}</span>
-              </button>
-            </th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-accent uppercase">Avanzamento</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-accent uppercase" aria-sort={ariaSort('assignedTo')}>
-              <button type="button" onClick={() => toggleSort('assignedTo')} className="inline-flex items-center gap-1 hover:text-white transition-colors">
-                Assegnato a <span className="text-[10px]">{sortIndicator('assignedTo')}</span>
-              </button>
-            </th>
-            <th className="px-6 py-3 text-right text-xs font-medium text-accent uppercase">Azioni</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-white/10">
-          {sortedWorks.map((work) => {
-            const isExpired = work.deadline && new Date(work.deadline) < new Date() && work.status !== 'DONE'
-            const stepProgress = calculateWorkStepProgress(work.steps ?? [])
-            return (
-              <tr key={work.id} className="hover:bg-white/5">
-                <td className="px-6 py-4 text-white">{work.title}</td>
-                <td className="px-6 py-4 text-white/70">{work.client.name}</td>
-                <td className="px-6 py-4 text-white/70">{work.category.name}</td>
-                <td className="px-6 py-4">
-                  <WorkStatusBadge status={work.status} />
-                </td>
-                <td className="px-6 py-4">
-                  {work.deadline ? (
-                    <span className={isExpired ? 'text-red-400' : 'text-white/70'}>
-                      {format(new Date(work.deadline), 'dd MMM yyyy', { locale: it })}
-                      {isExpired && <span className="ml-2 text-xs text-red-400">Scaduto</span>}
-                    </span>
-                  ) : (
-                    <span className="text-white/50">-</span>
-                  )}
-                </td>
-                <td className="px-6 py-4">
-                  {stepProgress.total > 0 ? (
-                    <ProgressBar percent={stepProgress.percent} showLabel className="min-w-[100px]" />
-                  ) : (
-                    <span className="text-white/50 text-xs">—</span>
-                  )}
-                </td>
-                <td className="px-6 py-4 text-white/70">{work.assignedTo?.name || '-'}</td>
-                <td className="px-6 py-4 text-right">
-                  <Link
-                    href={`/works/${work.id}?returnTo=${encodeURIComponent(returnTo)}`}
-                    className="text-accent hover:underline text-sm"
-                  >
-                    Dettagli
-                  </Link>
-                </td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
-      {sortedWorks.length === 0 && <EmptyState title="Nessun lavoro trovato" />}
-    </div>
+    <>
+      <div className="hidden md:block bg-dark border border-accent/20 rounded-lg overflow-hidden">
+        <table className="w-full">
+          <thead className="bg-accent/10">
+            <tr>
+              <th className="px-6 py-3 text-left text-xs font-medium text-accent uppercase" aria-sort={ariaSort('title')}>
+                <button type="button" onClick={() => toggleSort('title')} className="inline-flex items-center gap-1 hover:text-white transition-colors">
+                  Titolo <span className="text-[10px]">{sortIndicator('title')}</span>
+                </button>
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-accent uppercase" aria-sort={ariaSort('client')}>
+                <button type="button" onClick={() => toggleSort('client')} className="inline-flex items-center gap-1 hover:text-white transition-colors">
+                  Cliente <span className="text-[10px]">{sortIndicator('client')}</span>
+                </button>
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-accent uppercase" aria-sort={ariaSort('category')}>
+                <button type="button" onClick={() => toggleSort('category')} className="inline-flex items-center gap-1 hover:text-white transition-colors">
+                  Categoria <span className="text-[10px]">{sortIndicator('category')}</span>
+                </button>
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-accent uppercase" aria-sort={ariaSort('status')}>
+                <button type="button" onClick={() => toggleSort('status')} className="inline-flex items-center gap-1 hover:text-white transition-colors">
+                  Stato <span className="text-[10px]">{sortIndicator('status')}</span>
+                </button>
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-accent uppercase" aria-sort={ariaSort('deadline')}>
+                <button type="button" onClick={() => toggleSort('deadline')} className="inline-flex items-center gap-1 hover:text-white transition-colors">
+                  Scadenza <span className="text-[10px]">{sortIndicator('deadline')}</span>
+                </button>
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-accent uppercase">Avanzamento</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-accent uppercase" aria-sort={ariaSort('assignedTo')}>
+                <button type="button" onClick={() => toggleSort('assignedTo')} className="inline-flex items-center gap-1 hover:text-white transition-colors">
+                  Assegnato a <span className="text-[10px]">{sortIndicator('assignedTo')}</span>
+                </button>
+              </th>
+              <th className="px-6 py-3 text-right text-xs font-medium text-accent uppercase">Azioni</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/10">
+            {sortedWorks.map((work) => {
+              const isExpired = work.deadline && new Date(work.deadline) < new Date() && work.status !== 'DONE'
+              const stepProgress = calculateWorkStepProgress(work.steps ?? [])
+              return (
+                <tr key={work.id} className="hover:bg-white/5">
+                  <td className="px-6 py-4 text-white">{work.title}</td>
+                  <td className="px-6 py-4 text-white/70">{work.client.name}</td>
+                  <td className="px-6 py-4 text-white/70">{work.category.name}</td>
+                  <td className="px-6 py-4">
+                    <WorkStatusBadge status={work.status} />
+                  </td>
+                  <td className="px-6 py-4">
+                    {work.deadline ? (
+                      <span className={isExpired ? 'text-red-400' : 'text-white/70'}>
+                        {format(new Date(work.deadline), 'dd MMM yyyy', { locale: it })}
+                        {isExpired && <span className="ml-2 text-xs text-red-400">Scaduto</span>}
+                      </span>
+                    ) : (
+                      <span className="text-white/50">-</span>
+                    )}
+                  </td>
+                  <td className="px-6 py-4">
+                    {stepProgress.total > 0 ? (
+                      <ProgressBar percent={stepProgress.percent} showLabel className="min-w-[100px]" />
+                    ) : (
+                      <span className="text-white/50 text-xs">—</span>
+                    )}
+                  </td>
+                  <td className="px-6 py-4 text-white/70">{work.assignedTo?.name || '-'}</td>
+                  <td className="px-6 py-4 text-right">
+                    <Link
+                      href={`/works/${work.id}?returnTo=${encodeURIComponent(returnTo)}`}
+                      className="text-accent hover:underline text-sm"
+                    >
+                      Dettagli
+                    </Link>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+        {sortedWorks.length === 0 && <EmptyState title="Nessun lavoro trovato" />}
+      </div>
+
+      <div className="md:hidden space-y-3">
+        {sortedWorks.map((work) => {
+          const isExpired = work.deadline && new Date(work.deadline) < new Date() && work.status !== 'DONE'
+          const stepProgress = calculateWorkStepProgress(work.steps ?? [])
+          return (
+            <Link
+              key={work.id}
+              href={`/works/${work.id}?returnTo=${encodeURIComponent(returnTo)}`}
+              className="block rounded-xl border border-accent/20 bg-dark/80 p-4 min-w-0 transition-colors active:bg-white/5"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <h3 className="min-w-0 flex-1 text-base font-semibold text-white break-words">{work.title}</h3>
+                <WorkStatusBadge status={work.status} />
+              </div>
+              <dl className="mt-3 space-y-1.5 text-sm text-white/70">
+                <div className="flex gap-2 min-w-0">
+                  <dt className="shrink-0 text-white/45">Cliente</dt>
+                  <dd className="min-w-0 break-words">{work.client.name}</dd>
+                </div>
+                <div className="flex gap-2 min-w-0">
+                  <dt className="shrink-0 text-white/45">Categoria</dt>
+                  <dd className="min-w-0 break-words">{work.category.name}</dd>
+                </div>
+                <div className="flex gap-2 min-w-0">
+                  <dt className="shrink-0 text-white/45">Scadenza</dt>
+                  <dd className={isExpired ? 'text-red-400' : undefined}>
+                    {work.deadline
+                      ? format(new Date(work.deadline), 'dd MMM yyyy', { locale: it })
+                      : '—'}
+                    {isExpired ? ' · Scaduto' : ''}
+                  </dd>
+                </div>
+                <div className="flex gap-2 min-w-0">
+                  <dt className="shrink-0 text-white/45">Assegnato</dt>
+                  <dd className="min-w-0 break-words">{work.assignedTo?.name || '—'}</dd>
+                </div>
+              </dl>
+              {stepProgress.total > 0 && (
+                <div className="mt-3">
+                  <ProgressBar percent={stepProgress.percent} showLabel />
+                </div>
+              )}
+            </Link>
+          )
+        })}
+        {sortedWorks.length === 0 && (
+          <div className="rounded-xl border border-accent/20 p-8 text-center text-white/50">
+            Nessun lavoro trovato
+          </div>
+        )}
+      </div>
+    </>
   )
 }

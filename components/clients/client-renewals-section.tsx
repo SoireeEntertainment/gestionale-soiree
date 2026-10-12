@@ -217,7 +217,8 @@ export function ClientRenewalsSection({
           {filter30Days ? 'Nessuna scadenza nei prossimi 30 giorni.' : 'Nessuna scadenza. Aggiungi un rinnovo per tenere traccia delle scadenze.'}
         </p>
       ) : (
-        <div className="overflow-x-auto">
+        <>
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-white/60 border-b border-white/10">
@@ -291,6 +292,64 @@ export function ClientRenewalsSection({
             </tbody>
           </table>
         </div>
+        <div className="md:hidden space-y-3">
+          {filteredRenewals.map((r) => {
+            const dateStatus = renewalStatus(r.renewalDate)
+            const rowStatus = (r as { status?: string }).status ?? 'DA_FARE'
+            return (
+              <div key={r.id} className="rounded-xl border border-white/10 bg-white/[0.02] p-4 min-w-0">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="font-medium text-white break-words">{r.serviceName}</p>
+                    {r.domain ? <p className="mt-0.5 text-xs text-white/50 break-words">{r.domain}</p> : null}
+                  </div>
+                  <span className={`shrink-0 text-xs px-2 py-0.5 rounded ${RENEWAL_STATUS_CLASS[rowStatus] ?? RENEWAL_STATUS_CLASS.DA_FARE}`}>
+                    {RENEWAL_STATUS_LABELS[rowStatus] ?? rowStatus}
+                  </span>
+                </div>
+                <dl className="mt-3 space-y-1.5 text-sm text-white/70">
+                  <div className="flex gap-2">
+                    <dt className="shrink-0 text-white/45">Rinnovo</dt>
+                    <dd>{formatDateOnlyIt(new Date(r.renewalDate))}</dd>
+                  </div>
+                  <div className="flex gap-2">
+                    <dt className="shrink-0 text-white/45">Fatturazione</dt>
+                    <dd>{r.billingDate ? formatDateOnlyIt(new Date(r.billingDate)) : '—'}</dd>
+                  </div>
+                </dl>
+                {(dateStatus === 'scaduto' || dateStatus === 'in_scadenza') && (
+                  <div className="mt-2">
+                    {dateStatus === 'scaduto' && (
+                      <span className="text-xs px-2 py-0.5 rounded bg-red-500/30 text-red-300">Scaduto</span>
+                    )}
+                    {dateStatus === 'in_scadenza' && rowStatus !== 'COMPLETATO' && (
+                      <span className="text-xs px-2 py-0.5 rounded bg-amber-500/30 text-amber-200">In scadenza</span>
+                    )}
+                  </div>
+                )}
+                {canWrite && (
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => openEdit(r)}
+                      className="min-h-[44px] rounded-lg bg-accent/15 text-sm font-medium text-accent"
+                    >
+                      Modifica
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(r)}
+                      className="min-h-[44px] rounded-lg border border-red-500/30 text-sm text-red-300"
+                    >
+                      Elimina
+                    </button>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+        </>
       )}
 
       <Dialog open={openModal} onOpenChange={setOpenModal}>

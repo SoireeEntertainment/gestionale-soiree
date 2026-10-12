@@ -42,7 +42,7 @@ export default async function DevUsersPage() {
   return (
     <div className="min-h-screen bg-dark">
       <NavbarWithAuth />
-      <div className="w-[90vw] max-w-[90vw] mx-auto p-6">
+      <div className="w-full px-4 md:w-[90vw] md:max-w-[90vw] md:px-6 mx-auto p-6">
         <Link href="/" className="text-accent hover:underline mb-4 inline-block">
           ← Torna all’app
         </Link>

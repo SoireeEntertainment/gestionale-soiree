@@ -18,13 +18,13 @@ export default async function PreventiviPage() {
   }
 
   return (
-    <div className="min-h-screen bg-dark p-6">
-      <div className="w-[90vw] max-w-[90vw] mx-auto">
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-3xl font-bold text-white">Preventivi</h1>
+    <div className="min-h-screen bg-dark p-4 md:p-6">
+      <div className="w-full px-4 md:w-[90vw] md:max-w-[90vw] md:px-6 mx-auto">
+        <div className="flex flex-col gap-3 mb-6 sm:flex-row sm:items-center sm:justify-between">
+          <h1 className="text-2xl md:text-3xl font-bold text-white">Preventivi</h1>
           {canWrite && (
-            <Link href="/preventivi/nuovo">
-              <Button>+ Nuovo preventivo</Button>
+            <Link href="/preventivi/nuovo" className="w-full sm:w-auto">
+              <Button className="w-full min-h-[48px] sm:w-auto sm:min-h-0">+ Nuovo preventivo</Button>
             </Link>
           )}
         </div>

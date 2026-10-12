@@ -78,8 +78,8 @@ export default async function WorksPage(props: {
   ])
 
   return (
-    <div className="min-h-screen bg-dark p-6">
-      <div className="w-[90vw] max-w-[90vw] mx-auto">
+    <div className="min-h-screen bg-dark p-4 md:p-6">
+      <div className="w-full px-4 md:w-[90vw] md:max-w-[90vw] md:px-6 mx-auto">
         <h1 className="text-3xl font-bold mb-6 text-white">Lavori</h1>
         <WorksPageClient
           pageView={pageView}

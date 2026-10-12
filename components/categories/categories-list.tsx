@@ -13,10 +13,10 @@ interface CategoriesListProps {
 export function CategoriesList({ categories }: CategoriesListProps) {
   return (
     <div>
-      <div className="flex justify-end mb-4">
+      <div className="flex justify-stretch md:justify-end mb-4">
         <Dialog>
           <DialogTrigger asChild>
-            <Button>+ Nuova Categoria</Button>
+            <Button className="w-full min-h-[48px] md:w-auto md:min-h-0">+ Nuova Categoria</Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
@@ -27,7 +27,7 @@ export function CategoriesList({ categories }: CategoriesListProps) {
         </Dialog>
       </div>
 
-      <div className="bg-dark border border-accent/20 rounded-lg overflow-hidden">
+      <div className="hidden md:block bg-dark border border-accent/20 rounded-lg overflow-hidden">
         <table className="w-full">
           <thead className="bg-accent/10">
             <tr>
@@ -67,7 +67,26 @@ export function CategoriesList({ categories }: CategoriesListProps) {
           </div>
         )}
       </div>
+
+      <div className="md:hidden space-y-3">
+        {categories.map((category) => (
+          <Link
+            key={category.id}
+            href={`/categories/${category.id}`}
+            className="block rounded-xl border border-accent/20 bg-dark/80 p-4 min-w-0 active:bg-white/5"
+          >
+            <h3 className="text-base font-semibold text-white break-words">{category.name}</h3>
+            <p className="mt-1 text-sm text-white/60 break-words">
+              {category.description || 'Nessuna descrizione'}
+            </p>
+          </Link>
+        ))}
+        {categories.length === 0 && (
+          <div className="rounded-xl border border-accent/20 p-8 text-center text-white/50">
+            Nessuna categoria trovata
+          </div>
+        )}
+      </div>
     </div>
   )
 }
-

@@ -17,8 +17,8 @@ export default async function PreventivoDetailPage(props: {
   const canWrite = user.role === 'ADMIN'
 
   return (
-    <div className="min-h-screen bg-dark p-6">
-      <div className="w-[90vw] max-w-[90vw] mx-auto">
+    <div className="min-h-screen bg-dark p-4 md:p-6">
+      <div className="w-full px-4 md:w-[90vw] md:max-w-[90vw] md:px-6 mx-auto">
         <Link href="/preventivi" className="text-accent hover:underline mb-4 inline-block">
           ← Torna ai preventivi
         </Link>

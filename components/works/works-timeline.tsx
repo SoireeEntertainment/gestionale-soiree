@@ -258,7 +258,58 @@ export function WorksTimeline({
         />
       ) : (
         <>
-          <div className="bg-dark border border-accent/20 rounded-lg overflow-hidden">
+          {/* Mobile: card ordinate per data (timeline desktop invariata) */}
+          <div className="md:hidden space-y-3">
+            {[...works]
+              .sort((a, b) => {
+                const da = a.deadline ? new Date(a.deadline).getTime() : Number.POSITIVE_INFINITY
+                const db = b.deadline ? new Date(b.deadline).getTime() : Number.POSITIVE_INFINITY
+                return da - db
+              })
+              .map((work) => {
+                const start = getWorkEffectiveStartDate(work)
+                return (
+                  <Link
+                    key={work.id}
+                    href={`/works/${work.id}?returnTo=${encodeURIComponent(returnTo)}`}
+                    className="block rounded-xl border border-accent/20 bg-dark/80 p-4 min-w-0 active:bg-white/5"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <h3 className="min-w-0 flex-1 text-base font-semibold text-white break-words">{work.title}</h3>
+                      <WorkStatusBadge status={work.status} />
+                    </div>
+                    <dl className="mt-3 space-y-1.5 text-sm text-white/70">
+                      <div className="flex gap-2 min-w-0">
+                        <dt className="shrink-0 text-white/45">Cliente</dt>
+                        <dd className="min-w-0 break-words">{work.clientName}</dd>
+                      </div>
+                      <div className="flex gap-2">
+                        <dt className="shrink-0 text-white/45">Partenza</dt>
+                        <dd>{format(start, 'dd MMM yyyy', { locale: it })}</dd>
+                      </div>
+                      <div className="flex gap-2">
+                        <dt className="shrink-0 text-white/45">Scadenza</dt>
+                        <dd>
+                          {work.deadline
+                            ? format(new Date(work.deadline), 'dd MMM yyyy', { locale: it })
+                            : '—'}
+                        </dd>
+                      </div>
+                      <div className="flex gap-2">
+                        <dt className="shrink-0 text-white/45">Progress</dt>
+                        <dd>
+                          {work.totalSteps > 0
+                            ? `${work.progress}% (${work.completedSteps}/${work.totalSteps})`
+                            : `${work.progress}%`}
+                        </dd>
+                      </div>
+                    </dl>
+                  </Link>
+                )
+              })}
+          </div>
+
+          <div className="hidden md:block bg-dark border border-accent/20 rounded-lg overflow-hidden">
             <div className="overflow-x-auto">
               <div className="min-w-[720px]">
                 <div className="flex border-b border-accent/20 bg-accent/5">

@@ -22,8 +22,8 @@ export function CategoryDetail({ category, allClients }: CategoryDetailProps) {
   const [isEditOpen, setIsEditOpen] = useState(false)
 
   return (
-    <div className="min-h-screen bg-dark p-6">
-      <div className="w-[90vw] max-w-[90vw] mx-auto">
+    <div className="min-h-screen bg-dark p-4 md:p-6">
+      <div className="w-full px-4 md:w-[90vw] md:max-w-[90vw] md:px-6 mx-auto">
         <div className="flex items-center justify-between mb-6">
           <div>
             <Link href="/categories" className="text-accent hover:underline mb-2 inline-block">

@@ -268,11 +268,11 @@ export function ClientShootingsSection({
   })()
 
   return (
-    <div className="bg-dark border border-accent/20 rounded-lg p-6 mb-6">
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+    <div className="bg-dark border border-accent/20 rounded-lg p-4 md:p-6 mb-6">
+      <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <h2 className="text-lg font-semibold text-white">Shooting e Reel</h2>
         {canWrite && (
-          <Button size="sm" onClick={openCreate}>
+          <Button size="sm" onClick={openCreate} className="w-full min-h-[44px] sm:w-auto sm:min-h-0">
             + Aggiungi shooting
           </Button>
         )}
@@ -324,7 +324,7 @@ export function ClientShootingsSection({
                 )}
               </div>
 
-              <div className="overflow-x-auto">
+              <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-left text-white/50 border-b border-white/10">
@@ -387,6 +387,62 @@ export function ClientShootingsSection({
                     ))}
                   </tbody>
                 </table>
+              </div>
+              <div className="md:hidden space-y-2">
+                {s.reels.map((r) => (
+                  <div key={r.id} className="rounded-lg border border-white/10 p-3 min-w-0">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="min-w-0 flex-1 text-sm font-medium text-white break-words">{r.topic}</p>
+                      {r.published ? (
+                        <span className="shrink-0 rounded bg-accent/20 px-2 py-0.5 text-[11px] text-accent">Pubblicato</span>
+                      ) : (
+                        <span className="shrink-0 rounded bg-white/10 px-2 py-0.5 text-[11px] text-white/50">Bozza</span>
+                      )}
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-3">
+                      <label className="flex min-h-[44px] items-center gap-2 text-sm text-white/70">
+                        <input
+                          type="checkbox"
+                          checked={r.published}
+                          disabled={!canWrite}
+                          onChange={(e) => void handleTogglePublished(r.id, e.target.checked)}
+                          className="h-5 w-5 rounded border-white/40"
+                          aria-label={`Pubblicato: ${r.topic}`}
+                        />
+                        Pubblicato
+                      </label>
+                      {r.pedTaskId ? (
+                        <Link
+                          href={r.pedTaskDate ? `/ped?week=${r.pedTaskDate}` : '/ped'}
+                          className="text-xs px-2 py-1 rounded bg-accent/20 text-accent"
+                        >
+                          Collegato al PED
+                        </Link>
+                      ) : null}
+                    </div>
+                    {canWrite && (
+                      <div className="mt-2 grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          className="min-h-[40px] rounded-lg border border-white/15 text-xs text-white/80"
+                          onClick={() => {
+                            setRenameReel(r)
+                            setRenameTopic(r.topic)
+                          }}
+                        >
+                          Modifica
+                        </button>
+                        <button
+                          type="button"
+                          className="min-h-[40px] rounded-lg border border-red-500/30 text-xs text-red-300"
+                          onClick={() => setConfirmState({ kind: 'delete-reel', reel: r })}
+                        >
+                          Elimina
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
               {canWrite && (
                 <button

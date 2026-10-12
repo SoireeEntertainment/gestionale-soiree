@@ -7,6 +7,7 @@ import Link from 'next/link'
 import { PedMonthNav } from './ped-month-nav'
 import { PedClientSettings } from './ped-client-settings'
 import { PedStats } from './ped-stats'
+import { PedMobileAgenda } from './ped-mobile-agenda'
 import { togglePedItemDone, updatePedItem, duplicatePedItem, deletePedItem, reorderPedItemsInDay, setPedItemLabel, fillPedMonth, emptyPedMonth, createPedItem, bulkMovePedItems, bulkSetPedItemLabel, bulkTogglePedItemDone, bulkDeletePedItems, getPedClientMetrics } from '@/app/actions/ped'
 import { updateWorkStatus, updateWorkFromPed } from '@/app/actions/works'
 import { Button } from '@/components/ui/button'
@@ -669,6 +670,28 @@ export function PedView({
 
   return (
     <div className="space-y-6">
+      <PedMobileAgenda
+        weekStart={weekStart}
+        viewAsUserId={isViewingOtherUser ? viewAsUserId : null}
+        viewAsUserName={viewAsUserName}
+        items={itemsWithDateString}
+        readOnly={isViewingOtherUser}
+        filterClientId={filterClientId}
+        filterType={filterType}
+        clients={clients}
+        onFilterClientChange={setFilterClientId}
+        onFilterTypeChange={setFilterType}
+        onOpenAdd={handleOpenAdd}
+        onOpenAddExtra={handleOpenAddExtra}
+        onOpenEdit={handleOpenEdit}
+        onToggleDone={handleToggleDone}
+        onSetLabel={handleSetLabel}
+        onMoveItem={handleMoveItem}
+        onDuplicateItem={handleDuplicateItem}
+        onDeleteItem={handleDeleteItem}
+      />
+
+      <div className="hidden md:block space-y-6">
       <PedMonthNav
           year={year}
           month={month}
@@ -917,6 +940,9 @@ export function PedView({
           </div>
         </div>
 
+      </div>
+      </div>
+
         {/* Statistiche */}
         <PedStats
           stats={deferredStats}
@@ -935,7 +961,6 @@ export function PedView({
           month={month}
           onDataMutated={schedulePedDataRefresh}
         />
-      </div>
 
       <PedItemModal
         open={modalOpen}
