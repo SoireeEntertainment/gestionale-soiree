@@ -267,7 +267,7 @@ export function PreventivoForm({
             + Aggiungi riga
           </Button>
         </div>
-        <div className="border border-accent/20 rounded-lg overflow-hidden">
+        <div className="hidden md:block border border-accent/20 rounded-lg overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-accent/10">
               <tr>
@@ -325,7 +325,56 @@ export function PreventivoForm({
             </tbody>
           </table>
         </div>
-        <div className="mt-2 text-right text-accent font-medium">Totale: € {total.toFixed(2)}</div>
+        <div className="md:hidden space-y-3">
+          {items.map((item, i) => (
+            <div key={i} className="rounded-xl border border-accent/20 p-3 space-y-3">
+              <div>
+                <label className="block text-xs text-white/50 mb-1">Descrizione</label>
+                <input
+                  type="text"
+                  value={item.description}
+                  onChange={(e) => updateItem(i, 'description', e.target.value)}
+                  className="w-full px-3 py-3 bg-dark border border-accent/20 rounded text-white"
+                  placeholder="Descrizione"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs text-white/50 mb-1">Qtà</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={item.quantity}
+                    onChange={(e) => updateItem(i, 'quantity', e.target.value)}
+                    className="w-full px-3 py-3 bg-dark border border-accent/20 rounded text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-white/50 mb-1">Prezzo unit.</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    value={item.unitPrice}
+                    onChange={(e) => updateItem(i, 'unitPrice', e.target.value)}
+                    className="w-full px-3 py-3 bg-dark border border-accent/20 rounded text-white"
+                  />
+                </div>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                className="w-full min-h-[44px] text-red-300"
+                onClick={() => removeRow(i)}
+                disabled={items.length <= 1}
+              >
+                Rimuovi riga
+              </Button>
+            </div>
+          ))}
+        </div>
+        <div className="mt-2 text-right text-accent font-medium text-lg md:text-base">Totale: € {total.toFixed(2)}</div>
       </div>
 
       <div>
@@ -334,15 +383,15 @@ export function PreventivoForm({
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           rows={2}
-          className="w-full px-3 py-2 bg-dark border border-accent/20 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-accent"
+          className="w-full px-3 py-3 md:py-2 bg-dark border border-accent/20 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-accent"
         />
       </div>
 
-      <div className="flex justify-end gap-2">
-        <Button type="button" variant="ghost" onClick={() => router.back()}>
+      <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+        <Button type="button" variant="ghost" onClick={() => router.back()} className="w-full min-h-[48px] sm:w-auto sm:min-h-0">
           Annulla
         </Button>
-        <Button type="submit" disabled={loading}>
+        <Button type="submit" disabled={loading} className="w-full min-h-[48px] sm:w-auto sm:min-h-0">
           {loading ? 'Salvataggio...' : 'Salva preventivo'}
         </Button>
       </div>
