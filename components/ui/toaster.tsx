@@ -20,7 +20,7 @@ function ToastViewport() {
       {toasts.map((t) => (
         <ToastItemView key={t.id} toast={t} onDismiss={() => dismissToast(t.id)} />
       ))}
-      <Toast.Viewport className="fixed bottom-4 right-4 z-[100] flex max-h-screen w-full max-w-sm flex-col gap-2 outline-none" />
+      <Toast.Viewport className="fixed right-4 z-[100] flex max-h-screen w-[calc(100%-2rem)] max-w-sm flex-col gap-2 outline-none bottom-[calc(96px+env(safe-area-inset-bottom))] md:bottom-4 md:w-full" />
     </Toast.Provider>
   )
 }

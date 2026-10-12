@@ -87,11 +87,11 @@ export default async function DashboardPage() {
 
   return (
     <div
-      className="min-h-screen bg-dark p-6"
-      style={{ minHeight: '100vh', backgroundColor: 'var(--dark, #0c0e11)', color: '#fff', padding: '1.5rem' }}
+      className="min-h-screen bg-dark p-4 md:p-6"
+      style={{ minHeight: '100vh', backgroundColor: 'var(--dark, #0c0e11)', color: '#fff' }}
     >
-      <div className="w-[90vw] max-w-[90vw] mx-auto">
-        <h1 className="text-3xl font-bold mb-6 text-white" style={{ fontSize: '1.875rem', fontWeight: 700, marginBottom: '1.5rem', color: '#fff' }}>Dashboard</h1>
+      <div className="w-full px-4 md:w-[90vw] md:max-w-[90vw] md:px-6 mx-auto">
+        <h1 className="text-2xl md:text-3xl font-bold mb-4 md:mb-6 text-white" style={{ fontWeight: 700, color: '#fff' }}>Dashboard</h1>
         <DashboardGrid
           totalClients={totalClients}
           totalWorks={totalWorks}

@@ -150,7 +150,7 @@ export function DashboardGrid({
             <div className="flex items-center gap-2 px-2 py-1.5 bg-white/5 rounded-t-xl border-b border-white/10 text-xs text-white/50">
               <span className="inline-block w-2 h-2 rounded-full bg-accent/60" aria-hidden />
               {widgetLabels[id]}
-              <span className="ml-1 text-white/40">— Trascina per riordinare</span>
+              <span className="ml-1 text-white/40 hidden md:inline">— Trascina per riordinare</span>
             </div>
             <div className="p-4 rounded-b-xl">{child}</div>
           </div>

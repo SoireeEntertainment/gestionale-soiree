@@ -4,6 +4,7 @@ import { AssistantFloatingHost } from '@/components/assistant/assistant-floating
 
 /**
  * Shell per aree autenticate: navbar + contenuto + assistente flottante (solo se sessione valida).
+ * Su mobile aggiunge padding inferiore per la bottom navigation.
  */
 export async function AuthenticatedChrome({ children }: { children: React.ReactNode }) {
   const user = await getCurrentUser()
@@ -11,7 +12,7 @@ export async function AuthenticatedChrome({ children }: { children: React.ReactN
   return (
     <>
       <NavbarWithAuth />
-      {children}
+      <div className="pb-[calc(96px+env(safe-area-inset-bottom))] md:pb-0">{children}</div>
       {user ? <AssistantFloatingHost /> : null}
     </>
   )

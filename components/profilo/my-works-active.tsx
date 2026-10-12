@@ -151,7 +151,7 @@ export function MyWorksActive({ works: initialWorks, categories, canWrite }: MyW
         </select>
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="hidden md:block overflow-x-auto">
         <table className="w-full">
           <thead className="bg-accent/10">
             <tr>
@@ -230,6 +230,34 @@ export function MyWorksActive({ works: initialWorks, categories, canWrite }: MyW
             })}
           </tbody>
         </table>
+      </div>
+
+      <div className="md:hidden space-y-3">
+        {filtered.map((w) => {
+          const isOverdue = w.deadline && new Date(w.deadline) < new Date()
+          return (
+            <div key={w.id} className="rounded-xl border border-accent/20 p-4 min-w-0">
+              <Link href={`/works/${w.id}`} className="text-base font-semibold text-accent break-words">
+                {w.title}
+              </Link>
+              <p className="mt-1 text-sm text-white/60 break-words">{w.client.name} · {w.category.name}</p>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <WorkStatusBadge status={w.status} />
+                {w.deadline ? (
+                  <span className={`text-sm ${isOverdue ? 'text-red-400' : 'text-white/70'}`}>
+                    {format(new Date(w.deadline), 'dd MMM yyyy', { locale: it })}
+                  </span>
+                ) : null}
+              </div>
+              <Link
+                href={`/works/${w.id}`}
+                className="mt-3 flex min-h-[44px] items-center justify-center rounded-lg bg-accent/15 text-sm font-medium text-accent"
+              >
+                Dettagli
+              </Link>
+            </div>
+          )
+        })}
       </div>
 
       {filtered.length === 0 && (

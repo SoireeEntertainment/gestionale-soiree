@@ -19,10 +19,11 @@ export function AssistantDrawer() {
           className={cn(
             'fixed z-[101] flex flex-col overflow-hidden bg-[#0e1116] outline-none',
             'border border-white/[0.08] shadow-[0_25px_80px_-12px_rgba(0,0,0,0.7)]',
-            'rounded-2xl',
-            'inset-3 max-h-[calc(100dvh-1.5rem)]',
-            'sm:inset-auto sm:bottom-6 sm:right-6 sm:left-auto sm:top-auto',
-            'sm:h-[min(84vh,912px)] sm:max-h-[88vh] sm:w-[min(504px,calc(100vw-3rem))]'
+            // Mobile: quasi fullscreen sopra la bottom nav
+            'inset-0 max-h-[100dvh] rounded-none border-0',
+            'md:inset-auto md:bottom-6 md:right-6 md:left-auto md:top-auto',
+            'md:h-[min(84vh,912px)] md:max-h-[88vh] md:w-[min(504px,calc(100vw-3rem))]',
+            'md:rounded-2xl md:border'
           )}
           onOpenAutoFocus={(e) => e.preventDefault()}
         >

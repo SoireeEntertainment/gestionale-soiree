@@ -67,20 +67,20 @@ export function ClientDetail({ client, allCategories, users, canWrite = true, sh
   const [isDeleting, setIsDeleting] = useState(false)
 
   return (
-    <div className="min-h-screen bg-dark p-6">
-      <div className="w-[90vw] max-w-[90vw] mx-auto">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <Link href="/clients" className="text-accent hover:underline mb-2 inline-block">
-              ← Torna ai clienti
+    <div className="min-h-screen bg-dark p-4 md:p-6">
+      <div className="w-full px-4 md:w-[90vw] md:max-w-[90vw] md:px-6 mx-auto">
+        <div className="flex flex-col gap-4 mb-6 md:flex-row md:items-center md:justify-between">
+          <div className="min-w-0">
+            <Link href="/clients" className="text-accent hover:underline mb-2 inline-block text-sm md:text-base">
+              ← Clienti
             </Link>
-            <h1 className="text-3xl font-bold text-white">{client.name}</h1>
+            <h1 className="text-2xl md:text-3xl font-bold text-white break-words">{client.name}</h1>
           </div>
           {canWrite && (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full md:w-auto">
             <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
               <DialogTrigger asChild>
-                <Button>Modifica Cliente</Button>
+                <Button className="w-full min-h-[44px] md:w-auto md:min-h-0">Modifica Cliente</Button>
               </DialogTrigger>
               <DialogContent aria-describedby="edit-client-desc">
                 <DialogHeader>
@@ -96,7 +96,7 @@ export function ClientDetail({ client, allCategories, users, canWrite = true, sh
             </Dialog>
             <Dialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
               <DialogTrigger asChild>
-                <Button variant="secondary" className="text-red-400 hover:text-red-300 hover:bg-red-500/20 border-red-500/30">
+                <Button variant="secondary" className="w-full min-h-[44px] md:w-auto md:min-h-0 text-red-400 hover:text-red-300 hover:bg-red-500/20 border-red-500/30">
                   Elimina Cliente
                 </Button>
               </DialogTrigger>

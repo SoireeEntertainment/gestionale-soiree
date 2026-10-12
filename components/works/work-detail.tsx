@@ -56,19 +56,19 @@ export function WorkDetail({ work, clients, categories, users, currentUser, assi
   const effectiveStart = getWorkEffectiveStartDate(work)
 
   return (
-    <div className="min-h-screen bg-dark p-6">
-      <div className="w-[90vw] max-w-[90vw] mx-auto">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <Link href={returnTo} className="text-accent hover:underline mb-2 inline-block">
-              ← Torna ai lavori
+    <div className="min-h-screen bg-dark p-4 md:p-6">
+      <div className="w-full px-4 md:w-[90vw] md:max-w-[90vw] md:px-6 mx-auto">
+        <div className="flex flex-col gap-4 mb-6 md:flex-row md:items-center md:justify-between">
+          <div className="min-w-0">
+            <Link href={returnTo} className="text-accent hover:underline mb-2 inline-block text-sm md:text-base">
+              ← Lavori
             </Link>
-            <h1 className="text-3xl font-bold text-white">{work.title}</h1>
+            <h1 className="text-2xl md:text-3xl font-bold text-white break-words">{work.title}</h1>
           </div>
-          <div className="flex space-x-2">
+          <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
             <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
               <DialogTrigger asChild>
-                <Button>Modifica</Button>
+                <Button className="w-full min-h-[44px] md:w-auto md:min-h-0">Modifica</Button>
               </DialogTrigger>
               <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
@@ -83,13 +83,13 @@ export function WorkDetail({ work, clients, categories, users, currentUser, assi
                 />
               </DialogContent>
             </Dialog>
-            <Button variant="danger" onClick={handleDelete}>
+            <Button variant="danger" onClick={handleDelete} className="w-full min-h-[44px] md:w-auto md:min-h-0">
               Elimina
             </Button>
           </div>
         </div>
 
-        <div className="bg-dark border border-accent/20 rounded-lg p-6 space-y-4">
+        <div className="bg-dark border border-accent/20 rounded-lg p-4 md:p-6 space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <div className="text-sm text-white/50 mb-1">Cliente</div>

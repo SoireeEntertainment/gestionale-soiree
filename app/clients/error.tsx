@@ -15,8 +15,8 @@ export default function ClientsListError({
   }, [error])
 
   return (
-    <div className="min-h-screen bg-dark p-6">
-      <div className="w-[90vw] max-w-[90vw] mx-auto flex flex-col items-center justify-center min-h-[60vh] text-center">
+    <div className="min-h-screen bg-dark p-4 md:p-6">
+      <div className="w-full px-4 md:w-[90vw] md:max-w-[90vw] md:px-6 mx-auto flex flex-col items-center justify-center min-h-[60vh] text-center">
         <h1 className="text-xl font-bold text-white mb-2">Errore nel caricamento della lista clienti</h1>
         <p className="text-white/70 text-sm mb-6">
           La pagina Clienti non è disponibile. Riprova o torna alla home.
