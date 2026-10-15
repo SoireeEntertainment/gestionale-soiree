@@ -323,15 +323,22 @@ function PedCalendarInner({
     }
   }, [marquee, handleMarqueeMove, handleMarqueeEnd])
 
-  // Auto-scroll alla settimana corrente una sola volta all'apertura (UX: evitare scroll manuale)
+  // Auto-scroll alla settimana corrente una sola volta all'apertura, solo dentro
+  // il contenitore del calendario (mai sulla pagina: evita il salto al PED in scheda cliente).
   useEffect(() => {
     if (didAutoScrollRef.current) return
     let attempts = 0
     const maxAttempts = 10
     const tryScroll = () => {
-      const el = document.querySelector<HTMLElement>('[data-current-week="true"]')
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      const container = calendarScrollRef.current
+      const el = container?.querySelector<HTMLElement>('[data-current-week="true"]')
+      if (container && el) {
+        const delta =
+          el.getBoundingClientRect().top - container.getBoundingClientRect().top
+        container.scrollTo({
+          top: Math.max(0, container.scrollTop + delta),
+          behavior: 'smooth',
+        })
         didAutoScrollRef.current = true
         return
       }
