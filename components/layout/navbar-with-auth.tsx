@@ -1,4 +1,5 @@
-import { getCurrentUser, type UserRole } from '@/lib/auth-dev'
+import { isRedirectError } from 'next/dist/client/components/redirect-error'
+import { AuthTransientError, getCurrentUser, type UserRole } from '@/lib/auth-dev'
 import { Navbar } from './navbar'
 
 const isClerkConfigured = !!(
@@ -11,7 +12,8 @@ export async function NavbarWithAuth() {
   try {
     user = await getCurrentUser()
   } catch (err) {
-    console.error('[NavbarWithAuth]', err)
+    if (isRedirectError(err) || err instanceof AuthTransientError) throw err
+    console.error('[NavbarWithAuth] errore non classificato')
   }
   const role = user?.role != null ? (String(user.role) as UserRole) : null
   const currentUserName = user?.name != null ? String(user.name) : null

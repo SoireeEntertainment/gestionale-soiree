@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getPreventivo } from '@/app/actions/preventivi'
-import { getAuthUserId } from '@/lib/auth-dev'
+import { AuthTransientError, getAuthUserId } from '@/lib/auth-dev'
 import { prisma } from '@/lib/prisma'
 import { readPreventivoPdfBuffer } from '@/lib/preventivo-pdf-storage'
 
@@ -8,7 +8,15 @@ export async function GET(
   _request: Request,
   segmentData: { params: Promise<{ id: string }> }
 ) {
-  const userId = await getAuthUserId()
+  let userId: string | null
+  try {
+    userId = await getAuthUserId()
+  } catch (error) {
+    if (error instanceof AuthTransientError) {
+      return NextResponse.json({ error: 'Servizio temporaneamente non disponibile' }, { status: 503 })
+    }
+    throw error
+  }
   if (!userId) return NextResponse.json({ error: 'Non autorizzato' }, { status: 401 })
 
   const params = await segmentData.params

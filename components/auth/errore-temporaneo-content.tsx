@@ -41,6 +41,9 @@ export function ErroreTemporaneoContent() {
           >
             Torna alla dashboard
           </Link>
+          <Link href="/sign-in" className="px-4 py-2 text-sm text-white/60 hover:text-white inline-block">
+            Vai al login
+          </Link>
         </div>
       </div>
     </div>

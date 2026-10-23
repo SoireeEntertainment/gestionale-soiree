@@ -11,6 +11,7 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
+    "test:auth": "node --import tsx --test lib/auth-classification.test.ts",
     "clean": "rm -rf .next",
     "clean:dot": "find node_modules -name '._*' -type f -delete 2>/dev/null || true",
     "clean:full": "rm -rf .next node_modules && npm install",
