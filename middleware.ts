@@ -1,6 +1,15 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 import type { NextFetchEvent, NextRequest } from 'next/server'
+import {
+  AUTH_RECOVERY_PARAM,
+  AUTH_RECOVERY_PATH,
+  classifyProviderSession,
+  logAuthEvent,
+  readAuthReason,
+  safeInternalPath,
+  sanitizeRequestId,
+} from '@/lib/auth-classification'
 
 const clerkConfigured = !!(
   process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY &&
@@ -24,6 +33,7 @@ const isPublicRoute = createRouteMatcher([
   '/dev-users',
   '/non-autorizzato',
   '/errore-temporaneo',
+  '/ripristino-sessione',
   '/api/dev-users(.*)',
   '/api/health',
 ])
@@ -78,13 +88,105 @@ function isTransientInfrastructureError(error: unknown): boolean {
  * (evita loop session_token_consumed).
  */
 const clerkHandler = clerkMiddleware(async (auth, req) => {
-  if (!isPublicRoute(req)) {
-    // Next.js middleware richiede URL assoluti per NextResponse.redirect.
-    // Un path relativo (es. "/sign-in") lancia "URL is malformed" → MIDDLEWARE_INVOCATION_FAILED.
-    await auth().protect({
-      unauthenticatedUrl: new URL(SIGN_IN_PATH, req.url).href,
-    })
+  if (isPublicRoute(req)) return
+
+  const started = Date.now()
+  const session = auth()
+  const recoveryAttempted = req.nextUrl.searchParams.get(AUTH_RECOVERY_PARAM) === '1'
+  const decision = classifyProviderSession({
+    userId: session.userId ?? null,
+    reason: session.userId ? null : readAuthReason(session),
+    thrown: false,
+    recoveryAttempted,
+  })
+  const route = req.nextUrl.pathname
+  const requestId = sanitizeRequestId(req.headers.get('x-vercel-id') ?? req.headers.get('x-request-id'))
+  const durationMs = Date.now() - started
+  // Next.js middleware richiede URL assoluti. Un path relativo lancia
+  // "URL is malformed" → MIDDLEWARE_INVOCATION_FAILED.
+  const signInUrl = new URL(SIGN_IN_PATH, req.url).href
+
+  if (decision.kind === 'authenticated') {
+    if (recoveryAttempted) {
+      const clean = req.nextUrl.clone()
+      clean.searchParams.delete(AUTH_RECOVERY_PARAM)
+      logAuthEvent({
+        event: 'AUTH_SESSION_VALID',
+        route,
+        code: null,
+        requestId,
+        outcome: 'continue',
+        durationMs,
+      })
+      return NextResponse.redirect(clean)
+    }
+    if (process.env.AUTH_LOG_VALID === '1') {
+      logAuthEvent({
+        event: 'AUTH_SESSION_VALID',
+        route,
+        code: null,
+        requestId,
+        outcome: 'continue',
+        durationMs,
+      })
+    }
+    session.protect({ unauthenticatedUrl: signInUrl })
+    return
   }
+
+  if (decision.kind === 'temporary') {
+    logAuthEvent({
+      event: decision.event,
+      route,
+      code: decision.code,
+      requestId,
+      outcome: 'redirect_temporary_error',
+      durationMs,
+    })
+    logAuthEvent({
+      event: 'AUTH_REDIRECT_TEMPORARY_ERROR',
+      route,
+      code: decision.code,
+      requestId,
+      outcome: 'redirect_temporary_error',
+      durationMs,
+    })
+    return NextResponse.redirect(new URL(TEMP_ERROR_PATH, req.url))
+  }
+
+  if (decision.kind === 'recover') {
+    // Una sola navigazione documento, su una route pubblica, per lasciare
+    // a Clerk l'handshake. Non si rientra sulla stessa route protetta.
+    const target = new URL(AUTH_RECOVERY_PATH, req.url)
+    target.searchParams.set('next', safeInternalPath(route))
+    logAuthEvent({
+      event: 'AUTH_REDIRECT_RECOVERY',
+      route,
+      code: decision.code,
+      requestId,
+      outcome: 'redirect_recovery',
+      durationMs,
+    })
+    return NextResponse.redirect(target)
+  }
+
+  logAuthEvent({
+    event: decision.event,
+    route,
+    code: decision.code,
+    requestId,
+    outcome: 'redirect_signin',
+    durationMs,
+  })
+  logAuthEvent({
+    event: 'AUTH_REDIRECT_SIGNIN',
+    route,
+    code: decision.code,
+    requestId,
+    outcome: 'redirect_signin',
+    durationMs,
+  })
+  session.protect({ unauthenticatedUrl: signInUrl })
 })
 
 export default async function middleware(req: NextRequest, event: NextFetchEvent) {
@@ -101,11 +203,23 @@ export default async function middleware(req: NextRequest, event: NextFetchEvent
     const message = error instanceof Error ? error.message : String(error)
 
     // Logging minimo: niente cookie, token, Authorization, secret, query
-    console.error('[Middleware]', {
-      pathname: req.nextUrl.pathname,
-      message,
-      name: error instanceof Error ? error.name : undefined,
-    })
+    console.error(
+      JSON.stringify({
+        event: isTransientInfrastructureError(error)
+          ? 'AUTH_PROVIDER_TRANSIENT_ERROR'
+          : 'AUTH_UNCLASSIFIED_ERROR',
+        timestamp: new Date().toISOString(),
+        route: req.nextUrl.pathname,
+        code: message.includes('URL is malformed') || message.includes('only absolute URLs')
+          ? 'malformed_url'
+          : error instanceof Error
+            ? error.name
+            : 'middleware_error',
+        requestId: null,
+        outcome: 'middleware_catch',
+        durationMs: null,
+      })
+    )
 
     // Difesa: redirect relativo malformato → sign-in assoluto (niente bypass auth).
     if (message.includes('URL is malformed') || message.includes('only absolute URLs')) {
