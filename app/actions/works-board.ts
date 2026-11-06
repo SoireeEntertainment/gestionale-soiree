@@ -14,6 +14,13 @@ import {
 } from '@/lib/works-board'
 import { normalizeWorkStatus } from '@/lib/work-status'
 import { getUsers } from '@/lib/users'
+import {
+  computePrimaryAssigneeId,
+  computeReassignedAssigneeIds,
+  newlyAddedAssigneeIds,
+  uniqueUserIds,
+} from '@/lib/work-assignee-reassign'
+import { sendWorkAssignedEmail } from '@/lib/work-assignment-email'
 
 const boardFiltersSchema = z.object({
   clientId: z.string().optional(),
@@ -210,33 +217,118 @@ export async function getWorksStatusBoardForUser(
 
 const reassignSchema = z.object({
   workId: z.string().min(1),
+  fromUserId: z.string().min(1),
   toUserId: z.string().min(1),
 })
 
-/** Sposta l’assegnazione primaria di un lavoro a un altro membro della board. */
+/**
+ * Drag A → B: sostituisce l’assegnazione di A con B, preservando gli altri.
+ * Notifica solo gli utenti appena aggiunti.
+ */
 export async function reassignWorkOnBoard(input: unknown) {
   const user = await getCurrentUser()
   if (!user || !canWrite(user)) throw new Error('Non autorizzato')
 
-  const { workId, toUserId } = reassignSchema.parse(input)
-  const target = await prisma.user.findFirst({
-    where: { id: toUserId, isActive: true },
-    select: { id: true },
+  const { workId, fromUserId, toUserId } = reassignSchema.parse(input)
+  if (fromUserId === toUserId) return { success: true as const }
+
+  const [source, target, work] = await Promise.all([
+    prisma.user.findFirst({ where: { id: fromUserId, isActive: true }, select: { id: true } }),
+    prisma.user.findFirst({ where: { id: toUserId, isActive: true }, select: { id: true } }),
+    prisma.work.findUnique({
+      where: { id: workId },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        status: true,
+        priority: true,
+        deadline: true,
+        assignedToUserId: true,
+        client: { select: { name: true } },
+        category: { select: { name: true } },
+        assignees: { select: { userId: true } },
+      },
+    }),
+  ])
+  if (!source) throw new Error('Utente di partenza non trovato o non attivo')
+  if (!target) throw new Error('Utente destinazione non trovato o non attivo')
+  if (!work) throw new Error('Lavoro non trovato')
+
+  const previousIds = uniqueUserIds([
+    work.assignedToUserId,
+    ...work.assignees.map((a) => a.userId),
+  ])
+  const nextIds = computeReassignedAssigneeIds({
+    currentAssigneeIds: previousIds,
+    fromUserId,
+    toUserId,
   })
-  if (!target) throw new Error('Utente destinazione non trovato')
+  const nextPrimary = computePrimaryAssigneeId({
+    currentPrimaryId: work.assignedToUserId,
+    fromUserId,
+    toUserId,
+    nextAssigneeIds: nextIds,
+  })
+  const newlyAdded = newlyAddedAssigneeIds(previousIds, nextIds)
 
   await prisma.$transaction(async (tx) => {
-    await tx.workAssignee.deleteMany({ where: { workId } })
-    await tx.workAssignee.create({
-      data: { workId, userId: toUserId, role: 'ASSIGNEE' },
+    await tx.workAssignee.deleteMany({
+      where: { workId, userId: fromUserId },
     })
+    if (!previousIds.includes(toUserId)) {
+      await tx.workAssignee.create({
+        data: { workId, userId: toUserId, role: 'ASSIGNEE' },
+      })
+    }
+    // Allinea la tabella assignees al set calcolato (no duplicati, coerenza primaria).
+    const existing = await tx.workAssignee.findMany({
+      where: { workId },
+      select: { userId: true },
+    })
+    const existingSet = new Set(existing.map((e) => e.userId))
+    const missing = nextIds.filter((id) => !existingSet.has(id))
+    if (missing.length > 0) {
+      await tx.workAssignee.createMany({
+        data: missing.map((userId) => ({ workId, userId, role: 'ASSIGNEE' })),
+        skipDuplicates: true,
+      })
+    }
+    const extras = existing.filter((e) => !nextIds.includes(e.userId)).map((e) => e.userId)
+    if (extras.length > 0) {
+      await tx.workAssignee.deleteMany({
+        where: { workId, userId: { in: extras } },
+      })
+    }
     await tx.work.update({
       where: { id: workId },
-      data: { assignedToUserId: toUserId },
+      data: { assignedToUserId: nextPrimary },
     })
   })
 
+  if (newlyAdded.length > 0) {
+    try {
+      const recipients = await prisma.user.findMany({
+        where: { id: { in: newlyAdded }, isActive: true },
+        select: { id: true, name: true, email: true },
+      })
+      await Promise.allSettled(
+        recipients
+          .filter((u) => !!u.email?.trim())
+          .map((u) =>
+            sendWorkAssignedEmail({
+              user: { id: u.id, name: u.name, email: u.email },
+              work,
+            })
+          )
+      )
+    } catch (emailErr) {
+      console.error('[reassignWorkOnBoard] notification error', { workId, error: emailErr })
+    }
+  }
+
   revalidatePath('/works')
+  revalidatePath(`/works/person/${fromUserId}`)
   revalidatePath(`/works/person/${toUserId}`)
   revalidatePath(`/works/${workId}`)
   revalidatePath('/profilo')

@@ -10,7 +10,10 @@ import { dateOnlyToDbDate, formatDateOnly } from '@/lib/timeline-dates'
 import { sendWorkAssignedEmail } from '@/lib/work-assignment-email'
 import { createDefaultWorkStepsForCategory } from '@/app/actions/work-steps'
 import { applyWorkDeadlineFilter } from '@/lib/work-deadline-filter'
-import { recordWorkDueDateChange } from '@/lib/work-due-date-history'
+import {
+  applyDeadlineChangeInTransaction,
+  createWorkWithDeadlineHistoryInTransaction,
+} from '@/lib/work-due-date-history'
 
 function parseWorkDateField(value: string | undefined | null): Date | null {
   if (!value || typeof value !== 'string' || value.trim() === '') return null
@@ -105,50 +108,36 @@ export async function createWork(data: unknown) {
     parseWorkDateField(validated.startDate ?? undefined) ?? dateOnlyToDbDate(formatDateOnly(new Date()))
   const { assigneeUserIds, startDate: _start, deadline: _deadline, ...workFields } = validated
 
-  const work = await prisma.work.create({
-    data: {
-      ...workFields,
-      startDate: startDateParsed,
-      deadline: deadlineDate,
-      originalDeadline: deadlineDate,
-    },
-    include: {
-      client: true,
-      category: true,
-    },
-  })
-
-  if (deadlineDate) {
-    try {
-      await prisma.workDueDateHistory.create({
-        data: {
-          workId: work.id,
-          previousDeadline: null,
-          newDeadline: deadlineDate,
-          changedByUserId: user.id,
-          isOriginal: true,
-        },
-      })
-    } catch (historyErr) {
-      console.error('[createWork] due date history error', { workId: work.id, error: historyErr })
-    }
-  }
-
   const assigneeSet = new Set<string>(assigneeUserIds ?? [])
   if (workFields.assignedToUserId) assigneeSet.add(workFields.assignedToUserId)
   const list = [...assigneeSet]
-  if (list.length > 0) {
-    await prisma.workAssignee.createMany({
-      data: list.map((userId) => ({ workId: work.id, userId, role: 'ASSIGNEE' })),
-      skipDuplicates: true,
+
+  const work = await prisma.$transaction(async (tx) => {
+    const created = await createWorkWithDeadlineHistoryInTransaction(tx, {
+      changedByUserId: user.id,
+      workCreate: {
+        ...workFields,
+        startDate: startDateParsed,
+        deadline: deadlineDate,
+        originalDeadline: deadlineDate,
+      },
     })
-    if (!work.assignedToUserId && list[0]) {
-      await prisma.work.update({
-        where: { id: work.id },
-        data: { assignedToUserId: list[0] },
+
+    if (list.length > 0) {
+      await tx.workAssignee.createMany({
+        data: list.map((userId) => ({ workId: created.id, userId, role: 'ASSIGNEE' })),
+        skipDuplicates: true,
       })
+      if (!created.assignedToUserId && list[0]) {
+        return tx.work.update({
+          where: { id: created.id },
+          data: { assignedToUserId: list[0] },
+          include: { client: true, category: true },
+        })
+      }
     }
-  }
+    return created
+  })
 
   // Non blocca la creazione: eventuali errori email vengono solo loggati.
   try {
@@ -240,34 +229,28 @@ export async function updateWork(id: string, data: unknown) {
   const { assigneeUserIds, startDate: _start, deadline: _deadline, ...workFields } = validated
 
   const previousAssigneeIds = await getCurrentAssigneeIdsForWork(id)
-  const previous = await prisma.work.findUnique({
-    where: { id },
-    select: { deadline: true },
-  })
 
-  const work = await prisma.work.update({
-    where: { id },
-    data: {
-      ...workFields,
-      ...(startDateParsed ? { startDate: startDateParsed } : {}),
-      deadline: deadlineDate,
-    },
-    include: {
-      client: true,
-      category: true,
-    },
-  })
-
-  try {
-    await recordWorkDueDateChange({
+  const work = await prisma.$transaction(async (tx) => {
+    await applyDeadlineChangeInTransaction(tx, {
       workId: id,
-      previousDeadline: previous?.deadline ?? null,
       newDeadline: deadlineDate,
       changedByUserId: user.id,
+      workData: {
+        title: workFields.title,
+        description: workFields.description || null,
+        clientId: workFields.clientId,
+        categoryId: workFields.categoryId,
+        status: workFields.status,
+        priority: workFields.priority ?? null,
+        assignedToUserId: workFields.assignedToUserId ?? null,
+        ...(startDateParsed ? { startDate: startDateParsed } : {}),
+      },
     })
-  } catch (historyErr) {
-    console.error('[updateWork] due date history error', { workId: id, error: historyErr })
-  }
+    return tx.work.findUniqueOrThrow({
+      where: { id },
+      include: { client: true, category: true },
+    })
+  })
 
   if (assigneeUserIds !== undefined) {
     await syncWorkAssignees(id, assigneeUserIds)
@@ -308,31 +291,18 @@ export async function updateWorkDates(
   if (!user || !canWrite(user)) throw new Error('Non autorizzato')
 
   const validated = updateWorkDatesSchema.parse(data)
-  const previous = await prisma.work.findUnique({
-    where: { id: workId },
-    select: { deadline: true },
-  })
   const nextDeadline = dateOnlyToDbDate(validated.deadline)
 
-  await prisma.work.update({
-    where: { id: workId },
-    data: {
-      startDate: dateOnlyToDbDate(validated.startDate),
-      deadline: nextDeadline,
-    },
-    select: { id: true, startDate: true, deadline: true, clientId: true },
-  })
-
-  try {
-    await recordWorkDueDateChange({
+  await prisma.$transaction(async (tx) => {
+    await applyDeadlineChangeInTransaction(tx, {
       workId,
-      previousDeadline: previous?.deadline ?? null,
       newDeadline: nextDeadline,
       changedByUserId: user.id,
+      workData: {
+        startDate: dateOnlyToDbDate(validated.startDate),
+      },
     })
-  } catch (historyErr) {
-    console.error('[updateWorkDates] due date history error', { workId, error: historyErr })
-  }
+  })
 
   revalidatePath('/works')
   revalidatePath(`/works/${workId}`)
