@@ -16,6 +16,7 @@ import {
   type DailyTaskDTO,
 } from '@/lib/daily-tasks'
 import { todayDateOnlyRome } from '@/lib/timeline-dates'
+import { TaskDateInput } from '@/components/tasks/task-date-input'
 import { showToast } from '@/lib/toast'
 import { cn } from '@/lib/utils'
 
@@ -72,12 +73,7 @@ export function ContactCompleteDialog({
               <label className="mb-1.5 block text-sm font-medium text-white">
                 Prossima riattivazione
               </label>
-              <input
-                type="date"
-                value={nextReactivateAt}
-                onChange={(e) => setNextReactivateAt(e.target.value)}
-                className="task-date-input min-h-[44px] w-full rounded-md border border-accent/20 bg-[#101317] px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-accent"
-              />
+              <TaskDateInput value={nextReactivateAt} onChange={setNextReactivateAt} />
               <div className="mt-2 flex flex-wrap gap-2">
                 {(
                   [

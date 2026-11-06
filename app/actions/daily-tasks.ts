@@ -494,10 +494,34 @@ export async function completeDailyTask(input: unknown): Promise<DailyTaskDTO> {
   return mapTask(updated)
 }
 
+/**
+ * Riapre una task.
+ * Per CONTACT_CLIENT (“Rimetti da sentire”):
+ * - status OPEN, dueDate = oggi, completedAt = null, nextReactivateAt = null
+ * - lastContactedAt invariato (storico contatto reale)
+ */
 export async function reopenDailyTask(taskId: string): Promise<DailyTaskDTO> {
   const user = await getCurrentUser()
   if (!user) throw new Error('Non autorizzato')
-  await assertOwnsTask(taskId, user.id)
+  const task = await assertOwnsTask(taskId, user.id)
+  const today = todayDateOnlyRome()
+
+  if (task.type === 'CONTACT_CLIENT') {
+    if (task.clientId) await assertCanAccessClient(user, task.clientId)
+    const updated = await prisma.dailyTask.update({
+      where: { id: taskId },
+      data: {
+        status: 'OPEN',
+        completedAt: null,
+        dueDate: dateOnlyToDbDate(today),
+        nextReactivateAt: null,
+        // lastContactedAt non toccato
+      },
+      include: { client: { select: { id: true, name: true } } },
+    })
+    revalidateTaskPaths(user.id)
+    return mapTask(updated)
+  }
 
   const updated = await prisma.dailyTask.update({
     where: { id: taskId },
@@ -509,6 +533,29 @@ export async function reopenDailyTask(taskId: string): Promise<DailyTaskDTO> {
   })
   revalidateTaskPaths(user.id)
   return mapTask(updated)
+}
+
+/** Alias semantico Universo: verde → rosso sullo stesso tracker. */
+export async function markClientNeedsContact(input: {
+  taskId?: string
+  clientId?: string
+}): Promise<DailyTaskDTO> {
+  const user = await getCurrentUser()
+  if (!user) throw new Error('Non autorizzato')
+
+  let taskId = input.taskId
+  if (!taskId) {
+    if (!input.clientId) throw new Error('Cliente non valido')
+    await assertCanAccessClient(user, input.clientId)
+    const existing = await prisma.dailyTask.findFirst({
+      where: { userId: user.id, type: 'CONTACT_CLIENT', clientId: input.clientId },
+      select: { id: true },
+    })
+    if (!existing) throw new Error('Nessun tracker “Sentire cliente” da riaprire')
+    taskId = existing.id
+  }
+
+  return reopenDailyTask(taskId)
 }
 
 export async function toggleDailyTask(taskId: string): Promise<DailyTaskDTO> {

@@ -201,6 +201,23 @@ export function contactTaskTitle(clientName: string): string {
   return `Sentire ${clientName}`
 }
 
+/**
+ * Per il form modifica: evita di proporre nextReactivateAt <= ultimo contatto
+ * (date legacy incoerenti). Non altera i dati DB finché l'utente non salva.
+ */
+export function sanitizeNextReactivateForForm(input: {
+  lastContactedAt: string | null
+  nextReactivateAt: string | null
+  today?: string
+}): string {
+  const today = input.today ?? todayDateOnlyRome()
+  const anchor = input.lastContactedAt ?? today
+  if (!input.nextReactivateAt || input.nextReactivateAt <= anchor) {
+    return defaultNextReactivateDate(anchor)
+  }
+  return input.nextReactivateAt
+}
+
 /** Nodi universo mostrati per “pagina” nell’orbita (resto via ricerca/paginazione). */
 export const UNIVERSE_ORBIT_PAGE_SIZE = 24
 
