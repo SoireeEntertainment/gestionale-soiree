@@ -60,14 +60,15 @@ export function TasksList({
   }
 
   const confirmDelete = () => {
-    if (!pendingDelete || !onDelete) return
+    if (!pendingDelete || !onDelete || isDeleting) return
     const task = pendingDelete
+    // Chiudi il dialog prima della Server Action: evita conflitti col refresh RSC.
+    setPendingDelete(null)
     startDeleteTransition(async () => {
       try {
         await onDelete(task)
-        setPendingDelete(null)
       } catch {
-        // Il parent gestisce toast/rollback; il dialog resta aperto se l’errore non chiude.
+        // Parent: toast + rollback
       }
     })
   }

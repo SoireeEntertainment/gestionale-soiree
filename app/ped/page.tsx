@@ -54,11 +54,10 @@ export default async function PedPage(props: {
   if (user.role === 'AGENTE') redirect('/dashboard')
 
   const searchParams = await props.searchParams
-  const hasAnyParam = searchParams.week?.trim() || searchParams.year?.trim() || searchParams.month?.trim()
-  if (!hasAnyParam) {
-    const weekStart = getCurrentWeekStartString()
-    redirect(`/ped?week=${weekStart}`)
-  }
+  // Non usare redirect() su /ped senza params: durante revalidatePath('/ped') o flight
+  // di Server Action, Next può renderizzare /ped senza searchParams; redirect() abortisce
+  // l’azione e in Production il client vede solo "An error occurred in the Server Components render".
+  // I default di resolveYearMonthAndWeek coprono il caso (settimana corrente).
   const { year: validYear, month: validMonth, weekStart } = resolveYearMonthAndWeek(searchParams)
 
   const users = await getUsersForPed()
