@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { CheckCircle2, ExternalLink, Phone, RotateCcw } from 'lucide-react'
+import { CheckCircle2, ExternalLink, Phone, RotateCcw, Trash2 } from 'lucide-react'
 import {
   BOARD_EASE,
   UNIVERSE_ORBIT_PAGE_SIZE,
@@ -62,6 +62,7 @@ function UniverseNodeMenu({
   onMarkContacted,
   onMarkNeedsContact,
   onOpenTask,
+  onDeleteTracker,
 }: {
   node: UniverseClientNode
   x: number
@@ -71,6 +72,7 @@ function UniverseNodeMenu({
   onMarkContacted: (node: UniverseClientNode) => void
   onMarkNeedsContact: (node: UniverseClientNode) => void
   onOpenTask: (node: UniverseClientNode) => void
+  onDeleteTracker: (node: UniverseClientNode) => void
 }) {
   const colors = statusColor(node.status)
 
@@ -165,6 +167,20 @@ function UniverseNodeMenu({
             Apri cliente
           </Link>
         </DropdownMenuItem>
+
+        {node.taskId ? (
+          <DropdownMenuItem
+            className="text-red-300/80 focus:text-red-200"
+            onSelect={(e) => {
+              e.preventDefault()
+              onOpenChange(false)
+              onDeleteTracker(node)
+            }}
+          >
+            <Trash2 className="h-4 w-4 shrink-0" aria-hidden />
+            Elimina promemoria
+          </DropdownMenuItem>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -175,11 +191,13 @@ export function ClientUniverse({
   onMarkContacted,
   onMarkNeedsContact,
   onOpenTask,
+  onDeleteTracker,
 }: {
   nodes: UniverseClientNode[]
   onMarkContacted: (node: UniverseClientNode) => void
   onMarkNeedsContact: (node: UniverseClientNode) => void
   onOpenTask: (node: UniverseClientNode) => void
+  onDeleteTracker: (node: UniverseClientNode) => void
 }) {
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'red' | 'green' | 'neutral'>('ALL')
@@ -331,6 +349,7 @@ export function ClientUniverse({
             onMarkContacted={onMarkContacted}
             onMarkNeedsContact={onMarkNeedsContact}
             onOpenTask={onOpenTask}
+            onDeleteTracker={onDeleteTracker}
           />
         ))}
 

@@ -19,6 +19,7 @@ import {
 } from '@/lib/daily-tasks'
 import { todayDateOnlyRome } from '@/lib/timeline-dates'
 import { TaskDateInput } from '@/components/tasks/task-date-input'
+import { DeleteTaskConfirmDialog } from '@/components/tasks/delete-task-confirm-dialog'
 import { showToast } from '@/lib/toast'
 import { cn } from '@/lib/utils'
 
@@ -31,6 +32,7 @@ export function TaskFormDialog({
   mode = 'GENERAL',
   editTask = null,
   onSaved,
+  onDeleted,
   defaultClientId,
 }: {
   open: boolean
@@ -39,6 +41,8 @@ export function TaskFormDialog({
   mode?: DailyTaskType
   editTask?: DailyTaskDTO | null
   onSaved?: (task: DailyTaskDTO) => void
+  /** Solo in modifica: stessa action centralizzata del parent. */
+  onDeleted?: (task: DailyTaskDTO) => void | Promise<void>
   defaultClientId?: string
 }) {
   const isContact = (editTask?.type ?? mode) === 'CONTACT_CLIENT'
@@ -47,7 +51,9 @@ export function TaskFormDialog({
   const [clientId, setClientId] = useState('')
   const [notes, setNotes] = useState('')
   const [nextReactivateAt, setNextReactivateAt] = useState(defaultNextReactivateDate())
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
   const [isPending, startTransition] = useTransition()
+  const [isDeleting, startDeleteTransition] = useTransition()
 
   useEffect(() => {
     if (!open) return
@@ -211,26 +217,68 @@ export function TaskFormDialog({
         </div>
 
         <div
-          className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"
+          className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between"
           style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
         >
-          <Button type="button" variant="secondary" onClick={() => onOpenChange(false)} disabled={isPending}>
-            Annulla
-          </Button>
-          <Button
-            type="button"
-            onClick={handleSubmit}
-            disabled={
-              isPending ||
-              (!isContact && !title.trim()) ||
-              !dueDate ||
-              (isContact && !clientId)
-            }
-          >
-            {isPending ? 'Salvataggio…' : 'Salva'}
-          </Button>
+          {editTask && onDeleted ? (
+            <Button
+              type="button"
+              variant="ghost"
+              className="justify-start text-red-300/80 hover:bg-red-500/10 hover:text-red-200"
+              onClick={() => setConfirmDeleteOpen(true)}
+              disabled={isPending || isDeleting}
+            >
+              Elimina task
+            </Button>
+          ) : (
+            <span />
+          )}
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => onOpenChange(false)}
+              disabled={isPending || isDeleting}
+            >
+              Annulla
+            </Button>
+            <Button
+              type="button"
+              onClick={handleSubmit}
+              disabled={
+                isPending ||
+                isDeleting ||
+                (!isContact && !title.trim()) ||
+                !dueDate ||
+                (isContact && !clientId)
+              }
+            >
+              {isPending ? 'Salvataggio…' : 'Salva'}
+            </Button>
+          </div>
         </div>
       </DialogContent>
+
+      <DeleteTaskConfirmDialog
+        task={editTask}
+        open={confirmDeleteOpen}
+        onOpenChange={(next) => {
+          if (!next && !isDeleting) setConfirmDeleteOpen(false)
+        }}
+        isPending={isDeleting}
+        onConfirm={() => {
+          if (!editTask || !onDeleted) return
+          startDeleteTransition(async () => {
+            try {
+              await onDeleted(editTask)
+              setConfirmDeleteOpen(false)
+              onOpenChange(false)
+            } catch {
+              // toast/rollback gestiti dal parent
+            }
+          })
+        }}
+      />
     </Dialog>
   )
 }

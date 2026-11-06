@@ -4,7 +4,7 @@ import { useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { DailyTaskDTO } from '@/lib/daily-tasks'
-import { toggleDailyTask } from '@/app/actions/daily-tasks'
+import { deleteDailyTask, toggleDailyTask } from '@/app/actions/daily-tasks'
 import { TasksList } from '@/components/tasks/tasks-list'
 import { TaskFormDialog } from '@/components/tasks/task-form-dialog'
 import { ContactCompleteDialog } from '@/components/tasks/contact-complete-dialog'
@@ -46,6 +46,20 @@ export function ProfiloTasksSection({
     })
   }
 
+  const handleDelete = async (task: DailyTaskDTO) => {
+    const previous = tasks
+    setTasks((prev) => prev.filter((t) => t.id !== task.id))
+    try {
+      await deleteDailyTask(task.id)
+      showToast('Task eliminata', 'success')
+      router.refresh()
+    } catch (error) {
+      setTasks(previous)
+      showToast(error instanceof Error ? error.message : 'Eliminazione non riuscita', 'error')
+      throw error
+    }
+  }
+
   return (
     <div className="bg-dark border border-accent/20 rounded-xl p-6 mb-8">
       <div className="mb-4 flex items-start justify-between gap-3">
@@ -82,7 +96,7 @@ export function ProfiloTasksSection({
         </Button>
       </div>
 
-      <TasksList tasks={openTasks} onToggle={handleToggle} compact />
+      <TasksList tasks={openTasks} onToggle={handleToggle} onDelete={handleDelete} compact />
 
       <TaskFormDialog
         open={formOpen}
@@ -93,6 +107,7 @@ export function ProfiloTasksSection({
           setTasks((prev) => [saved, ...prev.filter((t) => t.id !== saved.id)])
           router.refresh()
         }}
+        onDeleted={handleDelete}
       />
       <ContactCompleteDialog
         task={completeTask}

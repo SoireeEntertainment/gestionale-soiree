@@ -270,3 +270,22 @@ export function applyTaskToUniverseNode(
     dueDate: task.dueDate,
   }
 }
+
+/**
+ * Dopo eliminazione CONTACT_CLIENT: il cliente resta nell’Universo senza tracker (grigio).
+ * Non inventa date di contatto non più disponibili.
+ */
+export function clearContactTrackerFromUniverseNode(
+  node: UniverseClientNode,
+  taskId?: string | null
+): UniverseClientNode {
+  if (taskId && node.taskId && node.taskId !== taskId) return node
+  return {
+    ...node,
+    status: 'neutral',
+    taskId: null,
+    lastContactedAt: null,
+    nextReactivateAt: null,
+    dueDate: null,
+  }
+}
