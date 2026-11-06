@@ -28,6 +28,7 @@ model User {
   completedWorkSteps WorkStep[] @relation("WorkStepCompletedBy")
   dueDateChanges     WorkDueDateHistory[]
   todos              UserTodo[]
+  dailyTasks         DailyTask[]
   preference         UserPreference?
   pedClientSettings  PedClientSetting[]
   pedItems           PedItem[]
@@ -115,6 +116,7 @@ model Client {
   credentials       ClientCredential[]
   renewals          ClientRenewal[]
   shootings         ClientShooting[]
+  dailyTasks        DailyTask[]
 
   @@map("clients")
 }
@@ -313,6 +315,38 @@ model UserTodo {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("user_todos")
+}
+
+/// Task giornaliere / promemoria (distinte da Lavori e da PED editoriale).
+model DailyTask {
+  id               String    @id @default(cuid())
+  title            String
+  /// GENERAL | CONTACT_CLIENT
+  type             String    @default("GENERAL")
+  /// OPEN | DONE
+  status           String    @default("OPEN")
+  dueDate          DateTime
+  notes            String?
+  userId           String
+  clientId         String?
+  completedAt      DateTime?
+  /// Ultimo contatto effettuato (solo CONTACT_CLIENT).
+  lastContactedAt  DateTime?
+  /// Prossima riattivazione del ciclo “Sentire cliente”.
+  nextReactivateAt DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  client Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  @@index([userId, status])
+  @@index([userId, type, clientId])
+  @@index([dueDate])
+  @@index([nextReactivateAt])
+  /// Unique parziale in SQL: (userId, clientId) WHERE type='CONTACT_CLIENT' AND clientId IS NOT NULL
+  /// (migration 20261106160000_daily_tasks_finalize). Non modellabile in Prisma 5 come @@unique.
+  @@map("daily_tasks")
 }
 
 model UserPreference {

@@ -1,10 +1,12 @@
 import { redirect } from 'next/navigation'
 import { requireAuth } from '@/lib/auth-dev'
 import { getPedMonth } from '@/app/actions/ped'
+import { getDailyTasksForUser } from '@/app/actions/daily-tasks'
 import { prisma } from '@/lib/prisma'
 import { getUsersForPed } from '@/lib/users'
 import { getCurrentWeekStartString } from '@/lib/ped-utils'
 import { PedView } from '@/components/ped/ped-view'
+import { PedTasksSection } from '@/components/tasks/ped-tasks-section'
 
 export const dynamic = 'force-dynamic'
 
@@ -70,11 +72,13 @@ export default async function PedPage(props: {
   let pedData: Awaited<ReturnType<typeof getPedMonth>>
   let clients: { id: string; name: string }[]
   let works: { id: string; title: string }[]
+  let dailyTasks: Awaited<ReturnType<typeof getDailyTasksForUser>> = []
   try {
-    ;[pedData, clients, works] = await Promise.all([
+    ;[pedData, clients, works, dailyTasks] = await Promise.all([
       getPedMonth(validYear, validMonth, viewAsUserId),
       prisma.client.findMany({ orderBy: { name: 'asc' }, select: { id: true, name: true } }),
       prisma.work.findMany({ orderBy: { title: 'asc' }, select: { id: true, title: true } }),
+      getDailyTasksForUser(viewAsUserId, { status: 'OPEN' }),
     ])
   } catch (err) {
     console.error('Errore pagina PED:', err)
@@ -105,7 +109,12 @@ export default async function PedPage(props: {
 
   return (
     <div className="min-h-screen bg-dark p-4 md:p-6">
-      <div className="w-full px-4 md:w-[90vw] md:max-w-[90vw] md:px-6 mx-auto">
+      <div className="w-full px-4 md:w-[90vw] md:max-w-[90vw] md:px-6 mx-auto space-y-6">
+        <PedTasksSection
+          initialTasks={dailyTasks}
+          clients={clientsList}
+          readOnly={isViewingOtherUser}
+        />
         <PedView
           initialData={initialData}
           clients={clientsList}

@@ -8,16 +8,15 @@ import {
   getWeeklyLoad,
   getAreaOperativaData,
 } from '@/app/actions/profilo'
-import { getMyTodos } from '@/app/actions/user-todos'
+import { getMyDailyTasks } from '@/app/actions/daily-tasks'
 import { getMyPreferences } from '@/app/actions/user-preferences'
 import { prisma } from '@/lib/prisma'
 import { ProfileHeader } from '@/components/profilo/profile-header'
 import { QuickActions } from '@/components/profilo/quick-actions'
 import { MyWorksActive } from '@/components/profilo/my-works-active'
 import { MyWorksArchive } from '@/components/profilo/my-works-archive'
-import { ProfileCalendar } from '@/components/profilo/profile-calendar'
 import { RecentUpdates } from '@/components/profilo/recent-updates'
-import { PersonalTodos } from '@/components/profilo/personal-todos'
+import { ProfiloTasksSection } from '@/components/tasks/profilo-tasks-section'
 import { WeeklyLoad } from '@/components/profilo/weekly-load'
 import { PedDailyStats } from '@/components/profilo/ped-daily-stats'
 import { ProfileSettings } from '@/components/profilo/profile-settings'
@@ -36,7 +35,7 @@ export default async function ProfiloPage() {
     recentComments: [] as Awaited<ReturnType<typeof getProfileRecentComments>>,
     weeklyLoad: { total: 0, byStatus: {} as Record<string, number> },
     areaOperativa: null as Awaited<ReturnType<typeof getAreaOperativaData>> | null,
-    todos: [] as Awaited<ReturnType<typeof getMyTodos>>,
+    dailyTasks: [] as Awaited<ReturnType<typeof getMyDailyTasks>>,
     preferences: { notifyDeadline24h: true, notifyDeadline48h: false, notifyInReview: true, notifyWaitingClient: true, timezone: 'Europe/Rome' as string },
     categories: [] as Awaited<ReturnType<typeof prisma.category.findMany>>,
     clients: [] as Awaited<ReturnType<typeof prisma.client.findMany>>,
@@ -50,7 +49,7 @@ export default async function ProfiloPage() {
     getProfileRecentComments(user.id, 10),
     getWeeklyLoad(user.id),
     getAreaOperativaData(user.id),
-    getMyTodos(user.id),
+    getMyDailyTasks({ status: 'OPEN' }),
     getMyPreferences(user.id),
     prisma.category.findMany({ orderBy: { name: 'asc' } }),
     prisma.client.findMany({ orderBy: { name: 'asc' } }),
@@ -63,7 +62,7 @@ export default async function ProfiloPage() {
   const recentComments = results[4].status === 'fulfilled' ? results[4].value : defaults.recentComments
   const weeklyLoad = results[5].status === 'fulfilled' ? results[5].value : defaults.weeklyLoad
   const areaOperativa = results[6].status === 'fulfilled' ? results[6].value : defaults.areaOperativa
-  const todos = results[7].status === 'fulfilled' ? results[7].value : defaults.todos
+  const dailyTasks = results[7].status === 'fulfilled' ? results[7].value : defaults.dailyTasks
   const preferences = results[8].status === 'fulfilled' ? results[8].value : defaults.preferences
   const categories = results[9].status === 'fulfilled' ? results[9].value : defaults.categories
   const clients = results[10].status === 'fulfilled' ? results[10].value : defaults.clients
@@ -134,7 +133,10 @@ export default async function ProfiloPage() {
               byStatus={weeklyLoad.byStatus}
               weeklyLoadSummary={areaOperativa?.weeklyLoadSummary}
             />
-            <PersonalTodos todos={todos} userId={user.id} />
+            <ProfiloTasksSection
+              initialTasks={dailyTasks}
+              clients={clients.map((c) => ({ id: c.id, name: c.name }))}
+            />
             <ProfileSettings userId={user.id} initial={preferences} />
           </div>
         </div>
