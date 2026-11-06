@@ -246,16 +246,33 @@ export function TasksPageClient({
     }
     if (completeTask?.id === task.id) setCompleteTask(null)
 
+    let toasted = false
     try {
-      await deleteDailyTask(task.id)
+      const result = await deleteDailyTask(task.id)
+      if (!result.success) {
+        deletedTaskIdsRef.current.delete(task.id)
+        setTasks(previousTasks)
+        setUniverse(previousUniverse)
+        showToast(result.message, 'error')
+        toasted = true
+        throw new Error(result.message)
+      }
       showToast('Task eliminata', 'success')
       refresh()
     } catch (error) {
       deletedTaskIdsRef.current.delete(task.id)
       setTasks(previousTasks)
       setUniverse(previousUniverse)
-      showToast(error instanceof Error ? error.message : 'Eliminazione non riuscita', 'error')
-      throw error
+      if (!toasted) {
+        const raw = error instanceof Error ? error.message : ''
+        showToast(
+          raw.includes('Server Components') || raw.includes('omitted in production')
+            ? 'Eliminazione non riuscita. Ricarica la pagina e riprova.'
+            : raw || 'Eliminazione non riuscita',
+          'error'
+        )
+      }
+      throw error instanceof Error ? error : new Error('Eliminazione non riuscita')
     }
   }
 

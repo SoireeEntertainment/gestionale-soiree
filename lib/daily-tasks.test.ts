@@ -15,6 +15,7 @@ import {
   sanitizeNextReactivateForForm,
   shouldReactivateContactTask,
   sortDailyTasksByDueDateDesc,
+  type DeleteDailyTaskResult,
   type UniverseClientNode,
 } from './daily-tasks'
 
@@ -313,6 +314,30 @@ describe('sanitizeNextReactivateForForm', () => {
       }),
       '2026-11-18'
     )
+  })
+})
+
+describe('contratto DeleteDailyTaskResult', () => {
+  it('success non espone stack/SQL', () => {
+    const ok: DeleteDailyTaskResult = {
+      success: true,
+      taskId: 't1',
+      type: 'CONTACT_CLIENT',
+      clientId: 'c1',
+    }
+    assert.equal(ok.success, true)
+    assert.equal('message' in ok, false)
+  })
+
+  it('failure tipizzata con messaggio leggibile', () => {
+    const fail: DeleteDailyTaskResult = {
+      success: false,
+      code: 'UNAUTHORIZED',
+      message: 'Non autorizzato',
+    }
+    assert.equal(fail.success, false)
+    assert.equal(fail.code, 'UNAUTHORIZED')
+    assert.match(fail.message, /autorizzato/i)
   })
 })
 

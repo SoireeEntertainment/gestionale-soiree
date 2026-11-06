@@ -41,6 +41,23 @@ export type UniverseClientNode = {
   dueDate: string | null
 }
 
+/** Risultato tipizzato di deleteDailyTask: non usare throw per casi applicativi attesi. */
+export type DeleteDailyTaskCode = 'UNAUTHORIZED' | 'TASK_NOT_FOUND' | 'DELETE_FAILED'
+
+export type DeleteDailyTaskResult =
+  | {
+      success: true
+      taskId: string
+      type: DailyTaskType
+      clientId: string | null
+      alreadyDeleted?: boolean
+    }
+  | {
+      success: false
+      code: DeleteDailyTaskCode
+      message: string
+    }
+
 export const BOARD_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
 
 export function isDailyTaskType(value: string): value is DailyTaskType {

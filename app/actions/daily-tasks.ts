@@ -18,13 +18,21 @@ import {
   type DailyTaskDTO,
   type DailyTaskStatus,
   type DailyTaskType,
+  type DeleteDailyTaskResult,
   type UniverseClientNode,
 } from '@/lib/daily-tasks'
 
+/**
+ * Invalida le route Task/Profilo.
+ * Non chiamare revalidatePath('/ped') qui: in alcuni flight di Server Action
+ * Next renderizza `/ped` senza searchParams; app/ped/page.tsx fa redirect() e
+ * l’azione fallisce in Production con
+ * "An error occurred in the Server Components render…".
+ * Su /ped il client aggiorna con router.refresh() sull’URL corrente (?week=…).
+ */
 function revalidateTaskPaths(_userId: string) {
   revalidatePath('/tasks')
   revalidatePath('/profilo')
-  revalidatePath('/ped')
 }
 
 function mapTask(row: {
@@ -571,12 +579,74 @@ export async function toggleDailyTask(taskId: string): Promise<DailyTaskDTO> {
   return completeDailyTask({ id: taskId })
 }
 
-export async function deleteDailyTask(taskId: string): Promise<void> {
-  const user = await getCurrentUser()
-  if (!user) throw new Error('Non autorizzato')
-  await assertOwnsTask(taskId, user.id)
-  await prisma.dailyTask.delete({ where: { id: taskId } })
-  revalidateTaskPaths(user.id)
+export async function deleteDailyTask(taskId: string): Promise<DeleteDailyTaskResult> {
+  try {
+    const user = await getCurrentUser()
+    if (!user) {
+      return { success: false, code: 'UNAUTHORIZED', message: 'Non autorizzato' }
+    }
+
+    const task = await prisma.dailyTask.findUnique({
+      where: { id: taskId },
+      select: { id: true, userId: true, type: true, clientId: true },
+    })
+
+    if (!task) {
+      // Idempotente: già eliminata (doppio click / race)
+      return {
+        success: true,
+        taskId,
+        type: 'GENERAL',
+        clientId: null,
+        alreadyDeleted: true,
+      }
+    }
+
+    if (task.userId !== user.id) {
+      return { success: false, code: 'UNAUTHORIZED', message: 'Non autorizzato' }
+    }
+
+    const taskType: DailyTaskType = isDailyTaskType(task.type) ? task.type : 'GENERAL'
+
+    try {
+      await prisma.dailyTask.delete({ where: { id: taskId } })
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+        revalidateTaskPaths(user.id)
+        return {
+          success: true,
+          taskId,
+          type: taskType,
+          clientId: task.clientId,
+          alreadyDeleted: true,
+        }
+      }
+      console.error('[deleteDailyTask] prisma', {
+        code: error instanceof Prisma.PrismaClientKnownRequestError ? error.code : undefined,
+        taskId,
+      })
+      return {
+        success: false,
+        code: 'DELETE_FAILED',
+        message: 'Eliminazione non riuscita. Riprova.',
+      }
+    }
+
+    revalidateTaskPaths(user.id)
+    return {
+      success: true,
+      taskId,
+      type: taskType,
+      clientId: task.clientId,
+    }
+  } catch (error) {
+    console.error('[deleteDailyTask] unexpected', error)
+    return {
+      success: false,
+      code: 'DELETE_FAILED',
+      message: 'Eliminazione non riuscita. Riprova.',
+    }
+  }
 }
 
 export async function markClientContacted(input: {

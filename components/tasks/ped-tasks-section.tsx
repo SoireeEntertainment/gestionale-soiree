@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useEffect, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { DailyTaskDTO } from '@/lib/daily-tasks'
@@ -28,6 +28,12 @@ export function PedTasksSection({
   const [formMode, setFormMode] = useState<'GENERAL' | 'CONTACT_CLIENT'>('GENERAL')
   const [completeTask, setCompleteTask] = useState<DailyTaskDTO | null>(null)
   const [isPending, startTransition] = useTransition()
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (deletingId) return
+    setTasks(initialTasks)
+  }, [initialTasks, deletingId])
 
   const openTasks = tasks.filter((t) => t.status === 'OPEN').slice(0, 8)
 
@@ -49,17 +55,35 @@ export function PedTasksSection({
   }
 
   const handleDelete = async (task: DailyTaskDTO) => {
-    if (readOnly) return
+    if (readOnly || deletingId) return
     const previous = tasks
+    setDeletingId(task.id)
     setTasks((prev) => prev.filter((t) => t.id !== task.id))
+    let toasted = false
     try {
-      await deleteDailyTask(task.id)
+      const result = await deleteDailyTask(task.id)
+      if (!result.success) {
+        setTasks(previous)
+        showToast(result.message, 'error')
+        toasted = true
+        throw new Error(result.message)
+      }
       showToast('Task eliminata', 'success')
       router.refresh()
     } catch (error) {
       setTasks(previous)
-      showToast(error instanceof Error ? error.message : 'Eliminazione non riuscita', 'error')
-      throw error
+      if (!toasted) {
+        const raw = error instanceof Error ? error.message : ''
+        showToast(
+          raw.includes('Server Components') || raw.includes('omitted in production')
+            ? 'Eliminazione non riuscita. Ricarica la pagina e riprova.'
+            : raw || 'Eliminazione non riuscita',
+          'error'
+        )
+      }
+      throw error instanceof Error ? error : new Error('Eliminazione non riuscita')
+    } finally {
+      setDeletingId(null)
     }
   }
 

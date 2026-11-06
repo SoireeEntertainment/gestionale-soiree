@@ -49,14 +49,29 @@ export function ProfiloTasksSection({
   const handleDelete = async (task: DailyTaskDTO) => {
     const previous = tasks
     setTasks((prev) => prev.filter((t) => t.id !== task.id))
+    let toasted = false
     try {
-      await deleteDailyTask(task.id)
+      const result = await deleteDailyTask(task.id)
+      if (!result.success) {
+        setTasks(previous)
+        showToast(result.message, 'error')
+        toasted = true
+        throw new Error(result.message)
+      }
       showToast('Task eliminata', 'success')
       router.refresh()
     } catch (error) {
       setTasks(previous)
-      showToast(error instanceof Error ? error.message : 'Eliminazione non riuscita', 'error')
-      throw error
+      if (!toasted) {
+        const raw = error instanceof Error ? error.message : ''
+        showToast(
+          raw.includes('Server Components') || raw.includes('omitted in production')
+            ? 'Eliminazione non riuscita. Ricarica la pagina e riprova.'
+            : raw || 'Eliminazione non riuscita',
+          'error'
+        )
+      }
+      throw error instanceof Error ? error : new Error('Eliminazione non riuscita')
     }
   }
 
