@@ -8,6 +8,7 @@ import {
   Tags,
   UserRound,
   Ellipsis,
+  ListTodo,
 } from 'lucide-react'
 import type { UserRole } from '@/lib/auth-dev'
 
@@ -16,6 +17,7 @@ export type NavItemId =
   | 'clients'
   | 'categories'
   | 'works'
+  | 'tasks'
   | 'preventivi'
   | 'ped'
   | 'profilo'
@@ -36,6 +38,7 @@ export const PRIMARY_NAV_ITEMS: NavItemConfig[] = [
   { id: 'clients', href: '/clients', label: 'Clienti', icon: Users },
   { id: 'categories', href: '/categories', label: 'Categorie', icon: Tags, roles: ['ADMIN'] },
   { id: 'works', href: '/works', label: 'Lavori', icon: BriefcaseBusiness, roles: ['ADMIN'] },
+  { id: 'tasks', href: '/tasks', label: 'Task', icon: ListTodo },
   { id: 'preventivi', href: '/preventivi', label: 'Preventivi', icon: FileText },
   { id: 'ped', href: '/ped', label: 'PED', icon: CalendarDays, roles: ['ADMIN'] },
   { id: 'profilo', href: '/profilo', label: 'Area operativa', icon: UserRound },
@@ -46,13 +49,14 @@ export const ADMIN_BOTTOM_NAV_ITEMS: NavItemConfig[] = [
   { id: 'dashboard', href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'clients', href: '/clients', label: 'Clienti', icon: Users },
   { id: 'works', href: '/works', label: 'Lavori', icon: BriefcaseBusiness },
-  { id: 'ped', href: '/ped', label: 'PED', icon: CalendarDays },
+  { id: 'tasks', href: '/tasks', label: 'Task', icon: ListTodo },
   { id: 'altro', href: '#altro', label: 'Altro', icon: Ellipsis },
 ]
 
 /** Destinazioni bottom nav AGENTE. */
 export const AGENTE_BOTTOM_NAV_ITEMS: NavItemConfig[] = [
   { id: 'clients', href: '/clients', label: 'Clienti', icon: Users },
+  { id: 'tasks', href: '/tasks', label: 'Task', icon: ListTodo },
   { id: 'preventivi', href: '/preventivi', label: 'Preventivi', icon: FileText },
   { id: 'profilo', href: '/profilo', label: 'Area operativa', icon: UserRound },
   { id: 'altro', href: '#altro', label: 'Altro', icon: Ellipsis },
@@ -60,6 +64,7 @@ export const AGENTE_BOTTOM_NAV_ITEMS: NavItemConfig[] = [
 
 /** Sezioni secondarie nel foglio "Altro" (ADMIN). */
 export const ADMIN_MORE_MENU_ITEMS: NavItemConfig[] = [
+  { id: 'ped', href: '/ped', label: 'PED', icon: CalendarDays },
   { id: 'preventivi', href: '/preventivi', label: 'Preventivi', icon: FileText },
   { id: 'categories', href: '/categories', label: 'Categorie', icon: Tags },
   { id: 'profilo', href: '/profilo', label: 'Area operativa', icon: UserRound },
