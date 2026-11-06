@@ -4,7 +4,7 @@ import { useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { DailyTaskDTO } from '@/lib/daily-tasks'
-import { toggleDailyTask } from '@/app/actions/daily-tasks'
+import { deleteDailyTask, toggleDailyTask } from '@/app/actions/daily-tasks'
 import { TasksList } from '@/components/tasks/tasks-list'
 import { TaskFormDialog } from '@/components/tasks/task-form-dialog'
 import { ContactCompleteDialog } from '@/components/tasks/contact-complete-dialog'
@@ -46,6 +46,21 @@ export function PedTasksSection({
         showToast(error instanceof Error ? error.message : 'Aggiornamento non riuscito', 'error')
       }
     })
+  }
+
+  const handleDelete = async (task: DailyTaskDTO) => {
+    if (readOnly) return
+    const previous = tasks
+    setTasks((prev) => prev.filter((t) => t.id !== task.id))
+    try {
+      await deleteDailyTask(task.id)
+      showToast('Task eliminata', 'success')
+      router.refresh()
+    } catch (error) {
+      setTasks(previous)
+      showToast(error instanceof Error ? error.message : 'Eliminazione non riuscita', 'error')
+      throw error
+    }
   }
 
   return (
@@ -90,7 +105,12 @@ export function PedTasksSection({
         </div>
       </div>
 
-      <TasksList tasks={openTasks} onToggle={handleToggle} compact />
+      <TasksList
+        tasks={openTasks}
+        onToggle={handleToggle}
+        onDelete={readOnly ? undefined : handleDelete}
+        compact
+      />
       {isPending ? <p className="mt-2 text-xs text-white/35">Aggiornamento…</p> : null}
 
       {!readOnly && (
@@ -104,6 +124,7 @@ export function PedTasksSection({
               setTasks((prev) => [saved, ...prev.filter((t) => t.id !== saved.id)])
               router.refresh()
             }}
+            onDeleted={handleDelete}
           />
           <ContactCompleteDialog
             task={completeTask}

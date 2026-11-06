@@ -4,11 +4,13 @@ import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   applyTaskToUniverseNode,
+  clearContactTrackerFromUniverseNode,
   type DailyTaskDTO,
   type UniverseClientNode,
 } from '@/lib/daily-tasks'
 import { todayDateOnlyRome } from '@/lib/timeline-dates'
 import {
+  deleteDailyTask,
   markClientContacted,
   markClientNeedsContact,
   toggleDailyTask,
@@ -17,6 +19,7 @@ import { ClientUniverse } from '@/components/tasks/client-universe'
 import { TasksList } from '@/components/tasks/tasks-list'
 import { TaskFormDialog } from '@/components/tasks/task-form-dialog'
 import { ContactCompleteDialog } from '@/components/tasks/contact-complete-dialog'
+import { DeleteTaskConfirmDialog } from '@/components/tasks/delete-task-confirm-dialog'
 import { Button } from '@/components/ui/button'
 import { showToast } from '@/lib/toast'
 import { cn } from '@/lib/utils'
@@ -45,14 +48,28 @@ export function TasksPageClient({
   const [editTask, setEditTask] = useState<DailyTaskDTO | null>(null)
   const [defaultClientId, setDefaultClientId] = useState<string | undefined>(undefined)
   const [completeTask, setCompleteTask] = useState<DailyTaskDTO | null>(null)
+  const [pendingUniverseDelete, setPendingUniverseDelete] = useState<DailyTaskDTO | null>(null)
+  const [isDeletingUniverse, startDeleteUniverseTransition] = useTransition()
   const [isPending, startTransition] = useTransition()
   /** Evita che un refresh server sovrascriva update ottimistici più recenti. */
   const suppressServerSyncUntil = useRef(0)
+  /** Task eliminate localmente: filtra fino a sync server stabile. */
+  const deletedTaskIdsRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     if (Date.now() < suppressServerSyncUntil.current) return
-    setTasks(initialTasks)
-    setUniverse(initialUniverse)
+    const serverIds = new Set(initialTasks.map((t) => t.id))
+    for (const id of deletedTaskIdsRef.current) {
+      if (!serverIds.has(id)) deletedTaskIdsRef.current.delete(id)
+    }
+    setTasks(initialTasks.filter((t) => !deletedTaskIdsRef.current.has(t.id)))
+    setUniverse(
+      initialUniverse.map((node) =>
+        node.taskId && deletedTaskIdsRef.current.has(node.taskId)
+          ? clearContactTrackerFromUniverseNode(node, node.taskId)
+          : node
+      )
+    )
   }, [initialTasks, initialUniverse])
 
   const filtered = useMemo(() => {
@@ -69,8 +86,8 @@ export function TasksPageClient({
     })
   }, [tasks, statusFilter, typeFilter, clientFilter, q, dueBucket])
 
-  const markLocalDirty = () => {
-    suppressServerSyncUntil.current = Date.now() + 1200
+  const markLocalDirty = (ms = 2500) => {
+    suppressServerSyncUntil.current = Date.now() + ms
   }
 
   const refresh = () => router.refresh()
@@ -208,6 +225,63 @@ export function TasksPageClient({
     }
   }
 
+  const handleDeleteTask = async (task: DailyTaskDTO) => {
+    const previousTasks = tasks
+    const previousUniverse = universe
+    deletedTaskIdsRef.current.add(task.id)
+    markLocalDirty()
+    setTasks((prev) => prev.filter((t) => t.id !== task.id))
+    if (task.type === 'CONTACT_CLIENT' && task.clientId) {
+      setUniverse((prev) =>
+        prev.map((n) =>
+          n.clientId === task.clientId
+            ? clearContactTrackerFromUniverseNode(n, task.id)
+            : n
+        )
+      )
+    }
+    if (editTask?.id === task.id) {
+      setEditTask(null)
+      setFormOpen(false)
+    }
+    if (completeTask?.id === task.id) setCompleteTask(null)
+
+    try {
+      await deleteDailyTask(task.id)
+      showToast('Task eliminata', 'success')
+      refresh()
+    } catch (error) {
+      deletedTaskIdsRef.current.delete(task.id)
+      setTasks(previousTasks)
+      setUniverse(previousUniverse)
+      showToast(error instanceof Error ? error.message : 'Eliminazione non riuscita', 'error')
+      throw error
+    }
+  }
+
+  const handleRequestDeleteFromUniverse = (node: UniverseClientNode) => {
+    if (!node.taskId) return
+    const task =
+      tasks.find((t) => t.id === node.taskId) ??
+      ({
+        id: node.taskId,
+        title: `Sentire ${node.clientName}`,
+        type: 'CONTACT_CLIENT',
+        status: node.status === 'green' ? 'DONE' : 'OPEN',
+        dueDate: node.dueDate ?? todayDateOnlyRome(),
+        notes: null,
+        userId: '',
+        clientId: node.clientId,
+        clientName: node.clientName,
+        completedAt: null,
+        lastContactedAt: node.lastContactedAt,
+        nextReactivateAt: node.nextReactivateAt,
+        createdAt: '',
+        updatedAt: '',
+      } satisfies DailyTaskDTO)
+    setPendingUniverseDelete(task)
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -243,6 +317,7 @@ export function TasksPageClient({
         onMarkContacted={handleMarkContacted}
         onMarkNeedsContact={handleMarkNeedsContact}
         onOpenTask={handleOpenTaskFromUniverse}
+        onDeleteTracker={handleRequestDeleteFromUniverse}
       />
 
       <section className="rounded-2xl border border-accent/15 bg-[#101317]/90 p-4 md:p-5">
@@ -314,6 +389,7 @@ export function TasksPageClient({
             setEditTask(task)
             setFormOpen(true)
           }}
+          onDelete={handleDeleteTask}
         />
         {isPending ? <p className="mt-2 text-xs text-white/35">Aggiornamento…</p> : null}
       </section>
@@ -335,6 +411,7 @@ export function TasksPageClient({
           upsertTask(saved)
           refresh()
         }}
+        onDeleted={handleDeleteTask}
       />
 
       <ContactCompleteDialog
@@ -346,6 +423,27 @@ export function TasksPageClient({
         onCompleted={(saved) => {
           upsertTask(saved)
           refresh()
+        }}
+      />
+
+      <DeleteTaskConfirmDialog
+        task={pendingUniverseDelete}
+        open={!!pendingUniverseDelete}
+        onOpenChange={(open) => {
+          if (!open && !isDeletingUniverse) setPendingUniverseDelete(null)
+        }}
+        isPending={isDeletingUniverse}
+        onConfirm={() => {
+          if (!pendingUniverseDelete) return
+          const task = pendingUniverseDelete
+          startDeleteUniverseTransition(async () => {
+            try {
+              await handleDeleteTask(task)
+              setPendingUniverseDelete(null)
+            } catch {
+              // rollback + toast già gestiti
+            }
+          })
         }}
       />
     </div>

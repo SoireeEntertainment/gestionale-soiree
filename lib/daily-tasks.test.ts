@@ -4,6 +4,7 @@ import {
   UNIVERSE_ORBIT_PAGE_SIZE,
   applyTaskToUniverseNode,
   assertReactivateAfterContact,
+  clearContactTrackerFromUniverseNode,
   defaultNextReactivateDate,
   filterUniverseNodesByQuery,
   getContactUniverseStatus,
@@ -312,6 +313,68 @@ describe('sanitizeNextReactivateForForm', () => {
       }),
       '2026-11-18'
     )
+  })
+})
+
+describe('eliminazione tracker CONTACT_CLIENT → universo grigio', () => {
+  it('elimina rosso → neutral senza date residue', () => {
+    const red: UniverseClientNode = {
+      clientId: 'c1',
+      clientName: 'oneforall',
+      status: 'red',
+      taskId: 't1',
+      lastContactedAt: '2026-11-04',
+      nextReactivateAt: null,
+      dueDate: '2026-11-06',
+    }
+    const cleared = clearContactTrackerFromUniverseNode(red, 't1')
+    assert.equal(cleared.status, 'neutral')
+    assert.equal(cleared.taskId, null)
+    assert.equal(cleared.lastContactedAt, null)
+    assert.equal(cleared.nextReactivateAt, null)
+    assert.equal(cleared.dueDate, null)
+    assert.equal(cleared.clientId, 'c1')
+    assert.equal(cleared.clientName, 'oneforall')
+  })
+
+  it('elimina verde → neutral; non tocca altri nodi per taskId diverso', () => {
+    const green: UniverseClientNode = {
+      clientId: 'c1',
+      clientName: 'oneforall',
+      status: 'green',
+      taskId: 't1',
+      lastContactedAt: '2026-11-04',
+      nextReactivateAt: '2026-11-11',
+      dueDate: '2026-11-04',
+    }
+    assert.equal(clearContactTrackerFromUniverseNode(green, 't1').status, 'neutral')
+    assert.deepEqual(clearContactTrackerFromUniverseNode(green, 'other'), green)
+  })
+
+  it('dopo clear è possibile riapplicare un nuovo tracker sullo stesso cliente', () => {
+    const cleared = clearContactTrackerFromUniverseNode(
+      {
+        clientId: 'c1',
+        clientName: 'oneforall',
+        status: 'green',
+        taskId: 't-old',
+        lastContactedAt: '2026-11-01',
+        nextReactivateAt: '2026-11-08',
+        dueDate: '2026-11-01',
+      },
+      't-old'
+    )
+    const recreated = applyTaskToUniverseNode(cleared, {
+      id: 't-new',
+      clientId: 'c1',
+      type: 'CONTACT_CLIENT',
+      status: 'OPEN',
+      lastContactedAt: null,
+      nextReactivateAt: null,
+      dueDate: '2026-11-06',
+    }, '2026-11-06')
+    assert.equal(recreated.status, 'red')
+    assert.equal(recreated.taskId, 't-new')
   })
 })
 
