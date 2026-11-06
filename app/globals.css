@@ -81,6 +81,16 @@ select:focus-visible {
   .text-balance {
     text-wrap: balance;
   }
+
+  /* Solo form Task: icona calendario nativa bianca (non globale). */
+  .task-date-input {
+    color-scheme: dark;
+  }
+  .task-date-input::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    opacity: 1;
+    filter: invert(1) brightness(1.15);
+  }
 }
 
 /* Assistente floating: scrollbar sottile */

@@ -76,7 +76,7 @@ export function ContactCompleteDialog({
                 type="date"
                 value={nextReactivateAt}
                 onChange={(e) => setNextReactivateAt(e.target.value)}
-                className="min-h-[44px] w-full rounded-md border border-accent/20 bg-[#101317] px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-accent"
+                className="task-date-input min-h-[44px] w-full rounded-md border border-accent/20 bg-[#101317] px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-accent"
               />
               <div className="mt-2 flex flex-wrap gap-2">
                 {(
