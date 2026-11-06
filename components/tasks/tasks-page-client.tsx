@@ -39,6 +39,7 @@ export function TasksPageClient({
   const [formOpen, setFormOpen] = useState(false)
   const [formMode, setFormMode] = useState<'GENERAL' | 'CONTACT_CLIENT'>('GENERAL')
   const [editTask, setEditTask] = useState<DailyTaskDTO | null>(null)
+  const [defaultClientId, setDefaultClientId] = useState<string | undefined>(undefined)
   const [completeTask, setCompleteTask] = useState<DailyTaskDTO | null>(null)
   const [isPending, startTransition] = useTransition()
   /** Evita che un refresh server sovrascriva update ottimistici più recenti. */
@@ -138,11 +139,13 @@ export function TasksPageClient({
     if (!node.taskId) {
       setFormMode('CONTACT_CLIENT')
       setEditTask(null)
+      setDefaultClientId(node.clientId)
       setFormOpen(true)
       return
     }
     const task = tasks.find((t) => t.id === node.taskId) ?? null
     if (task) {
+      setDefaultClientId(undefined)
       setEditTask(task)
       setFormOpen(true)
     }
@@ -157,6 +160,7 @@ export function TasksPageClient({
             onClick={() => {
               setFormMode('GENERAL')
               setEditTask(null)
+              setDefaultClientId(undefined)
               setFormOpen(true)
             }}
           >
@@ -168,6 +172,7 @@ export function TasksPageClient({
             onClick={() => {
               setFormMode('CONTACT_CLIENT')
               setEditTask(null)
+              setDefaultClientId(undefined)
               setFormOpen(true)
             }}
           >
@@ -247,6 +252,7 @@ export function TasksPageClient({
           tasks={filtered}
           onToggle={handleToggle}
           onEdit={(task) => {
+            setDefaultClientId(undefined)
             setEditTask(task)
             setFormOpen(true)
           }}
@@ -258,11 +264,15 @@ export function TasksPageClient({
         open={formOpen}
         onOpenChange={(open) => {
           setFormOpen(open)
-          if (!open) setEditTask(null)
+          if (!open) {
+            setEditTask(null)
+            setDefaultClientId(undefined)
+          }
         }}
         clients={clients}
         mode={editTask?.type ?? formMode}
         editTask={editTask}
+        defaultClientId={defaultClientId}
         onSaved={(saved) => {
           upsertTask(saved)
           refresh()
