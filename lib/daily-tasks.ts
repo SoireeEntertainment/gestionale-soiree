@@ -169,6 +169,87 @@ export function quickReactivateDate(
   return formatDateOnly(d)
 }
 
+/**
+ * Prossima riattivazione rispetto al contatto effettivo.
+ * La scelta esplicita dell'utente prevale; altrimenti default = +7 giorni dal contatto.
+ */
+export function resolveNextReactivateAt(
+  contactDate: string,
+  explicit?: string | null
+): string {
+  const chosen = explicit?.trim() || null
+  if (chosen) {
+    assertReactivateAfterContact(contactDate, chosen)
+    return chosen
+  }
+  return defaultNextReactivateDate(contactDate)
+}
+
+export function assertReactivateAfterContact(
+  contactDate: string,
+  nextReactivateAt: string
+): void {
+  const contact = toDateOnly(contactDate)
+  const next = toDateOnly(nextReactivateAt)
+  if (!contact || !next) throw new Error('Date di riattivazione non valide')
+  if (next <= contact) {
+    throw new Error('La prossima riattivazione deve essere successiva alla data del contatto')
+  }
+}
+
 export function contactTaskTitle(clientName: string): string {
   return `Sentire ${clientName}`
+}
+
+/** Nodi universo mostrati per “pagina” nell’orbita (resto via ricerca/paginazione). */
+export const UNIVERSE_ORBIT_PAGE_SIZE = 24
+
+export function paginateUniverseNodes<T>(
+  nodes: T[],
+  page: number,
+  pageSize = UNIVERSE_ORBIT_PAGE_SIZE
+): { pageNodes: T[]; page: number; totalPages: number } {
+  const totalPages = Math.max(1, Math.ceil(nodes.length / pageSize))
+  const safePage = Math.min(Math.max(0, page), totalPages - 1)
+  const start = safePage * pageSize
+  return {
+    pageNodes: nodes.slice(start, start + pageSize),
+    page: safePage,
+    totalPages,
+  }
+}
+
+export function filterUniverseNodesByQuery(
+  nodes: UniverseClientNode[],
+  query: string
+): UniverseClientNode[] {
+  const q = query.trim().toLowerCase()
+  if (!q) return nodes
+  return nodes.filter((n) => n.clientName.toLowerCase().includes(q))
+}
+
+export function applyTaskToUniverseNode(
+  node: UniverseClientNode,
+  task: Pick<
+    DailyTaskDTO,
+    'id' | 'clientId' | 'status' | 'lastContactedAt' | 'nextReactivateAt' | 'dueDate' | 'type'
+  >,
+  today = todayDateOnlyRome()
+): UniverseClientNode {
+  if (task.type !== 'CONTACT_CLIENT' || task.clientId !== node.clientId) return node
+  return {
+    ...node,
+    status: getContactUniverseStatus(
+      {
+        type: task.type,
+        status: task.status,
+        nextReactivateAt: task.nextReactivateAt,
+      },
+      today
+    ),
+    taskId: task.id,
+    lastContactedAt: task.lastContactedAt,
+    nextReactivateAt: task.nextReactivateAt,
+    dueDate: task.dueDate,
+  }
 }

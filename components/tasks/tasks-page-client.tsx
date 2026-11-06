@@ -1,8 +1,12 @@
 'use client'
 
-import { useMemo, useState, useTransition } from 'react'
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import type { DailyTaskDTO, UniverseClientNode } from '@/lib/daily-tasks'
+import {
+  applyTaskToUniverseNode,
+  type DailyTaskDTO,
+  type UniverseClientNode,
+} from '@/lib/daily-tasks'
 import { todayDateOnlyRome } from '@/lib/timeline-dates'
 import { markClientContacted, toggleDailyTask } from '@/app/actions/daily-tasks'
 import { ClientUniverse } from '@/components/tasks/client-universe'
@@ -37,6 +41,14 @@ export function TasksPageClient({
   const [editTask, setEditTask] = useState<DailyTaskDTO | null>(null)
   const [completeTask, setCompleteTask] = useState<DailyTaskDTO | null>(null)
   const [isPending, startTransition] = useTransition()
+  /** Evita che un refresh server sovrascriva update ottimistici più recenti. */
+  const suppressServerSyncUntil = useRef(0)
+
+  useEffect(() => {
+    if (Date.now() < suppressServerSyncUntil.current) return
+    setTasks(initialTasks)
+    setUniverse(initialUniverse)
+  }, [initialTasks, initialUniverse])
 
   const filtered = useMemo(() => {
     const today = todayDateOnlyRome()
@@ -52,13 +64,38 @@ export function TasksPageClient({
     })
   }, [tasks, statusFilter, typeFilter, clientFilter, q, dueBucket])
 
+  const markLocalDirty = () => {
+    suppressServerSyncUntil.current = Date.now() + 1200
+  }
+
   const refresh = () => router.refresh()
 
   const upsertTask = (saved: DailyTaskDTO) => {
+    markLocalDirty()
     setTasks((prev) => {
       const without = prev.filter((t) => t.id !== saved.id)
       return [saved, ...without]
     })
+    if (saved.type === 'CONTACT_CLIENT' && saved.clientId) {
+      setUniverse((prev) => {
+        const exists = prev.some((n) => n.clientId === saved.clientId)
+        if (!exists) {
+          return [
+            {
+              clientId: saved.clientId!,
+              clientName: saved.clientName ?? 'Cliente',
+              status: saved.status === 'OPEN' ? 'red' : 'green',
+              taskId: saved.id,
+              lastContactedAt: saved.lastContactedAt,
+              nextReactivateAt: saved.nextReactivateAt,
+              dueDate: saved.dueDate,
+            },
+            ...prev,
+          ]
+        }
+        return prev.map((n) => applyTaskToUniverseNode(n, saved))
+      })
+    }
   }
 
   const handleToggle = (task: DailyTaskDTO) => {
@@ -87,7 +124,8 @@ export function TasksPageClient({
     }
     startTransition(async () => {
       try {
-        await markClientContacted({ clientId: node.clientId })
+        const saved = await markClientContacted({ clientId: node.clientId })
+        upsertTask(saved)
         showToast('Cliente segnato come sentito', 'success')
         refresh()
       } catch (error) {
@@ -148,11 +186,11 @@ export function TasksPageClient({
         <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-white">Lista task</h2>
-            <p className="text-xs text-white/45 mt-0.5">
+            <p className="mt-0.5 text-xs text-white/45">
               Ordinamento: scadenza cronologica decrescente
             </p>
           </div>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 w-full md:w-auto">
+          <div className="grid w-full grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 md:w-auto">
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
@@ -239,19 +277,6 @@ export function TasksPageClient({
         }}
         onCompleted={(saved) => {
           upsertTask(saved)
-          setUniverse((prev) =>
-            prev.map((n) =>
-              n.clientId === saved.clientId
-                ? {
-                    ...n,
-                    status: 'green',
-                    lastContactedAt: saved.lastContactedAt,
-                    nextReactivateAt: saved.nextReactivateAt,
-                    taskId: saved.id,
-                  }
-                : n
-            )
-          )
           refresh()
         }}
       />

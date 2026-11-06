@@ -35,7 +35,8 @@ export function ContactCompleteDialog({
 
   useEffect(() => {
     if (!open || !task) return
-    setNextReactivateAt(task.nextReactivateAt ?? defaultNextReactivateDate())
+    // Default sempre +7 dal contatto odierno (non riusare la nextReactivate precedente).
+    setNextReactivateAt(defaultNextReactivateDate(todayDateOnlyRome()))
   }, [open, task])
 
   const handleConfirm = () => {

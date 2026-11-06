@@ -344,6 +344,8 @@ model DailyTask {
   @@index([userId, type, clientId])
   @@index([dueDate])
   @@index([nextReactivateAt])
+  /// Unique parziale in SQL: (userId, clientId) WHERE type='CONTACT_CLIENT' AND clientId IS NOT NULL
+  /// (migration 20261106160000_daily_tasks_finalize). Non modellabile in Prisma 5 come @@unique.
   @@map("daily_tasks")
 }
 
