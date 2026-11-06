@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { CheckCircle2, ExternalLink, Phone } from 'lucide-react'
+import { CheckCircle2, ExternalLink, Phone, RotateCcw } from 'lucide-react'
 import {
   BOARD_EASE,
   UNIVERSE_ORBIT_PAGE_SIZE,
@@ -60,6 +60,7 @@ function UniverseNodeMenu({
   open,
   onOpenChange,
   onMarkContacted,
+  onMarkNeedsContact,
   onOpenTask,
 }: {
   node: UniverseClientNode
@@ -68,6 +69,7 @@ function UniverseNodeMenu({
   open: boolean
   onOpenChange: (open: boolean) => void
   onMarkContacted: (node: UniverseClientNode) => void
+  onMarkNeedsContact: (node: UniverseClientNode) => void
   onOpenTask: (node: UniverseClientNode) => void
 }) {
   const colors = statusColor(node.status)
@@ -111,13 +113,28 @@ function UniverseNodeMenu({
             Ultimo contatto: {formatDate(node.lastContactedAt)}
           </p>
           <p className="text-[11px] text-white/45">
-            Prossima riattivazione: {formatDate(node.nextReactivateAt)}
+            Prossima riattivazione:{' '}
+            {node.status === 'red' && !node.nextReactivateAt
+              ? 'non programmata'
+              : formatDate(node.nextReactivateAt)}
           </p>
         </div>
 
         <DropdownMenuSeparator />
 
-        {node.status !== 'green' && (
+        {node.status === 'green' ? (
+          <DropdownMenuItem
+            className="text-rose-200 focus:text-rose-100"
+            onSelect={(e) => {
+              e.preventDefault()
+              onOpenChange(false)
+              onMarkNeedsContact(node)
+            }}
+          >
+            <RotateCcw className="h-4 w-4 shrink-0" aria-hidden />
+            Rimetti da sentire
+          </DropdownMenuItem>
+        ) : (
           <DropdownMenuItem
             className="text-accent focus:text-accent"
             onSelect={(e) => {
@@ -156,10 +173,12 @@ function UniverseNodeMenu({
 export function ClientUniverse({
   nodes,
   onMarkContacted,
+  onMarkNeedsContact,
   onOpenTask,
 }: {
   nodes: UniverseClientNode[]
   onMarkContacted: (node: UniverseClientNode) => void
+  onMarkNeedsContact: (node: UniverseClientNode) => void
   onOpenTask: (node: UniverseClientNode) => void
 }) {
   const [query, setQuery] = useState('')
@@ -310,6 +329,7 @@ export function ClientUniverse({
             open={openClientId === node.clientId}
             onOpenChange={(next) => setOpenClientId(next ? node.clientId : null)}
             onMarkContacted={onMarkContacted}
+            onMarkNeedsContact={onMarkNeedsContact}
             onOpenTask={onOpenTask}
           />
         ))}

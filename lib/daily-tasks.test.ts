@@ -11,6 +11,7 @@ import {
   paginateUniverseNodes,
   quickReactivateDate,
   resolveNextReactivateAt,
+  sanitizeNextReactivateForForm,
   shouldReactivateContactTask,
   sortDailyTasksByDueDateDesc,
   type UniverseClientNode,
@@ -179,6 +180,138 @@ describe('sync locale universo senza hard refresh', () => {
       dueDate: '2026-11-06',
     }, '2026-11-17')
     assert.equal(afterLazy.status, 'red')
+  })
+})
+
+describe('toggle contatto DONE → OPEN → DONE', () => {
+  const today = '2026-11-06'
+  const preservedContact = '2026-11-04'
+
+  /** Simula payload server di reopenDailyTask / markClientNeedsContact. */
+  function reopenPayload(lastContactedAt: string) {
+    return {
+      id: 't1',
+      clientId: 'c1',
+      type: 'CONTACT_CLIENT' as const,
+      status: 'OPEN' as const,
+      lastContactedAt,
+      nextReactivateAt: null as string | null,
+      dueDate: today,
+      completedAt: null as string | null,
+    }
+  }
+
+  /** Simula payload server di completeDailyTask / markClientContacted. */
+  function completePayload(contactDate: string, nextReactivateAt: string) {
+    return {
+      id: 't1',
+      clientId: 'c1',
+      type: 'CONTACT_CLIENT' as const,
+      status: 'DONE' as const,
+      lastContactedAt: contactDate,
+      nextReactivateAt,
+      dueDate: today,
+      completedAt: `${contactDate}T12:00:00.000Z`,
+    }
+  }
+
+  it('verde → rosso preserva lastContactedAt e azzera nextReactivateAt', () => {
+    const green: UniverseClientNode = {
+      clientId: 'c1',
+      clientName: 'oneforall',
+      status: 'green',
+      taskId: 't1',
+      lastContactedAt: preservedContact,
+      nextReactivateAt: '2026-11-11',
+      dueDate: '2026-11-04',
+    }
+
+    const reopened = reopenPayload(preservedContact)
+    assert.equal(reopened.lastContactedAt, preservedContact)
+    assert.equal(reopened.nextReactivateAt, null)
+    assert.equal(reopened.status, 'OPEN')
+    assert.equal(reopened.dueDate, today)
+    assert.equal(reopened.completedAt, null)
+
+    const afterReopen = applyTaskToUniverseNode(green, reopened, today)
+    assert.equal(afterReopen.status, 'red')
+    assert.equal(afterReopen.lastContactedAt, preservedContact)
+    assert.equal(afterReopen.nextReactivateAt, null)
+    assert.equal(afterReopen.taskId, 't1')
+  })
+
+  it('rosso → verde aggiorna lastContactedAt e nextReactivateAt sullo stesso tracker', () => {
+    const red: UniverseClientNode = {
+      clientId: 'c1',
+      clientName: 'oneforall',
+      status: 'red',
+      taskId: 't1',
+      lastContactedAt: preservedContact,
+      nextReactivateAt: null,
+      dueDate: today,
+    }
+
+    const newContact = today
+    const next = defaultNextReactivateDate(newContact)
+    const completed = completePayload(newContact, next)
+    assert.equal(completed.id, 't1')
+    assert.notEqual(completed.lastContactedAt, preservedContact)
+    assert.equal(completed.lastContactedAt, newContact)
+    assert.equal(completed.nextReactivateAt, next)
+
+    const afterComplete = applyTaskToUniverseNode(red, completed, today)
+    assert.equal(afterComplete.status, 'green')
+    assert.equal(afterComplete.lastContactedAt, newContact)
+    assert.equal(afterComplete.nextReactivateAt, next)
+    assert.equal(afterComplete.taskId, 't1')
+  })
+
+  it('ciclo completo DONE → OPEN → DONE senza duplicare tracker', () => {
+    let node: UniverseClientNode = {
+      clientId: 'c1',
+      clientName: 'oneforall',
+      status: 'green',
+      taskId: 't1',
+      lastContactedAt: preservedContact,
+      nextReactivateAt: '2026-11-11',
+      dueDate: '2026-11-04',
+    }
+
+    node = applyTaskToUniverseNode(node, reopenPayload(preservedContact), today)
+    assert.equal(node.status, 'red')
+    assert.equal(node.lastContactedAt, preservedContact)
+    assert.equal(node.taskId, 't1')
+
+    const secondContact = '2026-11-06'
+    const secondNext = '2026-11-13'
+    node = applyTaskToUniverseNode(node, completePayload(secondContact, secondNext), today)
+    assert.equal(node.status, 'green')
+    assert.equal(node.lastContactedAt, secondContact)
+    assert.equal(node.nextReactivateAt, secondNext)
+    assert.equal(node.taskId, 't1')
+  })
+})
+
+describe('sanitizeNextReactivateForForm', () => {
+  it('sostituisce next <= lastContactedAt con default successivo', () => {
+    const sanitized = sanitizeNextReactivateForForm({
+      lastContactedAt: '2026-11-04',
+      nextReactivateAt: '2026-11-04',
+      today: '2026-11-06',
+    })
+    assert.equal(sanitized, defaultNextReactivateDate('2026-11-04'))
+    assert.equal(sanitized > '2026-11-04', true)
+  })
+
+  it('conserva next valida successiva al contatto', () => {
+    assert.equal(
+      sanitizeNextReactivateForForm({
+        lastContactedAt: '2026-11-04',
+        nextReactivateAt: '2026-11-18',
+        today: '2026-11-06',
+      }),
+      '2026-11-18'
+    )
   })
 })
 

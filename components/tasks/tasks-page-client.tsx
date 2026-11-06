@@ -8,7 +8,11 @@ import {
   type UniverseClientNode,
 } from '@/lib/daily-tasks'
 import { todayDateOnlyRome } from '@/lib/timeline-dates'
-import { markClientContacted, toggleDailyTask } from '@/app/actions/daily-tasks'
+import {
+  markClientContacted,
+  markClientNeedsContact,
+  toggleDailyTask,
+} from '@/app/actions/daily-tasks'
 import { ClientUniverse } from '@/components/tasks/client-universe'
 import { TasksList } from '@/components/tasks/tasks-list'
 import { TaskFormDialog } from '@/components/tasks/task-form-dialog'
@@ -82,15 +86,18 @@ export function TasksPageClient({
         const exists = prev.some((n) => n.clientId === saved.clientId)
         if (!exists) {
           return [
-            {
-              clientId: saved.clientId!,
-              clientName: saved.clientName ?? 'Cliente',
-              status: saved.status === 'OPEN' ? 'red' : 'green',
-              taskId: saved.id,
-              lastContactedAt: saved.lastContactedAt,
-              nextReactivateAt: saved.nextReactivateAt,
-              dueDate: saved.dueDate,
-            },
+            applyTaskToUniverseNode(
+              {
+                clientId: saved.clientId!,
+                clientName: saved.clientName ?? 'Cliente',
+                status: 'neutral',
+                taskId: null,
+                lastContactedAt: null,
+                nextReactivateAt: null,
+                dueDate: null,
+              },
+              saved
+            ),
             ...prev,
           ]
         }
@@ -130,6 +137,56 @@ export function TasksPageClient({
         showToast('Cliente segnato come sentito', 'success')
         refresh()
       } catch (error) {
+        showToast(error instanceof Error ? error.message : 'Operazione non riuscita', 'error')
+      }
+    })
+  }
+
+  const handleMarkNeedsContact = (node: UniverseClientNode) => {
+    const previousUniverse = universe
+    const previousTasks = tasks
+    // Optimistic: verde → rosso subito
+    markLocalDirty()
+    setUniverse((prev) =>
+      prev.map((n) =>
+        n.clientId === node.clientId
+          ? {
+              ...n,
+              status: 'red',
+              nextReactivateAt: null,
+              dueDate: todayDateOnlyRome(),
+            }
+          : n
+      )
+    )
+    if (node.taskId) {
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === node.taskId
+            ? {
+                ...t,
+                status: 'OPEN',
+                completedAt: null,
+                nextReactivateAt: null,
+                dueDate: todayDateOnlyRome(),
+              }
+            : t
+        )
+      )
+    }
+
+    startTransition(async () => {
+      try {
+        const saved = await markClientNeedsContact({
+          taskId: node.taskId ?? undefined,
+          clientId: node.clientId,
+        })
+        upsertTask(saved)
+        showToast('Cliente riportato da sentire', 'success')
+        refresh()
+      } catch (error) {
+        setUniverse(previousUniverse)
+        setTasks(previousTasks)
         showToast(error instanceof Error ? error.message : 'Operazione non riuscita', 'error')
       }
     })
@@ -184,6 +241,7 @@ export function TasksPageClient({
       <ClientUniverse
         nodes={universe}
         onMarkContacted={handleMarkContacted}
+        onMarkNeedsContact={handleMarkNeedsContact}
         onOpenTask={handleOpenTaskFromUniverse}
       />
 

@@ -82,14 +82,22 @@ select:focus-visible {
     text-wrap: balance;
   }
 
-  /* Solo form Task: icona calendario nativa bianca (non globale). */
+  /*
+   * Solo form Task: icona calendario bianca.
+   * color-scheme: dark rende già chiara l’icona nativa → NON usare filter: invert
+   * (invertirebbe di nuovo in nero). L’indicatore nativo resta cliccabile (area a destra)
+   * ma trasparente; l’icona Lucide CalendarDays sovrapposta è solo visuale.
+   */
   .task-date-input {
     color-scheme: dark;
   }
   .task-date-input::-webkit-calendar-picker-indicator {
+    position: absolute;
+    right: 0.5rem;
+    width: 1.75rem;
+    height: 1.75rem;
     cursor: pointer;
-    opacity: 1;
-    filter: invert(1) brightness(1.15);
+    opacity: 0;
   }
 }
 
