@@ -26,6 +26,7 @@ model User {
   workAssignees      WorkAssignee[]
   workComments       WorkComment[]
   completedWorkSteps WorkStep[] @relation("WorkStepCompletedBy")
+  dueDateChanges     WorkDueDateHistory[]
   todos              UserTodo[]
   preference         UserPreference?
   pedClientSettings  PedClientSetting[]
@@ -208,6 +209,8 @@ model Work {
   status          String   @default("TODO") // TODO, IN_PROGRESS, IN_REVIEW, WAITING_CLIENT, DONE, PAUSED, CANCELED
   priority        String?  // LOW, MEDIUM, HIGH
   startDate       DateTime?
+  /// Prima data di consegna impostata; non viene sovrascritta dalle riprogrammazioni.
+  originalDeadline DateTime?
   deadline        DateTime?
   assignedToUserId String?
   createdAt       DateTime @default(now())
@@ -220,6 +223,7 @@ model Work {
   steps           WorkStep[]
   comments        WorkComment[]
   pedItems        PedItem[]
+  dueDateHistory  WorkDueDateHistory[]
 
   @@index([deadline])
   @@index([startDate])
@@ -228,6 +232,26 @@ model Work {
   @@index([categoryId])
   @@index([assignedToUserId])
   @@map("works")
+}
+
+/// Storico delle modifiche alla data di consegna di un lavoro.
+model WorkDueDateHistory {
+  id                String   @id @default(cuid())
+  workId            String
+  previousDeadline  DateTime?
+  newDeadline       DateTime?
+  changedAt         DateTime @default(now())
+  changedByUserId   String
+  note              String?
+  /// true per la prima data di consegna registrata sul lavoro.
+  isOriginal        Boolean  @default(false)
+
+  work      Work @relation(fields: [workId], references: [id], onDelete: Cascade)
+  changedBy User @relation(fields: [changedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([workId, changedAt])
+  @@index([changedByUserId])
+  @@map("work_due_date_history")
 }
 
 model WorkAssignee {

@@ -12,11 +12,28 @@ import { deleteWork } from '@/app/actions/works'
 import { useRouter } from 'next/navigation'
 import { WorkStatusBadge } from './work-status-badge'
 import { WorkChecklistSection } from './work-checklist-section'
+import { WorkDueDateHistory } from './work-due-date-history'
 import { getWorkEffectiveStartDate } from '@/lib/timeline-dates'
 import type { CurrentUser } from '@/lib/auth-dev'
 
+type DueDateHistoryEntry = {
+  id: string
+  previousDeadline: Date | null
+  newDeadline: Date | null
+  changedAt: Date
+  isOriginal: boolean
+  note: string | null
+  changedBy: { id: string; name: string }
+}
+
 interface WorkDetailProps {
-  work: Work & { client: Client; category: Category; assignedTo?: User | null }
+  work: Work & {
+    client: Client
+    category: Category
+    assignedTo?: User | null
+    originalDeadline?: Date | null
+    dueDateHistory?: DueDateHistoryEntry[]
+  }
   clients: Client[]
   categories: Category[]
   users: User[]
@@ -158,6 +175,13 @@ export function WorkDetail({ work, clients, categories, users, currentUser, assi
             categoryName={work.category.name}
             canManage={canManage}
             canAdmin={canAdmin}
+          />
+        </div>
+
+        <div className="mt-6">
+          <WorkDueDateHistory
+            originalDeadline={work.originalDeadline ?? null}
+            history={work.dueDateHistory ?? []}
           />
         </div>
       </div>

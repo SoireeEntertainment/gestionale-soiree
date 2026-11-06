@@ -10,6 +10,7 @@ import { dateOnlyToDbDate, formatDateOnly } from '@/lib/timeline-dates'
 import { sendWorkAssignedEmail } from '@/lib/work-assignment-email'
 import { createDefaultWorkStepsForCategory } from '@/app/actions/work-steps'
 import { applyWorkDeadlineFilter } from '@/lib/work-deadline-filter'
+import { recordWorkDueDateChange } from '@/lib/work-due-date-history'
 
 function parseWorkDateField(value: string | undefined | null): Date | null {
   if (!value || typeof value !== 'string' || value.trim() === '') return null
@@ -109,12 +110,29 @@ export async function createWork(data: unknown) {
       ...workFields,
       startDate: startDateParsed,
       deadline: deadlineDate,
+      originalDeadline: deadlineDate,
     },
     include: {
       client: true,
       category: true,
     },
   })
+
+  if (deadlineDate) {
+    try {
+      await prisma.workDueDateHistory.create({
+        data: {
+          workId: work.id,
+          previousDeadline: null,
+          newDeadline: deadlineDate,
+          changedByUserId: user.id,
+          isOriginal: true,
+        },
+      })
+    } catch (historyErr) {
+      console.error('[createWork] due date history error', { workId: work.id, error: historyErr })
+    }
+  }
 
   const assigneeSet = new Set<string>(assigneeUserIds ?? [])
   if (workFields.assignedToUserId) assigneeSet.add(workFields.assignedToUserId)
@@ -222,6 +240,10 @@ export async function updateWork(id: string, data: unknown) {
   const { assigneeUserIds, startDate: _start, deadline: _deadline, ...workFields } = validated
 
   const previousAssigneeIds = await getCurrentAssigneeIdsForWork(id)
+  const previous = await prisma.work.findUnique({
+    where: { id },
+    select: { deadline: true },
+  })
 
   const work = await prisma.work.update({
     where: { id },
@@ -235,6 +257,17 @@ export async function updateWork(id: string, data: unknown) {
       category: true,
     },
   })
+
+  try {
+    await recordWorkDueDateChange({
+      workId: id,
+      previousDeadline: previous?.deadline ?? null,
+      newDeadline: deadlineDate,
+      changedByUserId: user.id,
+    })
+  } catch (historyErr) {
+    console.error('[updateWork] due date history error', { workId: id, error: historyErr })
+  }
 
   if (assigneeUserIds !== undefined) {
     await syncWorkAssignees(id, assigneeUserIds)
@@ -275,15 +308,31 @@ export async function updateWorkDates(
   if (!user || !canWrite(user)) throw new Error('Non autorizzato')
 
   const validated = updateWorkDatesSchema.parse(data)
+  const previous = await prisma.work.findUnique({
+    where: { id: workId },
+    select: { deadline: true },
+  })
+  const nextDeadline = dateOnlyToDbDate(validated.deadline)
 
   await prisma.work.update({
     where: { id: workId },
     data: {
       startDate: dateOnlyToDbDate(validated.startDate),
-      deadline: dateOnlyToDbDate(validated.deadline),
+      deadline: nextDeadline,
     },
     select: { id: true, startDate: true, deadline: true, clientId: true },
   })
+
+  try {
+    await recordWorkDueDateChange({
+      workId,
+      previousDeadline: previous?.deadline ?? null,
+      newDeadline: nextDeadline,
+      changedByUserId: user.id,
+    })
+  } catch (historyErr) {
+    console.error('[updateWorkDates] due date history error', { workId, error: historyErr })
+  }
 
   revalidatePath('/works')
   revalidatePath(`/works/${workId}`)
@@ -395,15 +444,18 @@ export async function getWork(id: string) {
   const user = await getCurrentUser()
   if (!user) throw new Error('Non autorizzato')
 
-  return unstable_cache(
-    async () =>
-      prisma.work.findUnique({
-        where: { id },
-        include: { client: true, category: true, assignedTo: true },
-      }),
-    ['work', id],
-    { revalidate: 60 }
-  )()
+  return prisma.work.findUnique({
+    where: { id },
+    include: {
+      client: true,
+      category: true,
+      assignedTo: true,
+      dueDateHistory: {
+        orderBy: [{ isOriginal: 'desc' }, { changedAt: 'asc' }],
+        include: { changedBy: { select: { id: true, name: true } } },
+      },
+    },
+  })
 }
 
 export async function getWorks(filters?: {

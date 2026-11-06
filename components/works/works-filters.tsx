@@ -27,6 +27,8 @@ interface WorksFiltersProps {
   categories: Category[]
   users: User[]
   filters: WorksFiltersState
+  /** Nasconde il filtro assegnatario (es. board già organizzata per persona). */
+  hideAssigneeFilter?: boolean
 }
 
 function FiltersFields({
@@ -35,12 +37,14 @@ function FiltersFields({
   users,
   filters,
   updateFilter,
+  hideAssigneeFilter = false,
 }: {
   clients: Client[]
   categories: Category[]
   users: User[]
   filters: WorksFiltersState
   updateFilter: (key: string, value: string) => void
+  hideAssigneeFilter?: boolean
 }) {
   const [clientDropdownOpen, setClientDropdownOpen] = useState(false)
   const [clientSearch, setClientSearch] = useState('')
@@ -210,26 +214,34 @@ function FiltersFields({
           <option value="IN_SCADENZA_7_GIORNI">In scadenza (7 giorni)</option>
         </select>
       </div>
-      <div>
-        <label className="block text-sm font-medium text-white mb-1">Assegnato a</label>
-        <select
-          value={filters.assignedUserId || ''}
-          onChange={(e) => updateFilter('assignedUserId', e.target.value)}
-          className="w-full px-3 py-2.5 md:py-2 bg-dark border border-accent/20 rounded-md text-white text-sm focus:outline-none focus:ring-2 focus:ring-accent min-h-[44px]"
-        >
-          <option value="">Tutti</option>
-          {users.map((user) => (
-            <option key={user.id} value={user.id}>
-              {user.name}
-            </option>
-          ))}
-        </select>
-      </div>
+      {!hideAssigneeFilter && (
+        <div>
+          <label className="block text-sm font-medium text-white mb-1">Assegnato a</label>
+          <select
+            value={filters.assignedUserId || ''}
+            onChange={(e) => updateFilter('assignedUserId', e.target.value)}
+            className="w-full px-3 py-2.5 md:py-2 bg-dark border border-accent/20 rounded-md text-white text-sm focus:outline-none focus:ring-2 focus:ring-accent min-h-[44px]"
+          >
+            <option value="">Tutti</option>
+            {users.map((user) => (
+              <option key={user.id} value={user.id}>
+                {user.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
     </>
   )
 }
 
-export function WorksFilters({ clients, categories, users, filters }: WorksFiltersProps) {
+export function WorksFilters({
+  clients,
+  categories,
+  users,
+  filters,
+  hideAssigneeFilter = false,
+}: WorksFiltersProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)
@@ -245,9 +257,9 @@ export function WorksFilters({ clients, categories, users, filters }: WorksFilte
     if (filters.categoryId) n++
     if (filters.status) n++
     if (filters.deadlineFilter && filters.deadlineFilter !== 'TUTTI') n++
-    if (filters.assignedUserId) n++
+    if (!hideAssigneeFilter && filters.assignedUserId) n++
     return n
-  }, [filters])
+  }, [filters, hideAssigneeFilter])
 
   const updateFilter = (key: string, value: string) => {
     const params = new URLSearchParams(searchParams.toString())
@@ -312,6 +324,7 @@ export function WorksFilters({ clients, categories, users, filters }: WorksFilte
                 users={users}
                 filters={filters}
                 updateFilter={updateFilter}
+                hideAssigneeFilter={hideAssigneeFilter}
               />
             </div>
             <Button className="mt-5 w-full min-h-[48px]" onClick={() => setMobileFiltersOpen(false)}>
@@ -322,13 +335,16 @@ export function WorksFilters({ clients, categories, users, filters }: WorksFilte
       </Dialog>
 
       <div className="hidden md:block bg-dark border border-accent/20 rounded-lg p-4 mb-4">
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+        <div
+          className={`grid grid-cols-1 gap-4 ${hideAssigneeFilter ? 'md:grid-cols-4' : 'md:grid-cols-5'}`}
+        >
           <FiltersFields
             clients={clients}
             categories={categories}
             users={users}
             filters={filters}
             updateFilter={updateFilter}
+            hideAssigneeFilter={hideAssigneeFilter}
           />
         </div>
       </div>
