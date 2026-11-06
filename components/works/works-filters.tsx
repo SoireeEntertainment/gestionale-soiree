@@ -20,6 +20,7 @@ export type WorksFiltersState = {
   status?: string
   deadlineFilter?: string
   assignedUserId?: string
+  q?: string
 }
 
 interface WorksFiltersProps {
@@ -29,6 +30,11 @@ interface WorksFiltersProps {
   filters: WorksFiltersState
   /** Nasconde il filtro assegnatario (es. board già organizzata per persona). */
   hideAssigneeFilter?: boolean
+  hideStatusFilter?: boolean
+  hideDeadlineFilter?: boolean
+  showTitleSearch?: boolean
+  /** Path base per i filtri (default /works). */
+  basePath?: string
 }
 
 function FiltersFields({
@@ -38,6 +44,9 @@ function FiltersFields({
   filters,
   updateFilter,
   hideAssigneeFilter = false,
+  hideStatusFilter = false,
+  hideDeadlineFilter = false,
+  showTitleSearch = false,
 }: {
   clients: Client[]
   categories: Category[]
@@ -45,6 +54,9 @@ function FiltersFields({
   filters: WorksFiltersState
   updateFilter: (key: string, value: string) => void
   hideAssigneeFilter?: boolean
+  hideStatusFilter?: boolean
+  hideDeadlineFilter?: boolean
+  showTitleSearch?: boolean
 }) {
   const [clientDropdownOpen, setClientDropdownOpen] = useState(false)
   const [clientSearch, setClientSearch] = useState('')
@@ -187,33 +199,37 @@ function FiltersFields({
           ))}
         </select>
       </div>
-      <div>
-        <label className="block text-sm font-medium text-white mb-1">Stato</label>
-        <select
-          value={filters.status || ''}
-          onChange={(e) => updateFilter('status', e.target.value)}
-          className="w-full px-3 py-2.5 md:py-2 bg-dark border border-accent/20 rounded-md text-white text-sm focus:outline-none focus:ring-2 focus:ring-accent min-h-[44px]"
-        >
-          <option value="">Tutti</option>
-          {Object.entries(WORK_STATUS_META).map(([value, meta]) => (
-            <option key={value} value={value}>
-              {meta.label}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-white mb-1">Scadenza</label>
-        <select
-          value={filters.deadlineFilter || 'TUTTI'}
-          onChange={(e) => updateFilter('deadlineFilter', e.target.value)}
-          className="w-full px-3 py-2.5 md:py-2 bg-dark border border-accent/20 rounded-md text-white text-sm focus:outline-none focus:ring-2 focus:ring-accent min-h-[44px]"
-        >
-          <option value="TUTTI">Tutti</option>
-          <option value="SCADUTI">Scaduti</option>
-          <option value="IN_SCADENZA_7_GIORNI">In scadenza (7 giorni)</option>
-        </select>
-      </div>
+      {!hideStatusFilter && (
+        <div>
+          <label className="block text-sm font-medium text-white mb-1">Stato</label>
+          <select
+            value={filters.status || ''}
+            onChange={(e) => updateFilter('status', e.target.value)}
+            className="w-full px-3 py-2.5 md:py-2 bg-dark border border-accent/20 rounded-md text-white text-sm focus:outline-none focus:ring-2 focus:ring-accent min-h-[44px]"
+          >
+            <option value="">Tutti</option>
+            {Object.entries(WORK_STATUS_META).map(([value, meta]) => (
+              <option key={value} value={value}>
+                {meta.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+      {!hideDeadlineFilter && (
+        <div>
+          <label className="block text-sm font-medium text-white mb-1">Scadenza</label>
+          <select
+            value={filters.deadlineFilter || 'TUTTI'}
+            onChange={(e) => updateFilter('deadlineFilter', e.target.value)}
+            className="w-full px-3 py-2.5 md:py-2 bg-dark border border-accent/20 rounded-md text-white text-sm focus:outline-none focus:ring-2 focus:ring-accent min-h-[44px]"
+          >
+            <option value="TUTTI">Tutti</option>
+            <option value="SCADUTI">Scaduti</option>
+            <option value="IN_SCADENZA_7_GIORNI">In scadenza (7 giorni)</option>
+          </select>
+        </div>
+      )}
       {!hideAssigneeFilter && (
         <div>
           <label className="block text-sm font-medium text-white mb-1">Assegnato a</label>
@@ -231,6 +247,18 @@ function FiltersFields({
           </select>
         </div>
       )}
+      {showTitleSearch && (
+        <div>
+          <label className="block text-sm font-medium text-white mb-1">Cerca titolo</label>
+          <input
+            type="search"
+            value={filters.q || ''}
+            onChange={(e) => updateFilter('q', e.target.value)}
+            placeholder="Titolo lavoro…"
+            className="w-full px-3 py-2.5 md:py-2 bg-dark border border-accent/20 rounded-md text-white text-sm focus:outline-none focus:ring-2 focus:ring-accent min-h-[44px]"
+          />
+        </div>
+      )}
     </>
   )
 }
@@ -241,6 +269,10 @@ export function WorksFilters({
   users,
   filters,
   hideAssigneeFilter = false,
+  hideStatusFilter = false,
+  hideDeadlineFilter = false,
+  showTitleSearch = false,
+  basePath = '/works',
 }: WorksFiltersProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -255,18 +287,27 @@ export function WorksFilters({
     let n = 0
     if (filters.clientId) n++
     if (filters.categoryId) n++
-    if (filters.status) n++
-    if (filters.deadlineFilter && filters.deadlineFilter !== 'TUTTI') n++
+    if (!hideStatusFilter && filters.status) n++
+    if (!hideDeadlineFilter && filters.deadlineFilter && filters.deadlineFilter !== 'TUTTI') n++
     if (!hideAssigneeFilter && filters.assignedUserId) n++
+    if (showTitleSearch && filters.q) n++
     return n
-  }, [filters, hideAssigneeFilter])
+  }, [filters, hideAssigneeFilter, hideStatusFilter, hideDeadlineFilter, showTitleSearch])
 
   const updateFilter = (key: string, value: string) => {
     const params = new URLSearchParams(searchParams.toString())
     if (value && value !== 'TUTTI') params.set(key, value)
     else params.delete(key)
+
+    // Filtro Stato = Fatto → passa automaticamente all'Archivio
+    if (key === 'status' && value === 'DONE') {
+      params.set('view', 'archive')
+      params.delete('status')
+    }
+
+    const qs = params.toString()
     startTransition(() => {
-      router.replace(`/works?${params.toString()}`, { scroll: false })
+      router.replace(qs ? `${basePath}?${qs}` : basePath, { scroll: false })
     })
   }
 
@@ -325,6 +366,9 @@ export function WorksFilters({
                 filters={filters}
                 updateFilter={updateFilter}
                 hideAssigneeFilter={hideAssigneeFilter}
+                hideStatusFilter={hideStatusFilter}
+                hideDeadlineFilter={hideDeadlineFilter}
+                showTitleSearch={showTitleSearch}
               />
             </div>
             <Button className="mt-5 w-full min-h-[48px]" onClick={() => setMobileFiltersOpen(false)}>
@@ -335,9 +379,7 @@ export function WorksFilters({
       </Dialog>
 
       <div className="hidden md:block bg-dark border border-accent/20 rounded-lg p-4 mb-4">
-        <div
-          className={`grid grid-cols-1 gap-4 ${hideAssigneeFilter ? 'md:grid-cols-4' : 'md:grid-cols-5'}`}
-        >
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
           <FiltersFields
             clients={clients}
             categories={categories}
@@ -345,6 +387,9 @@ export function WorksFilters({
             filters={filters}
             updateFilter={updateFilter}
             hideAssigneeFilter={hideAssigneeFilter}
+            hideStatusFilter={hideStatusFilter}
+            hideDeadlineFilter={hideDeadlineFilter}
+            showTitleSearch={showTitleSearch}
           />
         </div>
       </div>

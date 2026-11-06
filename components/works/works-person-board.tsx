@@ -15,10 +15,11 @@ import {
   type DragStartEvent,
 } from '@dnd-kit/core'
 import type { BoardWorkCard } from '@/lib/works-board'
-import { BOARD_EASE, sortBoardWorksByDeadline } from '@/lib/works-board'
+import { BOARD_EASE, computeIsOverdue, sortBoardWorksByDeadline } from '@/lib/works-board'
 import type { WorksBoardColumn, WorksBoardData } from '@/app/actions/works-board'
 import { reassignWorkOnBoard } from '@/app/actions/works-board'
 import { DraggableWorkBoardCard, WorkBoardCardContent } from '@/components/works/work-board-card'
+import { WorkRescheduleDialog } from '@/components/works/work-reschedule-dialog'
 import { showToast } from '@/lib/toast'
 import { cn } from '@/lib/utils'
 
@@ -27,11 +28,13 @@ function PersonColumn({
   canEdit,
   returnTo,
   isOver,
+  onReschedule,
 }: {
   column: WorksBoardColumn
   canEdit: boolean
   returnTo: string
   isOver: boolean
+  onReschedule?: (work: BoardWorkCard) => void
 }) {
   const { setNodeRef } = useDroppable({ id: column.userId, data: { userId: column.userId } })
 
@@ -71,6 +74,7 @@ function PersonColumn({
               columnId={column.userId}
               href={`/works/${work.id}?returnTo=${encodeURIComponent(returnTo)}`}
               disabled={!canEdit}
+              onReschedule={canEdit ? onReschedule : undefined}
             />
           ))
         )}
@@ -92,6 +96,7 @@ export function WorksPersonBoard({
   const [data, setData] = useState(initialData)
   const [activeWork, setActiveWork] = useState<BoardWorkCard | null>(null)
   const [overColumnId, setOverColumnId] = useState<string | null>(null)
+  const [rescheduleWork, setRescheduleWork] = useState<BoardWorkCard | null>(null)
   const [isPending, startTransition] = useTransition()
 
   useEffect(() => {
@@ -103,6 +108,23 @@ export function WorksPersonBoard({
       activationConstraint: { distance: 6 },
     })
   )
+
+  const applyDeadlineLocally = (workId: string, deadline: string | null) => {
+    setData((prev) => {
+      const patch = (work: BoardWorkCard): BoardWorkCard =>
+        work.id === workId
+          ? { ...work, deadline, isOverdue: computeIsOverdue(deadline, work.status) }
+          : work
+      return {
+        ...prev,
+        columns: prev.columns.map((column) => {
+          const works = sortBoardWorksByDeadline(column.works.map(patch))
+          return { ...column, works, count: works.length }
+        }),
+        unassigned: sortBoardWorksByDeadline(prev.unassigned.map(patch)),
+      }
+    })
+  }
 
   const onDragStart = (event: DragStartEvent) => {
     const work = event.active.data.current?.work as BoardWorkCard | undefined
@@ -127,7 +149,6 @@ export function WorksPersonBoard({
     const targetColumn = data.columns.find((c) => c.userId === overId)
     if (!targetColumn) return
     if (fromUserId === targetColumn.userId) return
-
     if (!fromUserId) return
 
     const previous = data
@@ -156,10 +177,13 @@ export function WorksPersonBoard({
           } else {
             works = sortBoardWorksByDeadline(works)
           }
+        } else {
+          works = sortBoardWorksByDeadline(works)
         }
         return { ...column, works, count: works.length }
       })
       return {
+        ...prev,
         columns,
         unassigned: prev.unassigned.filter((w) => w.id !== workId),
       }
@@ -201,6 +225,7 @@ export function WorksPersonBoard({
               canEdit={canEdit}
               returnTo={returnTo}
               isOver={overColumnId === column.userId}
+              onReschedule={setRescheduleWork}
             />
           ))}
         </div>
@@ -221,11 +246,24 @@ export function WorksPersonBoard({
                 key={work.id}
                 work={work}
                 href={`/works/${work.id}?returnTo=${encodeURIComponent(returnTo)}`}
+                onReschedule={canEdit ? setRescheduleWork : undefined}
               />
             ))}
           </div>
         </section>
       )}
+
+      <WorkRescheduleDialog
+        work={rescheduleWork}
+        open={!!rescheduleWork}
+        onOpenChange={(open) => {
+          if (!open) setRescheduleWork(null)
+        }}
+        onSaved={(workId, deadline) => {
+          applyDeadlineLocally(workId, deadline)
+          router.refresh()
+        }}
+      />
     </div>
   )
 }
