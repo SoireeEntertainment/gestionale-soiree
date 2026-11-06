@@ -128,20 +128,35 @@ export function WorksPersonBoard({
     if (!targetColumn) return
     if (fromUserId === targetColumn.userId) return
 
+    if (!fromUserId) return
+
     const previous = data
+    const nextAssigneeIds = [
+      ...new Set(
+        [...work.assigneeUserIds.filter((id) => id !== fromUserId), targetColumn.userId].filter(Boolean)
+      ),
+    ]
     const moved: BoardWorkCard = {
       ...work,
-      assignedToUserId: targetColumn.userId,
-      assigneeUserIds: [targetColumn.userId],
+      assignedToUserId:
+        work.assignedToUserId === fromUserId || !work.assignedToUserId
+          ? targetColumn.userId
+          : work.assignedToUserId,
+      assigneeUserIds: nextAssigneeIds,
     }
 
     setData((prev) => {
       const columns = prev.columns.map((column) => {
-        const without = column.works.filter((w) => w.id !== workId)
-        if (column.userId !== targetColumn.userId) {
-          return { ...column, works: without, count: without.length }
+        let works = column.works.map((item) => (item.id === workId ? moved : item))
+        if (column.userId === fromUserId) {
+          works = works.filter((item) => item.id !== workId)
+        } else if (column.userId === targetColumn.userId) {
+          if (!works.some((item) => item.id === workId)) {
+            works = sortBoardWorksByDeadline([...works, moved])
+          } else {
+            works = sortBoardWorksByDeadline(works)
+          }
         }
-        const works = sortBoardWorksByDeadline([...without, moved])
         return { ...column, works, count: works.length }
       })
       return {
@@ -152,7 +167,11 @@ export function WorksPersonBoard({
 
     startTransition(async () => {
       try {
-        await reassignWorkOnBoard({ workId, toUserId: targetColumn.userId })
+        await reassignWorkOnBoard({
+          workId,
+          fromUserId,
+          toUserId: targetColumn.userId,
+        })
         router.refresh()
       } catch (error) {
         setData(previous)
