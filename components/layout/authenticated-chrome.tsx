@@ -4,6 +4,7 @@ import { AuthTransientError, getCurrentUser } from '@/lib/auth-dev'
 import { isDatabaseError } from '@/lib/auth-classification'
 import { NavbarWithAuth } from '@/components/layout/navbar-with-auth'
 import { AssistantFloatingHost } from '@/components/assistant/assistant-floating-host'
+import { isAssistantV2Enabled } from '@/lib/assistant-v2/config'
 
 /**
  * Shell per aree autenticate: navbar + contenuto + assistente flottante (solo se sessione valida).
@@ -20,11 +21,13 @@ export async function AuthenticatedChrome({ children }: { children: React.ReactN
     throw err
   }
 
+  const useV2 = isAssistantV2Enabled()
+
   return (
     <>
       <NavbarWithAuth />
       <div className="pb-[calc(96px+env(safe-area-inset-bottom))] md:pb-0">{children}</div>
-      {user ? <AssistantFloatingHost /> : null}
+      {user ? <AssistantFloatingHost useV2={useV2} /> : null}
     </>
   )
 }

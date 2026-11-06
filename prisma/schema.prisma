@@ -68,6 +68,7 @@ model ChatMessage {
   thread ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
 
   @@index([threadId])
+  @@index([threadId, createdAt])
   @@map("chat_messages")
 }
 
@@ -88,7 +89,31 @@ model AssistantActionLog {
 
   @@index([userId])
   @@index([threadId])
+  @@index([createdAt])
   @@map("assistant_action_logs")
+}
+
+/// Pending write actions for Assistant V2 (TTL + idempotency + atomic claim).
+model AssistantPendingAction {
+  id             String    @id @default(cuid())
+  userId         String
+  threadId       String
+  messageId      String?
+  toolName       String
+  payload        Json
+  payloadHash    String
+  preview        Json
+  status         String    @default("pending") // pending | confirmed | cancelled | expired | executed
+  idempotencyKey String    @unique
+  expiresAt      DateTime
+  executedAt     DateTime?
+  result         Json?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([userId, threadId, status])
+  @@index([expiresAt])
+  @@map("assistant_pending_actions")
 }
 
 model Client {

@@ -3,10 +3,11 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { X } from 'lucide-react'
 import { AssistantPanel } from '@/components/assistant/assistant-panel'
+import { AssistantPanelV2 } from '@/components/assistant/assistant-panel-v2'
 import { useAssistantUiStore } from '@/lib/stores/assistant-ui-store'
 import { cn } from '@/lib/utils'
 
-export function AssistantDrawer() {
+export function AssistantDrawer({ useV2 = false }: { useV2?: boolean }) {
   const isOpen = useAssistantUiStore((s) => s.isOpen)
   const closeAssistant = useAssistantUiStore((s) => s.closeAssistant)
 
@@ -19,7 +20,6 @@ export function AssistantDrawer() {
           className={cn(
             'fixed z-[101] flex flex-col overflow-hidden bg-[#0e1116] outline-none',
             'border border-white/[0.08] shadow-[0_25px_80px_-12px_rgba(0,0,0,0.7)]',
-            // Mobile: quasi fullscreen sopra la bottom nav
             'inset-0 max-h-[100dvh] rounded-none border-0',
             'md:inset-auto md:bottom-6 md:right-6 md:left-auto md:top-auto',
             'md:h-[min(84vh,912px)] md:max-h-[88vh] md:w-[min(504px,calc(100vw-3rem))]',
@@ -36,9 +36,11 @@ export function AssistantDrawer() {
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <DialogPrimitive.Title className="text-[15px] font-semibold tracking-tight text-white">
-                  Assistente
+                  {useV2 ? 'Assistente Soirëe' : 'Assistente'}
                 </DialogPrimitive.Title>
-                <p className="mt-0.5 text-xs leading-relaxed text-white/45">Come posso aiutarti oggi?</p>
+                <p className="mt-0.5 text-xs leading-relaxed text-white/45">
+                  {useV2 ? 'AI operativa · conferma prima delle modifiche' : 'Come posso aiutarti oggi?'}
+                </p>
               </div>
               <DialogPrimitive.Close
                 type="button"
@@ -51,7 +53,7 @@ export function AssistantDrawer() {
           </header>
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <AssistantPanel embedded />
+            {useV2 ? <AssistantPanelV2 embedded /> : <AssistantPanel embedded />}
           </div>
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>

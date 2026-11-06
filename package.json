@@ -14,6 +14,7 @@
     "test:auth": "node --import tsx --test lib/auth-classification.test.ts",
     "test:works": "node --import tsx --test lib/work-assignee-reassign.test.ts lib/work-due-date-history.test.ts lib/works-board.test.ts",
     "test:tasks": "node --import tsx --test lib/daily-tasks.test.ts",
+    "test:assistant": "node --import tsx --test lib/assistant-v2/*.test.ts",
     "clean": "rm -rf .next",
     "clean:dot": "find node_modules -name '._*' -type f -delete 2>/dev/null || true",
     "clean:full": "rm -rf .next node_modules && npm install",
@@ -27,6 +28,7 @@
     "assistant:parse-smoke": "tsx scripts/assistant-parse-smoke.ts"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^1.3.22",
     "@clerk/nextjs": "5.7.6",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/utilities": "^3.2.2",
@@ -37,6 +39,7 @@
     "@radix-ui/react-select": "^2.2.6",
     "@radix-ui/react-toast": "^1.2.15",
     "@vercel/blob": "^2.3.3",
+    "ai": "^4.3.19",
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",
     "googleapis": "^169.0.0",

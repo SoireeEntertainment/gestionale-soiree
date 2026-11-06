@@ -12,7 +12,7 @@ const AssistantDrawer = dynamic(
   { ssr: false }
 )
 
-export function AssistantFloatingHost() {
+export function AssistantFloatingHost({ useV2 = false }: { useV2?: boolean }) {
   const pathname = usePathname()
   const isOpen = useAssistantUiStore((s) => s.isOpen)
   const openAssistant = useAssistantUiStore((s) => s.openAssistant)
@@ -27,12 +27,12 @@ export function AssistantFloatingHost() {
 
   return (
     <>
-      {isOpen ? <AssistantDrawer /> : null}
+      {isOpen ? <AssistantDrawer useV2={useV2} /> : null}
       {showFab ? (
         <button
           type="button"
           onClick={() => openAssistant()}
-          title="Assistente"
+          title={useV2 ? 'Assistente Soirëe V2' : 'Assistente'}
           aria-label="Apri assistente"
           className={cn(
             'fixed right-6 z-[102] flex h-14 w-14 items-center justify-center rounded-full',

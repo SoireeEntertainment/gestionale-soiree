@@ -50,6 +50,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       quickLinks: Array.isArray(meta?.quickLinks)
         ? (meta.quickLinks as { label: string; href: string }[])
         : undefined,
+      cards: Array.isArray(meta?.cards) ? meta.cards : undefined,
+      toolTrace: Array.isArray(meta?.toolTrace) ? meta.toolTrace : undefined,
     }
   })
 
