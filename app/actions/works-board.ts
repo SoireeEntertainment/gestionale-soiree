@@ -5,10 +5,13 @@ import { z } from 'zod'
 import { getCurrentUser, canWrite } from '@/lib/auth-dev'
 import { prisma } from '@/lib/prisma'
 import { applyWorkDeadlineFilter } from '@/lib/work-deadline-filter'
-import { formatDateOnly } from '@/lib/timeline-dates'
+import { dateOnlyToDbDate, dbDateToDateOnly, todayDateOnlyRome } from '@/lib/timeline-dates'
 import {
+  computeIsOverdue,
   matchBoardTeamUser,
+  sortArchiveWorks,
   sortBoardWorksByDeadline,
+  type ArchiveWorkCard,
   type BoardWorkCard,
   WORKS_STATUS_BOARD_COLUMNS,
 } from '@/lib/works-board'
@@ -21,12 +24,15 @@ import {
   uniqueUserIds,
 } from '@/lib/work-assignee-reassign'
 import { sendWorkAssignedEmail } from '@/lib/work-assignment-email'
+import { applyDeadlineChangeInTransaction } from '@/lib/work-due-date-history'
 
 const boardFiltersSchema = z.object({
   clientId: z.string().optional(),
   categoryId: z.string().optional(),
   status: z.string().optional(),
   deadlineFilter: z.enum(['SCADUTI', 'IN_SCADENZA_7_GIORNI', 'TUTTI']).optional(),
+  assignedUserId: z.string().optional(),
+  q: z.string().optional(),
 })
 
 export type WorksBoardColumn = {
@@ -42,6 +48,8 @@ export type WorksBoardColumn = {
 export type WorksBoardData = {
   columns: WorksBoardColumn[]
   unassigned: BoardWorkCard[]
+  activeCount: number
+  archiveCount: number
 }
 
 function toBoardCard(work: {
@@ -56,10 +64,9 @@ function toBoardCard(work: {
   category: { id: string; name: string }
   assignees: { userId: string }[]
 }): BoardWorkCard {
-  const today = formatDateOnly(new Date())
-  const deadline = work.deadline ? formatDateOnly(work.deadline) : null
+  const today = todayDateOnlyRome()
+  const deadline = work.deadline ? dbDateToDateOnly(work.deadline) : null
   const status = normalizeWorkStatus(work.status) ?? work.status
-  const isOverdue = !!deadline && deadline < today && status !== 'DONE' && status !== 'CANCELED'
   return {
     id: work.id,
     title: work.title,
@@ -77,33 +84,72 @@ function toBoardCard(work: {
         )
       ),
     ],
-    isOverdue,
+    isOverdue: computeIsOverdue(deadline, status, today),
   }
 }
 
-async function loadBoardWorks(filters?: z.infer<typeof boardFiltersSchema>) {
+function toArchiveCard(
+  work: {
+    id: string
+    title: string
+    status: string
+    deadline: Date | null
+    clientId: string
+    categoryId: string
+    assignedToUserId: string | null
+    client: { id: string; name: string }
+    category: { id: string; name: string }
+    assignees: { userId: string; user?: { name: string } | null }[]
+  },
+  nameById: Map<string, string>
+): ArchiveWorkCard {
+  const base = toBoardCard(work)
+  const ids = base.assigneeUserIds
+  const assigneeNames = ids
+    .map((id) => nameById.get(id) ?? work.assignees.find((a) => a.userId === id)?.user?.name ?? '')
+    .filter(Boolean)
+  return { ...base, assigneeNames }
+}
+
+const boardWorkSelect = {
+  id: true,
+  title: true,
+  status: true,
+  deadline: true,
+  clientId: true,
+  categoryId: true,
+  assignedToUserId: true,
+  client: { select: { id: true, name: true } },
+  category: { select: { id: true, name: true } },
+  assignees: { select: { userId: true } },
+} as const
+
+async function countWorksByBucket() {
+  const [activeCount, archiveCount] = await Promise.all([
+    prisma.work.count({
+      where: { status: { notIn: ['DONE', 'CANCELED'] } },
+    }),
+    prisma.work.count({
+      where: { status: 'DONE' },
+    }),
+  ])
+  return { activeCount, archiveCount }
+}
+
+async function loadActiveBoardWorks(filters?: z.infer<typeof boardFiltersSchema>) {
   const where: Record<string, unknown> = {
-    status: { not: 'CANCELED' },
+    status: { notIn: ['DONE', 'CANCELED'] },
   }
   if (filters?.clientId) where.clientId = filters.clientId
   if (filters?.categoryId) where.categoryId = filters.categoryId
-  if (filters?.status) where.status = filters.status
+  if (filters?.status && filters.status !== 'DONE' && filters.status !== 'CANCELED') {
+    where.status = filters.status
+  }
   applyWorkDeadlineFilter(where, filters?.deadlineFilter)
 
   return prisma.work.findMany({
     where,
-    select: {
-      id: true,
-      title: true,
-      status: true,
-      deadline: true,
-      clientId: true,
-      categoryId: true,
-      assignedToUserId: true,
-      client: { select: { id: true, name: true } },
-      category: { select: { id: true, name: true } },
-      assignees: { select: { userId: true } },
-    },
+    select: boardWorkSelect,
     orderBy: [{ deadline: { sort: 'asc', nulls: 'last' } }, { title: 'asc' }],
   })
 }
@@ -115,7 +161,11 @@ export async function getWorksPersonBoard(
   if (!user) throw new Error('Non autorizzato')
 
   const parsed = boardFiltersSchema.parse(filters ?? {})
-  const [users, works] = await Promise.all([getUsers(), loadBoardWorks(parsed)])
+  const [users, works, counts] = await Promise.all([
+    getUsers(),
+    loadActiveBoardWorks(parsed),
+    countWorksByBucket(),
+  ])
   const team = matchBoardTeamUser(users)
   const teamIds = new Set(team.map((t) => t.userId))
   const cards = works.map(toBoardCard)
@@ -147,7 +197,44 @@ export async function getWorksPersonBoard(
     })
   )
 
-  return { columns, unassigned }
+  return { columns, unassigned, ...counts }
+}
+
+export async function getWorksArchive(
+  filters?: z.infer<typeof boardFiltersSchema>
+): Promise<{ works: ArchiveWorkCard[]; activeCount: number; archiveCount: number }> {
+  const user = await getCurrentUser()
+  if (!user) throw new Error('Non autorizzato')
+
+  const parsed = boardFiltersSchema.parse(filters ?? {})
+  const where: Record<string, unknown> = { status: 'DONE' }
+  if (parsed.clientId) where.clientId = parsed.clientId
+  if (parsed.categoryId) where.categoryId = parsed.categoryId
+  if (parsed.assignedUserId) {
+    where.OR = [
+      { assignedToUserId: parsed.assignedUserId },
+      { assignees: { some: { userId: parsed.assignedUserId } } },
+    ]
+  }
+  if (parsed.q?.trim()) {
+    where.title = { contains: parsed.q.trim(), mode: 'insensitive' }
+  }
+
+  const [works, users, counts] = await Promise.all([
+    prisma.work.findMany({
+      where,
+      select: {
+        ...boardWorkSelect,
+        assignees: { select: { userId: true, user: { select: { name: true } } } },
+      },
+    }),
+    getUsers(),
+    countWorksByBucket(),
+  ])
+
+  const nameById = new Map(users.map((u) => [u.id, u.name]))
+  const cards = sortArchiveWorks(works.map((w) => toArchiveCard(w, nameById)))
+  return { works: cards, ...counts }
 }
 
 export async function getWorksStatusBoardForUser(
@@ -166,29 +253,28 @@ export async function getWorksStatusBoardForUser(
   if (!boardUser) throw new Error('Utente non trovato')
 
   const where: Record<string, unknown> = {
-    status: { not: 'CANCELED' },
+    status: { notIn: ['DONE', 'CANCELED'] },
     OR: [{ assignedToUserId: userId }, { assignees: { some: { userId } } }],
   }
   if (parsed.clientId) where.clientId = parsed.clientId
   if (parsed.categoryId) where.categoryId = parsed.categoryId
-  if (parsed.status) where.status = parsed.status
+  if (parsed.status && parsed.status !== 'DONE' && parsed.status !== 'CANCELED') {
+    where.status = parsed.status
+  }
   applyWorkDeadlineFilter(where, parsed.deadlineFilter)
 
-  const works = await prisma.work.findMany({
-    where,
-    select: {
-      id: true,
-      title: true,
-      status: true,
-      deadline: true,
-      clientId: true,
-      categoryId: true,
-      assignedToUserId: true,
-      client: { select: { id: true, name: true } },
-      category: { select: { id: true, name: true } },
-      assignees: { select: { userId: true } },
-    },
-  })
+  const [works, archiveCount] = await Promise.all([
+    prisma.work.findMany({
+      where,
+      select: boardWorkSelect,
+    }),
+    prisma.work.count({
+      where: {
+        status: 'DONE',
+        OR: [{ assignedToUserId: userId }, { assignees: { some: { userId } } }],
+      },
+    }),
+  ])
 
   const cards = sortBoardWorksByDeadline(works.map(toBoardCard))
   const columns = WORKS_STATUS_BOARD_COLUMNS.map((status) => {
@@ -206,13 +292,55 @@ export async function getWorksStatusBoardForUser(
     user: boardUser,
     total: cards.length,
     overdueCount,
+    archiveCount,
     columns,
     summary: {
       todo: columns.find((c) => c.status === 'TODO')?.count ?? 0,
       inReview: columns.find((c) => c.status === 'IN_REVIEW')?.count ?? 0,
-      done: columns.find((c) => c.status === 'DONE')?.count ?? 0,
+      done: archiveCount,
     },
   }
+}
+
+export async function getWorksArchiveForUser(
+  userId: string,
+  filters?: z.infer<typeof boardFiltersSchema>
+): Promise<{ works: ArchiveWorkCard[]; activeCount: number; archiveCount: number }> {
+  const user = await getCurrentUser()
+  if (!user) throw new Error('Non autorizzato')
+  if (!userId) throw new Error('Utente non valido')
+
+  const parsed = boardFiltersSchema.parse(filters ?? {})
+  const where: Record<string, unknown> = {
+    status: 'DONE',
+    OR: [{ assignedToUserId: userId }, { assignees: { some: { userId } } }],
+  }
+  if (parsed.clientId) where.clientId = parsed.clientId
+  if (parsed.categoryId) where.categoryId = parsed.categoryId
+  if (parsed.q?.trim()) {
+    where.title = { contains: parsed.q.trim(), mode: 'insensitive' }
+  }
+
+  const [works, users, activeCount] = await Promise.all([
+    prisma.work.findMany({
+      where,
+      select: {
+        ...boardWorkSelect,
+        assignees: { select: { userId: true, user: { select: { name: true } } } },
+      },
+    }),
+    getUsers(),
+    prisma.work.count({
+      where: {
+        status: { notIn: ['DONE', 'CANCELED'] },
+        OR: [{ assignedToUserId: userId }, { assignees: { some: { userId } } }],
+      },
+    }),
+  ])
+
+  const nameById = new Map(users.map((u) => [u.id, u.name]))
+  const cards = sortArchiveWorks(works.map((w) => toArchiveCard(w, nameById)))
+  return { works: cards, activeCount, archiveCount: cards.length }
 }
 
 const reassignSchema = z.object({
@@ -281,7 +409,6 @@ export async function reassignWorkOnBoard(input: unknown) {
         data: { workId, userId: toUserId, role: 'ASSIGNEE' },
       })
     }
-    // Allinea la tabella assignees al set calcolato (no duplicati, coerenza primaria).
     const existing = await tx.workAssignee.findMany({
       where: { workId },
       select: { userId: true },
@@ -348,14 +475,106 @@ export async function moveWorkStatusOnBoard(input: unknown) {
   const updated = await prisma.work.update({
     where: { id: workId },
     data: { status },
-    select: { id: true, assignedToUserId: true, clientId: true },
+    select: { id: true, assignedToUserId: true, clientId: true, assignees: { select: { userId: true } } },
   })
 
   revalidatePath('/works')
   if (updated.assignedToUserId) revalidatePath(`/works/person/${updated.assignedToUserId}`)
+  for (const a of updated.assignees) {
+    revalidatePath(`/works/person/${a.userId}`)
+  }
   revalidatePath(`/works/${updated.id}`)
   revalidatePath('/ped')
   revalidatePath('/profilo')
   revalidatePath(`/clients/${updated.clientId}`)
+  return { success: true as const, archived: status === 'DONE' }
+}
+
+const rescheduleSchema = z.object({
+  workId: z.string().min(1),
+  deadline: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  note: z.string().max(2000).optional().nullable(),
+})
+
+export async function rescheduleWorkDeadline(input: unknown) {
+  const user = await getCurrentUser()
+  if (!user || !canWrite(user)) throw new Error('Non autorizzato')
+
+  const parsed = rescheduleSchema.parse(input)
+  const newDeadline = parsed.deadline ? dateOnlyToDbDate(parsed.deadline) : null
+
+  const result = await prisma.$transaction(async (tx) =>
+    applyDeadlineChangeInTransaction(tx, {
+      workId: parsed.workId,
+      newDeadline,
+      changedByUserId: user.id,
+      note: parsed.note,
+    })
+  )
+
+  const work = await prisma.work.findUnique({
+    where: { id: parsed.workId },
+    select: {
+      id: true,
+      assignedToUserId: true,
+      clientId: true,
+      assignees: { select: { userId: true } },
+    },
+  })
+
+  revalidatePath('/works')
+  if (work?.assignedToUserId) revalidatePath(`/works/person/${work.assignedToUserId}`)
+  for (const a of work?.assignees ?? []) {
+    revalidatePath(`/works/person/${a.userId}`)
+  }
+  revalidatePath(`/works/${parsed.workId}`)
+  revalidatePath('/ped')
+  revalidatePath('/profilo')
+  if (work?.clientId) revalidatePath(`/clients/${work.clientId}`)
+
+  return {
+    success: true as const,
+    changed: result.changed,
+    deadline: parsed.deadline,
+  }
+}
+
+const reactivateSchema = z.object({
+  workId: z.string().min(1),
+})
+
+export async function reactivateWork(input: unknown) {
+  const user = await getCurrentUser()
+  if (!user || !canWrite(user)) throw new Error('Non autorizzato')
+
+  const { workId } = reactivateSchema.parse(input)
+  const current = await prisma.work.findUnique({
+    where: { id: workId },
+    select: {
+      id: true,
+      status: true,
+      assignedToUserId: true,
+      clientId: true,
+      assignees: { select: { userId: true } },
+    },
+  })
+  if (!current) throw new Error('Lavoro non trovato')
+  if (current.status !== 'DONE') throw new Error('Il lavoro non è in archivio')
+
+  await prisma.work.update({
+    where: { id: workId },
+    data: { status: 'TODO' },
+  })
+
+  revalidatePath('/works')
+  if (current.assignedToUserId) revalidatePath(`/works/person/${current.assignedToUserId}`)
+  for (const a of current.assignees) {
+    revalidatePath(`/works/person/${a.userId}`)
+  }
+  revalidatePath(`/works/${workId}`)
+  revalidatePath('/ped')
+  revalidatePath('/profilo')
+  revalidatePath(`/clients/${current.clientId}`)
+
   return { success: true as const }
 }

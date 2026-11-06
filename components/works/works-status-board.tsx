@@ -14,13 +14,21 @@ import {
   type DragStartEvent,
 } from '@dnd-kit/core'
 import type { BoardWorkCard } from '@/lib/works-board'
-import { BOARD_EASE, getWorksStatusBoardLabel, sortBoardWorksByDeadline } from '@/lib/works-board'
+import {
+  BOARD_EASE,
+  WORKS_DONE_DROP_ID,
+  computeIsOverdue,
+  getWorksStatusBoardLabel,
+  sortBoardWorksByDeadline,
+} from '@/lib/works-board'
 import type { WorkStatus } from '@/lib/work-status'
 import { WORK_STATUS_META } from '@/lib/work-status'
 import { moveWorkStatusOnBoard } from '@/app/actions/works-board'
 import { DraggableWorkBoardCard, WorkBoardCardContent } from '@/components/works/work-board-card'
+import { WorkRescheduleDialog } from '@/components/works/work-reschedule-dialog'
 import { showToast } from '@/lib/toast'
 import { cn } from '@/lib/utils'
+import { Archive } from 'lucide-react'
 
 type StatusColumn = {
   status: WorkStatus
@@ -33,11 +41,13 @@ function StatusColumnView({
   canEdit,
   returnTo,
   isOver,
+  onReschedule,
 }: {
   column: StatusColumn
   canEdit: boolean
   returnTo: string
   isOver: boolean
+  onReschedule?: (work: BoardWorkCard) => void
 }) {
   const { setNodeRef } = useDroppable({ id: column.status, data: { status: column.status } })
   const meta = WORK_STATUS_META[column.status]
@@ -74,9 +84,40 @@ function StatusColumnView({
               columnId={column.status}
               href={`/works/${work.id}?returnTo=${encodeURIComponent(returnTo)}`}
               disabled={!canEdit}
+              onReschedule={canEdit ? onReschedule : undefined}
             />
           ))
         )}
+      </div>
+    </section>
+  )
+}
+
+function DoneArchiveDropzone({ isOver }: { isOver: boolean }) {
+  const { setNodeRef } = useDroppable({
+    id: WORKS_DONE_DROP_ID,
+    data: { status: WORKS_DONE_DROP_ID },
+  })
+
+  return (
+    <section
+      ref={setNodeRef}
+      className={cn(
+        'mt-3 flex min-h-[72px] items-center justify-center gap-2 rounded-2xl border border-dashed px-4 py-4',
+        'transition-[border-color,background-color,box-shadow] duration-300',
+        isOver
+          ? 'border-emerald-400/60 bg-emerald-500/10 shadow-lg shadow-emerald-500/10'
+          : 'border-emerald-500/25 bg-emerald-500/[0.04]'
+      )}
+      style={{ transitionTimingFunction: BOARD_EASE }}
+      aria-label="Fatto — Archivia"
+    >
+      <Archive className={cn('h-4 w-4', isOver ? 'text-emerald-300' : 'text-emerald-400/70')} aria-hidden />
+      <div className="text-center">
+        <p className={cn('text-sm font-semibold', isOver ? 'text-emerald-200' : 'text-emerald-300/90')}>
+          Fatto — Archivia
+        </p>
+        <p className="text-[11px] text-white/40">Trascina qui per completare e archiviare</p>
       </div>
     </section>
   )
@@ -95,6 +136,7 @@ export function WorksStatusBoard({
   const [columns, setColumns] = useState(initialColumns)
   const [activeWork, setActiveWork] = useState<BoardWorkCard | null>(null)
   const [overStatus, setOverStatus] = useState<string | null>(null)
+  const [rescheduleWork, setRescheduleWork] = useState<BoardWorkCard | null>(null)
   const [isPending, startTransition] = useTransition()
 
   useEffect(() => {
@@ -106,6 +148,21 @@ export function WorksStatusBoard({
       activationConstraint: { distance: 6 },
     })
   )
+
+  const applyDeadlineLocally = (workId: string, deadline: string | null) => {
+    setColumns((prev) =>
+      prev.map((column) => {
+        const works = sortBoardWorksByDeadline(
+          column.works.map((work) =>
+            work.id === workId
+              ? { ...work, deadline, isOverdue: computeIsOverdue(deadline, work.status) }
+              : work
+          )
+        )
+        return { ...column, works, count: works.length }
+      })
+    )
+  }
 
   const onDragStart = (event: DragStartEvent) => {
     const work = event.active.data.current?.work as BoardWorkCard | undefined
@@ -126,11 +183,12 @@ export function WorksStatusBoard({
 
     const previous = columns
     const moved: BoardWorkCard = { ...work, status: nextStatus }
+    const isArchive = nextStatus === 'DONE'
 
     setColumns((prev) =>
       prev.map((column) => {
         const without = column.works.filter((w) => w.id !== workId)
-        if (column.status !== nextStatus) {
+        if (isArchive || column.status !== nextStatus) {
           return { ...column, works: without, count: without.length }
         }
         const works = sortBoardWorksByDeadline([...without, moved])
@@ -141,6 +199,9 @@ export function WorksStatusBoard({
     startTransition(async () => {
       try {
         await moveWorkStatusOnBoard({ workId, status: nextStatus })
+        if (isArchive) {
+          showToast('Lavoro archiviato', 'success')
+        }
         router.refresh()
       } catch (error) {
         setColumns(previous)
@@ -150,31 +211,53 @@ export function WorksStatusBoard({
   }
 
   return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={closestCorners}
-      onDragStart={onDragStart}
-      onDragOver={(event) => setOverStatus(event.over ? String(event.over.id) : null)}
-      onDragEnd={onDragEnd}
-      onDragCancel={() => {
-        setActiveWork(null)
-        setOverStatus(null)
-      }}
-    >
-      <div className="flex gap-3 overflow-x-auto pb-2">
-        {columns.map((column) => (
-          <StatusColumnView
-            key={column.status}
-            column={column}
-            canEdit={canEdit}
-            returnTo={returnTo}
-            isOver={overStatus === column.status}
-          />
-        ))}
-      </div>
-      <DragOverlay dropAnimation={{ duration: 280, easing: BOARD_EASE }}>
-        {activeWork ? <div className="w-[260px]"><WorkBoardCardContent work={activeWork} dragging /></div> : null}
-      </DragOverlay>
-    </DndContext>
+    <>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCorners}
+        onDragStart={onDragStart}
+        onDragOver={(event) => setOverStatus(event.over ? String(event.over.id) : null)}
+        onDragEnd={onDragEnd}
+        onDragCancel={() => {
+          setActiveWork(null)
+          setOverStatus(null)
+        }}
+      >
+        <div className="flex gap-3 overflow-x-auto pb-2">
+          {columns.map((column) => (
+            <StatusColumnView
+              key={column.status}
+              column={column}
+              canEdit={canEdit}
+              returnTo={returnTo}
+              isOver={overStatus === column.status}
+              onReschedule={setRescheduleWork}
+            />
+          ))}
+        </div>
+
+        {canEdit ? <DoneArchiveDropzone isOver={overStatus === WORKS_DONE_DROP_ID} /> : null}
+
+        <DragOverlay dropAnimation={{ duration: 280, easing: BOARD_EASE }}>
+          {activeWork ? (
+            <div className="w-[260px]">
+              <WorkBoardCardContent work={activeWork} dragging />
+            </div>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
+
+      <WorkRescheduleDialog
+        work={rescheduleWork}
+        open={!!rescheduleWork}
+        onOpenChange={(open) => {
+          if (!open) setRescheduleWork(null)
+        }}
+        onSaved={(workId, deadline) => {
+          applyDeadlineLocally(workId, deadline)
+          router.refresh()
+        }}
+      />
+    </>
   )
 }

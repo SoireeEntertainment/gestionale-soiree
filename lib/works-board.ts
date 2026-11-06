@@ -1,5 +1,6 @@
 import type { WorkStatus } from '@/lib/work-status'
 import { WORK_STATUS_META } from '@/lib/work-status'
+import { dbDateToDateOnly, todayDateOnlyRome } from '@/lib/timeline-dates'
 
 /** Team operativo mostrato sulla board Lavori (ordine colonne). */
 export const WORKS_BOARD_TEAM = [
@@ -31,15 +32,19 @@ export const WORKS_BOARD_TEAM = [
 
 export type WorksBoardTeamKey = (typeof WORKS_BOARD_TEAM)[number]['key']
 
-/** Colonne stato nella board persona (ordine UI richiesto). */
+/**
+ * Colonne operative board persona.
+ * DONE non è una colonna: i lavori completati sono in Archivio (dropzone dedicata).
+ */
 export const WORKS_STATUS_BOARD_COLUMNS: WorkStatus[] = [
   'TODO',
   'IN_REVIEW',
   'IN_PROGRESS',
   'WAITING_CLIENT',
   'PAUSED',
-  'DONE',
 ]
+
+export const WORKS_DONE_DROP_ID = 'DONE' as const
 
 export function getWorksStatusBoardLabel(status: WorkStatus): string {
   return WORK_STATUS_META[status].label
@@ -59,27 +64,117 @@ export type BoardWorkCard = {
   isOverdue: boolean
 }
 
-function deadlineMs(deadline: string | Date | null | undefined): number | null {
-  if (!deadline) return null
-  const value = deadline instanceof Date ? deadline : new Date(deadline)
-  const ms = value.getTime()
-  return Number.isNaN(ms) ? null : ms
+export type ArchiveWorkCard = BoardWorkCard & {
+  assigneeNames: string[]
 }
 
-/** Ordina per scadenza crescente; senza scadenza in fondo. */
-export function sortBoardWorksByDeadline<T extends { deadline?: string | Date | null; title?: string }>(
-  works: T[]
-): T[] {
-  return [...works].sort((a, b) => {
-    const aMs = deadlineMs(a.deadline)
-    const bMs = deadlineMs(b.deadline)
-    if (aMs == null && bMs == null) {
-      return (a.title ?? '').localeCompare(b.title ?? '', 'it', { sensitivity: 'base' })
+export type DeadlineUrgency = 'overdue' | 'today' | 'soon' | 'later' | 'none'
+
+/** Chiave date-only YYYY-MM-DD stabile (DB noon UTC / stringhe ISO). */
+export function toDeadlineDateOnlyKey(
+  deadline: string | Date | null | undefined
+): string | null {
+  if (deadline == null || deadline === '') return null
+  if (typeof deadline === 'string') {
+    const trimmed = deadline.trim()
+    if (!trimmed) return null
+    if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) return trimmed.slice(0, 10)
+    try {
+      return dbDateToDateOnly(trimmed)
+    } catch {
+      return null
     }
-    if (aMs == null) return 1
-    if (bMs == null) return -1
-    if (aMs !== bMs) return aMs - bMs
-    return (a.title ?? '').localeCompare(b.title ?? '', 'it', { sensitivity: 'base' })
+  }
+  if (Number.isNaN(deadline.getTime())) return null
+  return dbDateToDateOnly(deadline)
+}
+
+export function computeIsOverdue(
+  deadline: string | Date | null | undefined,
+  status: string,
+  today = todayDateOnlyRome()
+): boolean {
+  const key = toDeadlineDateOnlyKey(deadline)
+  if (!key) return false
+  if (status === 'DONE' || status === 'CANCELED') return false
+  return key < today
+}
+
+/**
+ * Urgenza consegna (date-only Europe/Rome).
+ * overdue | today | soon (1–3 giorni) | later | none
+ */
+export function getDeadlineUrgency(
+  deadline: string | Date | null | undefined,
+  today = todayDateOnlyRome()
+): DeadlineUrgency {
+  const key = toDeadlineDateOnlyKey(deadline)
+  if (!key) return 'none'
+  if (key < today) return 'overdue'
+  if (key === today) return 'today'
+  const todayMs = Date.parse(`${today}T12:00:00.000Z`)
+  const dueMs = Date.parse(`${key}T12:00:00.000Z`)
+  const days = Math.round((dueMs - todayMs) / (24 * 60 * 60 * 1000))
+  if (days >= 1 && days <= 3) return 'soon'
+  return 'later'
+}
+
+export function getDeadlineDaysDelta(
+  deadline: string | Date | null | undefined,
+  today = todayDateOnlyRome()
+): number | null {
+  const key = toDeadlineDateOnlyKey(deadline)
+  if (!key) return null
+  const todayMs = Date.parse(`${today}T12:00:00.000Z`)
+  const dueMs = Date.parse(`${key}T12:00:00.000Z`)
+  return Math.round((dueMs - todayMs) / (24 * 60 * 60 * 1000))
+}
+
+/**
+ * Ordina per urgenza: deadline ASC, null LAST;
+ * a parità di data: titolo alfabetico ASC, poi id deterministico.
+ */
+export function sortBoardWorksByDeadline<
+  T extends { deadline?: string | Date | null; title?: string; id?: string },
+>(works: T[]): T[] {
+  return [...works].sort((a, b) => {
+    const aKey = toDeadlineDateOnlyKey(a.deadline)
+    const bKey = toDeadlineDateOnlyKey(b.deadline)
+    if (aKey == null && bKey == null) {
+      const titleCmp = (a.title ?? '').localeCompare(b.title ?? '', 'it', { sensitivity: 'base' })
+      if (titleCmp !== 0) return titleCmp
+      return (a.id ?? '').localeCompare(b.id ?? '')
+    }
+    if (aKey == null) return 1
+    if (bKey == null) return -1
+    if (aKey !== bKey) return aKey < bKey ? -1 : 1
+    const titleCmp = (a.title ?? '').localeCompare(b.title ?? '', 'it', { sensitivity: 'base' })
+    if (titleCmp !== 0) return titleCmp
+    return (a.id ?? '').localeCompare(b.id ?? '')
+  })
+}
+
+/**
+ * Archivio senza completedAt affidabile:
+ * deadline DESC (null last), titolo ASC, id DESC.
+ */
+export function sortArchiveWorks<
+  T extends { deadline?: string | Date | null; title?: string; id?: string },
+>(works: T[]): T[] {
+  return [...works].sort((a, b) => {
+    const aKey = toDeadlineDateOnlyKey(a.deadline)
+    const bKey = toDeadlineDateOnlyKey(b.deadline)
+    if (aKey == null && bKey == null) {
+      const titleCmp = (a.title ?? '').localeCompare(b.title ?? '', 'it', { sensitivity: 'base' })
+      if (titleCmp !== 0) return titleCmp
+      return (b.id ?? '').localeCompare(a.id ?? '')
+    }
+    if (aKey == null) return 1
+    if (bKey == null) return -1
+    if (aKey !== bKey) return aKey > bKey ? -1 : 1
+    const titleCmp = (a.title ?? '').localeCompare(b.title ?? '', 'it', { sensitivity: 'base' })
+    if (titleCmp !== 0) return titleCmp
+    return (b.id ?? '').localeCompare(a.id ?? '')
   })
 }
 

@@ -19,6 +19,16 @@ export function formatDateOnly(date: Date): string {
   return `${y}-${m}-${d}`
 }
 
+/** Oggi come YYYY-MM-DD nel fuso operativo Europe/Rome. */
+export function todayDateOnlyRome(now = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Rome',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now)
+}
+
 export function startOfLocalDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0, 0)
 }
