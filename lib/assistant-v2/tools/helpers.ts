@@ -116,15 +116,17 @@ export function requireAdmin(ctx: ToolExecutionContext): ToolErrorResult | null 
 export type ResolvedClient = { ok: true; id: string; name: string }
 
 /**
- * Risolve un cliente per nome. Se il nome manca usa il cliente del thread (memoria),
- * verificando comunque l'accesso. Non accetta mai un clientId dal modello.
+ * Risolve un cliente per nome.
+ * Memoria thread solo se `useMemory: true` (riferimento contestuale esplicito).
+ * Default: non eredita silenziosamente l’ultimo cliente.
+ * Non accetta mai un clientId dal modello.
  */
 export async function resolveClient(
   ctx: ToolExecutionContext,
   clientName?: string | null,
   opts: { useMemory?: boolean } = {}
 ): Promise<ResolvedClient | ToolErrorResult> {
-  const useMemory = opts.useMemory ?? true
+  const useMemory = opts.useMemory === true
   if (!clientName?.trim()) {
     const memId = ctx.memory.lastClientId
     if (useMemory && memId) {

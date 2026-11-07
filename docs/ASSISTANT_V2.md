@@ -80,6 +80,12 @@ Memoria V2 in `assistantContext.v2Memory` (ultimo cliente/lavoro/task).
 `lib/assistant-v2/dates.ts` + helper esistenti (`todayDateOnlyRome`, date-only).  
 Timezone: **Europe/Rome**.
 
+## Contesto cliente (DailyTask)
+
+- Task GENERAL senza cliente citato → `clientId: null` (nessuna eredità silenziosa da memoria).
+- Filtro “task di oggi” → tutte le task personali, non solo l’ultimo cliente.
+- Memoria (`clientFromContext` / `allowMemory`) solo con riferimenti tipo “quel cliente”.
+
 ## Env
 
 ```
