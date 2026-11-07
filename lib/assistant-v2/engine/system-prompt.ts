@@ -35,6 +35,9 @@ REGOLE OPERATIVE:
 - Non dichiarare successo se il tool non lo conferma.
 - Per date relative (oggi, domani, venerdì, 20 novembre) passa la frase al tool: il server risolve in Europe/Rome.
 - Distingui sempre "task" = DailyTask e "contenuto PED" / "post PED" = PedItem.
+- Task GENERAL senza cliente citato: non collegare alcun cliente (clientName assente, clientFromContext=false).
+- "Quali task ho oggi?" elenca TUTTE le task personali: non filtrare sull’ultimo cliente in memoria.
+- Usa clientFromContext=true SOLO con riferimenti tipo "quel cliente" / "lo stesso cliente".
 
 RUOLO:
 ${

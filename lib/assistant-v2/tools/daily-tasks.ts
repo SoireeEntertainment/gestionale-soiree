@@ -27,35 +27,56 @@ async function resolveDueDate(raw?: string | null): Promise<
   return { ok: true, date: r.date }
 }
 
-async function resolveOptionalClient(
+/**
+ * Risolve un cliente opzionale per le DailyTask.
+ * - Senza clientName e senza allowMemory → clientId null (task GENERAL senza cliente).
+ * - allowMemory solo con riferimento contestuale inequivocabile ("quel cliente", …).
+ * Non associa silenziosamente task/liste all’ultimo cliente in memoria.
+ */
+export async function resolveOptionalClient(
   ctx: Parameters<AssistantToolDefinition['execute']>[1],
   clientName?: string | null,
-  clientId?: string | null
+  opts?: { clientId?: string | null; allowMemory?: boolean }
 ): Promise<ToolHandlerResult | { ok: true; clientId: string | null; clientName: string | null }> {
-  if (clientId) {
-    return { ok: true, clientId, clientName: null }
+  if (opts?.clientId) {
+    return { ok: true, clientId: opts.clientId, clientName: null }
   }
-  if (!clientName?.trim()) {
-    const mem = ctx.memory.lastClientId
-    if (mem) return { ok: true, clientId: mem, clientName: ctx.memory.lastClientName ?? null }
-    return { ok: true, clientId: null, clientName: null }
-  }
-  const match = await resolveClientByName(ctx.auth, clientName)
-  if (match.status === 'found') return { ok: true, clientId: match.id, clientName: match.name }
-  if (match.status === 'ambiguous') {
+  if (clientName?.trim()) {
+    const match = await resolveClientByName(ctx.auth, clientName)
+    if (match.status === 'found') return { ok: true, clientId: match.id, clientName: match.name }
+    if (match.status === 'ambiguous') {
+      return {
+        ok: false,
+        error: `Ho trovato più clienti per "${clientName}". Quale intendi?`,
+        clarify: true,
+        choices: match.choices,
+      }
+    }
     return {
       ok: false,
-      error: `Ho trovato più clienti per "${clientName}". Quale intendi?`,
+      error: `Cliente "${clientName}" non trovato. Vuoi crearne uno nuovo?`,
       clarify: true,
-      choices: match.choices,
     }
   }
-  return {
-    ok: false,
-    error: `Cliente "${clientName}" non trovato. Vuoi crearne uno nuovo?`,
-    clarify: true,
+  if (opts?.allowMemory) {
+    const mem = ctx.memory.lastClientId
+    if (mem) {
+      return {
+        ok: true,
+        clientId: mem,
+        clientName: ctx.memory.lastClientName ?? null,
+      }
+    }
   }
+  return { ok: true, clientId: null, clientName: null }
 }
+
+const clientFromContextField = z
+  .boolean()
+  .optional()
+  .describe(
+    'true SOLO se l’utente indica un riferimento contestuale inequivocabile al cliente già citato (es. "quel cliente", "lo stesso cliente", "per lui"). false/omesso se non menziona un cliente: non ereditare l’ultimo cliente dalla memoria.'
+  )
 
 export const dailyTaskTools: AssistantToolDefinition[] = [
   {
@@ -72,10 +93,16 @@ export const dailyTaskTools: AssistantToolDefinition[] = [
         .default('today')
         .describe('today=oggi, overdue=scadute, week=prossimi 7 giorni, done=completate'),
       query: z.string().optional().describe('Filtro testo sul titolo'),
-      clientName: z.string().optional(),
+      clientName: z
+        .string()
+        .optional()
+        .describe('Nome cliente se l’utente filtra esplicitamente (es. "task di Oneforall").'),
+      clientFromContext: clientFromContextField,
     }),
     execute: async (input, ctx) => {
-      const client = await resolveOptionalClient(ctx, input.clientName)
+      const client = await resolveOptionalClient(ctx, input.clientName, {
+        allowMemory: input.clientFromContext === true,
+      })
       if (!('clientId' in client) || client.ok !== true) return client as ToolHandlerResult
 
       let tasks = await getMyDailyTasks({
@@ -89,6 +116,7 @@ export const dailyTaskTools: AssistantToolDefinition[] = [
                 ? 'UPCOMING'
                 : 'ALL',
         q: input.query,
+        // Solo filtro cliente se nome esplicito o riferimento contestuale; mai silent da memoria.
         clientId: client.clientId ?? undefined,
       })
 
@@ -131,12 +159,19 @@ export const dailyTaskTools: AssistantToolDefinition[] = [
     inputSchema: z.object({
       title: z.string().min(1).max(200),
       dueDatePhrase: z.string().describe('es. domani, venerdì, 20 novembre'),
-      clientName: z.string().optional().nullable(),
+      clientName: z
+        .string()
+        .optional()
+        .nullable()
+        .describe('Nome cliente solo se citato esplicitamente. Se assente → task GENERAL senza cliente.'),
+      clientFromContext: clientFromContextField,
       notes: z.string().optional().nullable(),
     }),
     buildPreview: async (input, ctx) => {
       const due = await resolveDueDate(input.dueDatePhrase)
-      const client = await resolveOptionalClient(ctx, input.clientName)
+      const client = await resolveOptionalClient(ctx, input.clientName, {
+        allowMemory: input.clientFromContext === true,
+      })
       const clientLabel =
         client.ok === true && 'clientName' in client
           ? client.clientName || (client.clientId ? 'collegato' : 'nessuno')
@@ -158,7 +193,9 @@ export const dailyTaskTools: AssistantToolDefinition[] = [
     execute: async (input, ctx) => {
       const due = await resolveDueDate(input.dueDatePhrase)
       if (!due.ok) return { ok: false, error: due.error, clarify: true }
-      const client = await resolveOptionalClient(ctx, input.clientName)
+      const client = await resolveOptionalClient(ctx, input.clientName, {
+        allowMemory: input.clientFromContext === true,
+      })
       if (!('clientId' in client) || client.ok !== true) return client as ToolHandlerResult
 
       const payload = {
@@ -290,9 +327,12 @@ export const dailyTaskTools: AssistantToolDefinition[] = [
     inputSchema: z.object({
       taskQuery: z.string(),
       clientName: z.string().optional(),
+      clientFromContext: clientFromContextField,
     }),
     execute: async (input, ctx) => {
-      const client = await resolveOptionalClient(ctx, input.clientName)
+      const client = await resolveOptionalClient(ctx, input.clientName, {
+        allowMemory: input.clientFromContext === true,
+      })
       if (client.ok === false) return client
       const tasks = await getMyDailyTasks({
         status: 'OPEN',
