@@ -2,6 +2,7 @@
 
 import { revalidatePath, unstable_cache } from 'next/cache'
 import { z } from 'zod'
+import { Prisma } from '@prisma/client'
 import { getCurrentUser, canWrite } from '@/lib/auth-dev'
 import { prisma } from '@/lib/prisma'
 import { workSchema } from '@/lib/validations'
@@ -106,38 +107,82 @@ export async function createWork(data: unknown) {
   const deadlineDate = parseWorkDateField(validated.deadline ?? undefined)
   const startDateParsed =
     parseWorkDateField(validated.startDate ?? undefined) ?? dateOnlyToDbDate(formatDateOnly(new Date()))
-  const { assigneeUserIds, startDate: _start, deadline: _deadline, ...workFields } = validated
+  const {
+    assigneeUserIds,
+    startDate: _start,
+    deadline: _deadline,
+    sourceDailyTaskId: sourceTaskIdRaw,
+    ...workFields
+  } = validated
+  const sourceDailyTaskId = sourceTaskIdRaw?.trim() || null
+
+  if (sourceDailyTaskId) {
+    const task = await prisma.dailyTask.findUnique({
+      where: { id: sourceDailyTaskId },
+      select: { id: true, userId: true, clientId: true },
+    })
+    if (!task) throw new Error('Task di origine non trovata')
+    if (task.userId !== user.id && user.role !== 'ADMIN') {
+      throw new Error('Non autorizzato sulla Task di origine')
+    }
+    if (!task.clientId) {
+      throw new Error('La Task deve avere un cliente per generare un Lavoro')
+    }
+    if (task.clientId !== validated.clientId) {
+      throw new Error('Il cliente del Lavoro deve corrispondere a quello della Task')
+    }
+    const existing = await prisma.work.findUnique({
+      where: { sourceDailyTaskId },
+      select: { id: true },
+    })
+    if (existing) {
+      throw new Error('Questa Task ha già un Lavoro collegato')
+    }
+  }
 
   const assigneeSet = new Set<string>(assigneeUserIds ?? [])
   if (workFields.assignedToUserId) assigneeSet.add(workFields.assignedToUserId)
   const list = [...assigneeSet]
 
-  const work = await prisma.$transaction(async (tx) => {
-    const created = await createWorkWithDeadlineHistoryInTransaction(tx, {
-      changedByUserId: user.id,
-      workCreate: {
-        ...workFields,
-        startDate: startDateParsed,
-        deadline: deadlineDate,
-        originalDeadline: deadlineDate,
-      },
-    })
-
-    if (list.length > 0) {
-      await tx.workAssignee.createMany({
-        data: list.map((userId) => ({ workId: created.id, userId, role: 'ASSIGNEE' })),
-        skipDuplicates: true,
+  let work
+  try {
+    work = await prisma.$transaction(async (tx) => {
+      const created = await createWorkWithDeadlineHistoryInTransaction(tx, {
+        changedByUserId: user.id,
+        workCreate: {
+          ...workFields,
+          startDate: startDateParsed,
+          deadline: deadlineDate,
+          originalDeadline: deadlineDate,
+          ...(sourceDailyTaskId ? { sourceDailyTaskId } : {}),
+        },
       })
-      if (!created.assignedToUserId && list[0]) {
-        return tx.work.update({
-          where: { id: created.id },
-          data: { assignedToUserId: list[0] },
-          include: { client: true, category: true },
+
+      if (list.length > 0) {
+        await tx.workAssignee.createMany({
+          data: list.map((userId) => ({ workId: created.id, userId, role: 'ASSIGNEE' })),
+          skipDuplicates: true,
         })
+        if (!created.assignedToUserId && list[0]) {
+          return tx.work.update({
+            where: { id: created.id },
+            data: { assignedToUserId: list[0] },
+            include: { client: true, category: true },
+          })
+        }
       }
+      return created
+    })
+  } catch (error) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2002' &&
+      sourceDailyTaskId
+    ) {
+      throw new Error('Questa Task ha già un Lavoro collegato')
     }
-    return created
-  })
+    throw error
+  }
 
   // Non blocca la creazione: eventuali errori email vengono solo loggati.
   try {
@@ -154,6 +199,8 @@ export async function createWork(data: unknown) {
 
   revalidatePath('/works')
   revalidatePath(`/clients/${validated.clientId}`)
+  revalidatePath('/tasks')
+  revalidatePath('/profilo')
   const workOut =
     list.length > 0 && !work.assignedToUserId
       ? await prisma.work.findUniqueOrThrow({
@@ -328,6 +375,8 @@ export async function deleteWork(id: string) {
   })
 
   revalidatePath('/works')
+  revalidatePath('/tasks')
+  revalidatePath('/profilo')
   if (work) {
     revalidatePath(`/clients/${work.clientId}`)
   }
@@ -420,6 +469,17 @@ export async function getWork(id: string) {
       client: true,
       category: true,
       assignedTo: true,
+      sourceDailyTask: {
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          dueDate: true,
+          clientId: true,
+          client: { select: { id: true, name: true } },
+          user: { select: { id: true, name: true } },
+        },
+      },
       dueDateHistory: {
         orderBy: [{ isOriginal: 'desc' }, { changedAt: 'asc' }],
         include: { changedBy: { select: { id: true, name: true } } },

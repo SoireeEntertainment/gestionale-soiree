@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import { requireAuth } from '@/lib/auth-dev'
+import { canWrite, requireAuth } from '@/lib/auth-dev'
 import { getPedMonth } from '@/app/actions/ped'
 import { getDailyTasksForUser } from '@/app/actions/daily-tasks'
 import { prisma } from '@/lib/prisma'
@@ -113,6 +113,7 @@ export default async function PedPage(props: {
           initialTasks={dailyTasks}
           clients={clientsList}
           readOnly={isViewingOtherUser}
+          canOpenWorks={canWrite(user)}
         />
         <PedView
           initialData={initialData}

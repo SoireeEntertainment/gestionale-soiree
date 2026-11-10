@@ -17,10 +17,12 @@ export function PedTasksSection({
   initialTasks,
   clients,
   readOnly = false,
+  canOpenWorks = false,
 }: {
   initialTasks: DailyTaskDTO[]
   clients: ClientOption[]
   readOnly?: boolean
+  canOpenWorks?: boolean
 }) {
   const router = useRouter()
   const [tasks, setTasks] = useState(initialTasks)
@@ -133,6 +135,7 @@ export function PedTasksSection({
         tasks={openTasks}
         onToggle={handleToggle}
         onDelete={readOnly ? undefined : handleDelete}
+        canOpenWorks={canOpenWorks}
         compact
       />
       {isPending ? <p className="mt-2 text-xs text-white/35">Aggiornamento…</p> : null}

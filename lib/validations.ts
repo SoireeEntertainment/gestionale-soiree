@@ -68,6 +68,8 @@ export const workSchema = z
     assignedToUserId: z.string().optional().nullable(),
     /** Co-assegnatari (oltre al primario); usato dall'assistente e dalla UI avanzata */
     assigneeUserIds: z.array(z.string().min(1)).optional(),
+    /** Task giornaliera di origine (crea collegamento 1:1, opzionale). */
+    sourceDailyTaskId: z.string().min(1).optional().nullable(),
   })
   .superRefine((data, ctx) => {
     const start = data.startDate?.trim()

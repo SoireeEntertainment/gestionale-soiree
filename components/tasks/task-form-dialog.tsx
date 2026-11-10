@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useState, useTransition } from 'react'
+import Link from 'next/link'
+import { BriefcaseBusiness, Plus } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -18,12 +20,19 @@ import {
   type DailyTaskType,
 } from '@/lib/daily-tasks'
 import { todayDateOnlyRome } from '@/lib/timeline-dates'
+import { getWorkStatusMeta } from '@/lib/work-status'
 import { TaskDateInput } from '@/components/tasks/task-date-input'
 import { DeleteTaskConfirmDialog } from '@/components/tasks/delete-task-confirm-dialog'
 import { showToast } from '@/lib/toast'
 import { cn } from '@/lib/utils'
 
 type ClientOption = { id: string; name: string }
+
+function formatLinkedDeadline(ymd: string | null): string {
+  if (!ymd) return '—'
+  const [y, m, d] = ymd.split('-')
+  return `${d}/${m}/${y}`
+}
 
 export function TaskFormDialog({
   open,
@@ -34,6 +43,8 @@ export function TaskFormDialog({
   onSaved,
   onDeleted,
   defaultClientId,
+  canCreateWork = false,
+  onCreateWork,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -41,9 +52,11 @@ export function TaskFormDialog({
   mode?: DailyTaskType
   editTask?: DailyTaskDTO | null
   onSaved?: (task: DailyTaskDTO) => void
-  /** Solo in modifica: stessa action centralizzata del parent. */
   onDeleted?: (task: DailyTaskDTO) => void | Promise<void>
   defaultClientId?: string
+  /** Solo ADMIN (stessi permessi di createWork). */
+  canCreateWork?: boolean
+  onCreateWork?: (task: DailyTaskDTO) => void
 }) {
   const isContact = (editTask?.type ?? mode) === 'CONTACT_CLIENT'
   const [title, setTitle] = useState('')
@@ -82,6 +95,16 @@ export function TaskFormDialog({
     [clients, clientId]
   )
 
+  const clientLockedByWork = Boolean(editTask?.linkedWork)
+  const showWorkSection = Boolean(editTask && (editTask.clientId || clientId))
+  const effectiveClientId = editTask?.clientId || clientId
+  const canShowCreateWork =
+    Boolean(editTask) &&
+    canCreateWork &&
+    Boolean(effectiveClientId) &&
+    !editTask?.linkedWork &&
+    Boolean(onCreateWork)
+
   const handleSubmit = () => {
     startTransition(async () => {
       try {
@@ -113,6 +136,9 @@ export function TaskFormDialog({
       }
     })
   }
+
+  const linked = editTask?.linkedWork
+  const linkedStatusLabel = linked ? getWorkStatusMeta(linked.status).label : ''
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -152,7 +178,8 @@ export function TaskFormDialog({
             <select
               value={clientId}
               onChange={(e) => setClientId(e.target.value)}
-              className="min-h-[44px] w-full rounded-md border border-accent/20 bg-[#101317] px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-accent"
+              disabled={clientLockedByWork}
+              className="min-h-[44px] w-full rounded-md border border-accent/20 bg-[#101317] px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-accent disabled:cursor-not-allowed disabled:opacity-70"
             >
               <option value="">{isContact ? 'Seleziona cliente…' : 'Nessuno'}</option>
               {clients.map((c) => (
@@ -161,6 +188,11 @@ export function TaskFormDialog({
                 </option>
               ))}
             </select>
+            {clientLockedByWork ? (
+              <p className="mt-1 text-[11px] text-white/40">
+                Cliente bloccato: esiste un Lavoro collegato.
+              </p>
+            ) : null}
           </div>
 
           <div>
@@ -214,6 +246,67 @@ export function TaskFormDialog({
               placeholder="Dettagli utili…"
             />
           </div>
+
+          {showWorkSection ? (
+            <div className="rounded-xl border border-accent/20 bg-accent/[0.04] p-3">
+              <p className="text-sm font-semibold text-accent">Lavoro collegato</p>
+              <p className="mt-1 text-[11px] leading-relaxed text-white/50">
+                Puoi creare un lavoro operativo partendo da questa Task, mantenendo il collegamento
+                tra le due attività.
+              </p>
+              {linked ? (
+                <div className="mt-3 space-y-1.5 text-xs text-white/80">
+                  <p className="font-medium text-white">{linked.title}</p>
+                  <p>
+                    Stato: <span className="text-white/70">{linkedStatusLabel}</span>
+                  </p>
+                  <p>
+                    Scadenza:{' '}
+                    <span className="text-white/70">{formatLinkedDeadline(linked.deadline)}</span>
+                  </p>
+                  {linked.assigneeNames.length > 0 ? (
+                    <p>
+                      Assegnatari:{' '}
+                      <span className="text-white/70">{linked.assigneeNames.join(', ')}</span>
+                    </p>
+                  ) : null}
+                  <Link
+                    href={`/works/${linked.id}`}
+                    className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-accent/30 bg-accent/10 px-3 py-2 text-xs font-medium text-accent hover:bg-accent/15"
+                  >
+                    <BriefcaseBusiness className="h-3.5 w-3.5" />
+                    Apri lavoro
+                  </Link>
+                </div>
+              ) : canShowCreateWork ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="mt-3 w-full sm:w-auto"
+                  disabled={isPending || isDeleting}
+                  onClick={() => {
+                    if (!editTask || !onCreateWork) return
+                    // Usa i valori correnti del form (anche se non salvati) per prefill titolo/note
+                    onCreateWork({
+                      ...editTask,
+                      title: isContact && selectedClientName ? `Sentire ${selectedClientName}` : title.trim() || editTask.title,
+                      notes: notes.trim() || null,
+                      clientId: effectiveClientId,
+                      clientName: selectedClientName || editTask.clientName,
+                      dueDate,
+                    })
+                  }}
+                >
+                  <Plus className="mr-1.5 h-3.5 w-3.5" />
+                  Crea lavoro da questa Task
+                </Button>
+              ) : !canCreateWork && editTask && effectiveClientId ? (
+                <p className="mt-2 text-[11px] text-white/40">
+                  Non hai i permessi per creare Lavori.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
         <div
