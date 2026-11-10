@@ -35,7 +35,21 @@ function revalidateTaskPaths(_userId: string) {
   revalidatePath('/profilo')
 }
 
-function mapTask(row: {
+const dailyTaskInclude = {
+  client: { select: { id: true, name: true } },
+  generatedWork: {
+    select: {
+      id: true,
+      title: true,
+      status: true,
+      deadline: true,
+      assignedTo: { select: { name: true } },
+      assignees: { select: { user: { select: { name: true } } } },
+    },
+  },
+} as const
+
+type DailyTaskRow = {
   id: string
   title: string
   type: string
@@ -50,7 +64,34 @@ function mapTask(row: {
   createdAt: Date
   updatedAt: Date
   client?: { id: string; name: string } | null
-}): DailyTaskDTO {
+  generatedWork?: {
+    id: string
+    title: string
+    status: string
+    deadline: Date | null
+    assignedTo?: { name: string } | null
+    assignees?: { user: { name: string } }[]
+  } | null
+}
+
+function mapLinkedWork(row: DailyTaskRow): DailyTaskDTO['linkedWork'] {
+  const w = row.generatedWork
+  if (!w) return null
+  const names = new Set<string>()
+  if (w.assignedTo?.name) names.add(w.assignedTo.name)
+  for (const a of w.assignees ?? []) {
+    if (a.user?.name) names.add(a.user.name)
+  }
+  return {
+    id: w.id,
+    title: w.title,
+    status: w.status,
+    deadline: toDateOnly(w.deadline),
+    assigneeNames: [...names],
+  }
+}
+
+function mapTask(row: DailyTaskRow): DailyTaskDTO {
   const today = todayDateOnlyRome()
   const effectiveStatus = getEffectiveTaskStatus(row, today)
   return {
@@ -66,6 +107,7 @@ function mapTask(row: {
     completedAt: row.completedAt ? row.completedAt.toISOString() : null,
     lastContactedAt: toDateOnly(row.lastContactedAt),
     nextReactivateAt: toDateOnly(row.nextReactivateAt),
+    linkedWork: mapLinkedWork(row),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   }
@@ -102,7 +144,7 @@ async function applyLazyReactivations(userId: string) {
 async function assertOwnsTask(taskId: string, userId: string) {
   const task = await prisma.dailyTask.findUnique({
     where: { id: taskId },
-    include: { client: { select: { id: true, name: true } } },
+    include: dailyTaskInclude,
   })
   if (!task || task.userId !== userId) throw new Error('Non autorizzato')
   return task
@@ -181,7 +223,7 @@ export async function getDailyTasksForUser(
 
   const rows = await prisma.dailyTask.findMany({
     where,
-    include: { client: { select: { id: true, name: true } } },
+    include: dailyTaskInclude,
   })
 
   return sortDailyTasksByDueDateDesc(rows.map(mapTask))
@@ -211,7 +253,7 @@ export async function getClientUniverse(userId?: string): Promise<UniverseClient
   const [contactTasks, assignedClients] = await Promise.all([
     prisma.dailyTask.findMany({
       where: { userId: ownerId, type: 'CONTACT_CLIENT', clientId: { not: null } },
-      include: { client: { select: { id: true, name: true } } },
+      include: dailyTaskInclude,
       orderBy: { updatedAt: 'desc' },
     }),
     user.role === 'ADMIN'
@@ -293,7 +335,7 @@ async function upsertContactTracker(
       type: 'CONTACT_CLIENT',
       clientId: client.id,
     },
-    include: { client: { select: { id: true, name: true } } },
+    include: dailyTaskInclude,
   })
 
   if (existing) {
@@ -307,7 +349,7 @@ async function upsertContactTracker(
         completedAt: null,
         nextReactivateAt: nextStored,
       },
-      include: { client: { select: { id: true, name: true } } },
+      include: dailyTaskInclude,
     })
     return mapTask(updated)
   }
@@ -324,14 +366,14 @@ async function upsertContactTracker(
         clientId: client.id,
         nextReactivateAt: nextStored,
       },
-      include: { client: { select: { id: true, name: true } } },
+      include: dailyTaskInclude,
     })
     return mapTask(created)
   } catch (error) {
     if (!isUniqueContactViolation(error)) throw error
     const raced = await prisma.dailyTask.findFirst({
       where: { userId: user.id, type: 'CONTACT_CLIENT', clientId: client.id },
-      include: { client: { select: { id: true, name: true } } },
+      include: dailyTaskInclude,
     })
     if (!raced) throw error
     const updated = await prisma.dailyTask.update({
@@ -344,7 +386,7 @@ async function upsertContactTracker(
         completedAt: null,
         nextReactivateAt: nextStored,
       },
-      include: { client: { select: { id: true, name: true } } },
+      include: dailyTaskInclude,
     })
     return mapTask(updated)
   }
@@ -382,7 +424,7 @@ export async function createDailyTask(input: unknown): Promise<DailyTaskDTO> {
       userId: user.id,
       clientId: parsed.clientId || null,
     },
-    include: { client: { select: { id: true, name: true } } },
+    include: dailyTaskInclude,
   })
   revalidateTaskPaths(user.id)
   return mapTask(created)
@@ -405,6 +447,19 @@ export async function updateDailyTask(input: unknown): Promise<DailyTaskDTO> {
 
   if (parsed.clientId) {
     await assertCanAccessClient(user, parsed.clientId)
+  }
+
+  // Blocca cambio/rimozione cliente se esiste un Lavoro collegato (evita incongruenze).
+  if (parsed.clientId !== undefined && parsed.clientId !== current.clientId) {
+    const linkedWork = await prisma.work.findUnique({
+      where: { sourceDailyTaskId: current.id },
+      select: { id: true, title: true },
+    })
+    if (linkedWork) {
+      throw new Error(
+        'Non puoi cambiare il cliente di questa Task mentre è collegato un Lavoro. Elimina il Lavoro o chiedi di scollegarlo prima.'
+      )
+    }
   }
 
   if (
@@ -447,7 +502,7 @@ export async function updateDailyTask(input: unknown): Promise<DailyTaskDTO> {
     const updated = await prisma.dailyTask.update({
       where: { id: parsed.id },
       data,
-      include: { client: { select: { id: true, name: true } } },
+      include: dailyTaskInclude,
     })
     revalidateTaskPaths(user.id)
     return mapTask(updated)
@@ -484,7 +539,7 @@ export async function completeDailyTask(input: unknown): Promise<DailyTaskDTO> {
         lastContactedAt: dateOnlyToDbDate(contactDate),
         nextReactivateAt: dateOnlyToDbDate(next),
       },
-      include: { client: { select: { id: true, name: true } } },
+      include: dailyTaskInclude,
     })
     revalidateTaskPaths(user.id)
     return mapTask(updated)
@@ -496,7 +551,7 @@ export async function completeDailyTask(input: unknown): Promise<DailyTaskDTO> {
       status: 'DONE',
       completedAt: new Date(),
     },
-    include: { client: { select: { id: true, name: true } } },
+    include: dailyTaskInclude,
   })
   revalidateTaskPaths(user.id)
   return mapTask(updated)
@@ -525,7 +580,7 @@ export async function reopenDailyTask(taskId: string): Promise<DailyTaskDTO> {
         nextReactivateAt: null,
         // lastContactedAt non toccato
       },
-      include: { client: { select: { id: true, name: true } } },
+      include: dailyTaskInclude,
     })
     revalidateTaskPaths(user.id)
     return mapTask(updated)
@@ -537,7 +592,7 @@ export async function reopenDailyTask(taskId: string): Promise<DailyTaskDTO> {
       status: 'OPEN',
       completedAt: null,
     },
-    include: { client: { select: { id: true, name: true } } },
+    include: dailyTaskInclude,
   })
   revalidateTaskPaths(user.id)
   return mapTask(updated)

@@ -14,6 +14,14 @@ export type DailyTaskStatus = (typeof DAILY_TASK_STATUSES)[number]
 
 export type ClientUniverseStatus = 'red' | 'green' | 'neutral'
 
+export type DailyTaskLinkedWork = {
+  id: string
+  title: string
+  status: string
+  deadline: string | null
+  assigneeNames: string[]
+}
+
 export type DailyTaskDTO = {
   id: string
   title: string
@@ -27,6 +35,8 @@ export type DailyTaskDTO = {
   completedAt: string | null
   lastContactedAt: string | null
   nextReactivateAt: string | null
+  /** Lavoro generato da questa task (se presente). */
+  linkedWork: DailyTaskLinkedWork | null
   createdAt: string
   updatedAt: string
 }

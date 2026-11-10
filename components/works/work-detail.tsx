@@ -13,7 +13,7 @@ import { useRouter } from 'next/navigation'
 import { WorkStatusBadge } from './work-status-badge'
 import { WorkChecklistSection } from './work-checklist-section'
 import { WorkDueDateHistory } from './work-due-date-history'
-import { getWorkEffectiveStartDate } from '@/lib/timeline-dates'
+import { dbDateToDateOnly, getWorkEffectiveStartDate } from '@/lib/timeline-dates'
 import type { CurrentUser } from '@/lib/auth-dev'
 
 type DueDateHistoryEntry = {
@@ -26,6 +26,16 @@ type DueDateHistoryEntry = {
   changedBy: { id: string; name: string }
 }
 
+type SourceDailyTask = {
+  id: string
+  title: string
+  status: string
+  dueDate: Date
+  clientId: string | null
+  client: { id: string; name: string } | null
+  user: { id: string; name: string }
+}
+
 interface WorkDetailProps {
   work: Work & {
     client: Client
@@ -33,6 +43,7 @@ interface WorkDetailProps {
     assignedTo?: User | null
     originalDeadline?: Date | null
     dueDateHistory?: DueDateHistoryEntry[]
+    sourceDailyTask?: SourceDailyTask | null
   }
   clients: Client[]
   categories: Category[]
@@ -158,6 +169,44 @@ export function WorkDetail({ work, clients, categories, users, currentUser, assi
               </div>
             )}
           </div>
+
+          {work.sourceDailyTask ? (
+            <div className="rounded-xl border border-accent/20 bg-accent/[0.04] p-4">
+              <div className="text-sm font-semibold text-accent mb-2">Task di origine</div>
+              <div className="space-y-1 text-sm text-white/80">
+                <p className="font-medium text-white">{work.sourceDailyTask.title}</p>
+                <p>
+                  Cliente:{' '}
+                  <span className="text-white/70">
+                    {work.sourceDailyTask.client?.name ?? work.client.name}
+                  </span>
+                </p>
+                <p>
+                  Scadenza Task:{' '}
+                  <span className="text-white/70">
+                    {format(
+                      new Date(`${dbDateToDateOnly(work.sourceDailyTask.dueDate)}T12:00:00`),
+                      'dd MMMM yyyy',
+                      { locale: it }
+                    )}
+                  </span>
+                </p>
+                <p>
+                  Stato Task:{' '}
+                  <span className="text-white/70">
+                    {work.sourceDailyTask.status === 'DONE' ? 'Completata' : 'Aperta'}
+                  </span>
+                </p>
+                <Link
+                  href={`/tasks?taskId=${work.sourceDailyTask.id}`}
+                  className="mt-2 inline-flex text-accent hover:underline"
+                >
+                  Apri nella pagina Task
+                </Link>
+              </div>
+            </div>
+          ) : null}
+
           <div>
             <div className="text-sm text-white/50 mb-1">Descrizione</div>
             {work.description ? (

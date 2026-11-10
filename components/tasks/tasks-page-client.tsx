@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
+import type { Category, Client, User } from '@prisma/client'
 import {
   applyTaskToUniverseNode,
   clearContactTrackerFromUniverseNode,
@@ -11,6 +12,7 @@ import {
 import { todayDateOnlyRome } from '@/lib/timeline-dates'
 import {
   deleteDailyTask,
+  getMyDailyTasks,
   markClientContacted,
   markClientNeedsContact,
   toggleDailyTask,
@@ -20,6 +22,7 @@ import { TasksList } from '@/components/tasks/tasks-list'
 import { TaskFormDialog } from '@/components/tasks/task-form-dialog'
 import { ContactCompleteDialog } from '@/components/tasks/contact-complete-dialog'
 import { DeleteTaskConfirmDialog } from '@/components/tasks/delete-task-confirm-dialog'
+import { NewWorkModal } from '@/components/works/new-work-modal'
 import { Button } from '@/components/ui/button'
 import { showToast } from '@/lib/toast'
 import { cn } from '@/lib/utils'
@@ -30,10 +33,18 @@ export function TasksPageClient({
   initialTasks,
   initialUniverse,
   clients,
+  workClients = [],
+  categories = [],
+  users = [],
+  canCreateWork = false,
 }: {
   initialTasks: DailyTaskDTO[]
   initialUniverse: UniverseClientNode[]
   clients: ClientOption[]
+  workClients?: Client[]
+  categories?: Category[]
+  users?: User[]
+  canCreateWork?: boolean
 }) {
   const router = useRouter()
   const [tasks, setTasks] = useState(initialTasks)
@@ -49,8 +60,11 @@ export function TasksPageClient({
   const [defaultClientId, setDefaultClientId] = useState<string | undefined>(undefined)
   const [completeTask, setCompleteTask] = useState<DailyTaskDTO | null>(null)
   const [pendingUniverseDelete, setPendingUniverseDelete] = useState<DailyTaskDTO | null>(null)
+  const [workFromTask, setWorkFromTask] = useState<DailyTaskDTO | null>(null)
+  const [workModalOpen, setWorkModalOpen] = useState(false)
   const [isDeletingUniverse, startDeleteUniverseTransition] = useTransition()
   const [isPending, startTransition] = useTransition()
+  const reopenTaskAfterWorkCancel = useRef<DailyTaskDTO | null>(null)
   /** Evita che un refresh server sovrascriva update ottimistici più recenti. */
   const suppressServerSyncUntil = useRef(0)
   /** Task eliminate localmente: filtra fino a sync server stabile. */
@@ -71,6 +85,23 @@ export function TasksPageClient({
       )
     )
   }, [initialTasks, initialUniverse])
+
+  // Deep-link da dettaglio Lavoro: /tasks?taskId=...
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    const taskId = params.get('taskId')?.trim()
+    if (!taskId) return
+    const found = initialTasks.find((t) => t.id === taskId)
+    if (!found) return
+    setDefaultClientId(undefined)
+    setEditTask(found)
+    setFormOpen(true)
+    params.delete('taskId')
+    const next = params.toString()
+    const url = next ? `${window.location.pathname}?${next}` : window.location.pathname
+    window.history.replaceState({}, '', url)
+  }, [initialTasks])
 
   const filtered = useMemo(() => {
     const today = todayDateOnlyRome()
@@ -293,6 +324,7 @@ export function TasksPageClient({
         completedAt: null,
         lastContactedAt: node.lastContactedAt,
         nextReactivateAt: node.nextReactivateAt,
+        linkedWork: null,
         createdAt: '',
         updatedAt: '',
       } satisfies DailyTaskDTO)
@@ -400,6 +432,7 @@ export function TasksPageClient({
 
         <TasksList
           tasks={filtered}
+          canOpenWorks={canCreateWork}
           onToggle={handleToggle}
           onEdit={(task) => {
             setDefaultClientId(undefined)
@@ -424,12 +457,82 @@ export function TasksPageClient({
         mode={editTask?.type ?? formMode}
         editTask={editTask}
         defaultClientId={defaultClientId}
+        canCreateWork={canCreateWork}
+        onCreateWork={(task) => {
+          if (!task.clientId) {
+            showToast('Associa un cliente alla Task prima di creare un Lavoro.', 'error')
+            return
+          }
+          reopenTaskAfterWorkCancel.current = task
+          setWorkFromTask(task)
+          setFormOpen(false)
+          setWorkModalOpen(true)
+        }}
         onSaved={(saved) => {
           upsertTask(saved)
           refresh()
         }}
         onDeleted={handleDeleteTask}
       />
+
+      {canCreateWork ? (
+        <NewWorkModal
+          open={workModalOpen}
+          onOpenChange={(open) => {
+            setWorkModalOpen(open)
+            if (!open) setWorkFromTask(null)
+          }}
+          clients={workClients}
+          categories={categories}
+          users={users}
+          title="Crea lavoro da Task"
+          prefill={
+            workFromTask && workFromTask.clientId
+              ? {
+                  clientId: workFromTask.clientId,
+                  title: workFromTask.title,
+                  description: workFromTask.notes ?? '',
+                  deadline:
+                    workFromTask.dueDate >= todayDateOnlyRome() ? workFromTask.dueDate : undefined,
+                  sourceDailyTaskId: workFromTask.id,
+                  lockClient: true,
+                }
+              : undefined
+          }
+          onCancel={() => {
+            const t = reopenTaskAfterWorkCancel.current
+            reopenTaskAfterWorkCancel.current = null
+            if (t) {
+              setEditTask(t)
+              setFormOpen(true)
+            }
+          }}
+          onCreated={async (workId) => {
+            reopenTaskAfterWorkCancel.current = null
+            showToast('Lavoro creato e collegato alla Task', 'success')
+            try {
+              const latest = await getMyDailyTasks({ status: 'ALL' })
+              const updated = latest.find((t) => t.id === workFromTask?.id)
+              if (updated) upsertTask(updated)
+              else if (workFromTask) {
+                upsertTask({
+                  ...workFromTask,
+                  linkedWork: {
+                    id: workId,
+                    title: workFromTask.title,
+                    status: 'TODO',
+                    deadline: workFromTask.dueDate,
+                    assigneeNames: [],
+                  },
+                })
+              }
+            } catch {
+              refresh()
+            }
+            refresh()
+          }}
+        />
+      ) : null}
 
       <ContactCompleteDialog
         task={completeTask}

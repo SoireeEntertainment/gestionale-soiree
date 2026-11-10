@@ -1,9 +1,10 @@
 'use client'
 
 import { useState, useTransition } from 'react'
+import Link from 'next/link'
 import { format, parseISO } from 'date-fns'
 import { it } from 'date-fns/locale'
-import { Phone, Trash2 } from 'lucide-react'
+import { BriefcaseBusiness, Phone, Trash2 } from 'lucide-react'
 import {
   BOARD_EASE,
   getTaskDueUrgency,
@@ -40,6 +41,7 @@ export function TasksList({
   onEdit,
   onDelete,
   compact = false,
+  canOpenWorks = false,
 }: {
   tasks: DailyTaskDTO[]
   onToggle: (task: DailyTaskDTO) => void
@@ -47,6 +49,8 @@ export function TasksList({
   /** Chiamata solo dopo conferma nel dialog. */
   onDelete?: (task: DailyTaskDTO) => void | Promise<void>
   compact?: boolean
+  /** Link al dettaglio lavoro (solo utenti autorizzati a /works). */
+  canOpenWorks?: boolean
 }) {
   const [pendingDelete, setPendingDelete] = useState<DailyTaskDTO | null>(null)
   const [isDeleting, startDeleteTransition] = useTransition()
@@ -122,6 +126,28 @@ export function TasksList({
                       Sentire
                     </span>
                   )}
+                  {task.linkedWork ? (
+                    canOpenWorks ? (
+                      <Link
+                        href={`/works/${task.linkedWork.id}`}
+                        title={`Lavoro collegato: ${task.linkedWork.title}`}
+                        aria-label={`Apri lavoro collegato: ${task.linkedWork.title}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center gap-1 rounded-full border border-accent/30 bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent hover:bg-accent/15"
+                      >
+                        <BriefcaseBusiness className="h-3 w-3" aria-hidden />
+                        Lavoro
+                      </Link>
+                    ) : (
+                      <span
+                        title={`Lavoro collegato: ${task.linkedWork.title}`}
+                        className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/[0.04] px-2 py-0.5 text-[10px] font-medium text-white/50"
+                      >
+                        <BriefcaseBusiness className="h-3 w-3" aria-hidden />
+                        Lavoro
+                      </span>
+                    )
+                  ) : null}
                 </div>
                 <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
                   <span className={cn('font-medium', urgencyClass(urgency))}>

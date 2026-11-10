@@ -240,12 +240,15 @@ model Work {
   originalDeadline DateTime?
   deadline        DateTime?
   assignedToUserId String?
+  /// Task giornaliera da cui è stato generato questo lavoro (opzionale, max 1 lavoro per task).
+  sourceDailyTaskId String? @unique
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
   category        Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   assignedTo      User?    @relation(fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  sourceDailyTask DailyTask? @relation("WorkFromDailyTask", fields: [sourceDailyTaskId], references: [id], onDelete: SetNull)
   assignees       WorkAssignee[]
   steps           WorkStep[]
   comments        WorkComment[]
@@ -362,8 +365,10 @@ model DailyTask {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  client Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  user          User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  client        Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  /// Lavoro generato da questa task (relazione 1:0..1 lato Work.sourceDailyTaskId).
+  generatedWork Work?   @relation("WorkFromDailyTask")
 
   @@index([userId, status])
   @@index([userId, type, clientId])

@@ -13,6 +13,16 @@ import { measureAction } from '@/lib/measure-action'
 import { WORK_STATUS_META } from '@/lib/work-status'
 import { dbDateToDateOnly, formatDateOnly } from '@/lib/timeline-dates'
 
+export type WorkFormPrefill = {
+  clientId?: string
+  title?: string
+  description?: string
+  deadline?: string
+  sourceDailyTaskId?: string
+  /** Blocca la modifica del cliente (es. creato da Task). */
+  lockClient?: boolean
+}
+
 interface WorkFormProps {
   work?: Work & { client: Client; category: Category; assignedTo?: User | null }
   clients: Client[]
@@ -20,10 +30,20 @@ interface WorkFormProps {
   users: User[]
   clientId?: string
   categoryId?: string
-  onSuccess?: () => void
+  prefill?: WorkFormPrefill
+  onSuccess?: (result?: { workId: string }) => void
 }
 
-export function WorkForm({ work, clients, categories, users, clientId: initialClientId, categoryId: initialCategoryId, onSuccess }: WorkFormProps) {
+export function WorkForm({
+  work,
+  clients,
+  categories,
+  users,
+  clientId: initialClientId,
+  categoryId: initialCategoryId,
+  prefill,
+  onSuccess,
+}: WorkFormProps) {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [clientOptions, setClientOptions] = useState<Client[]>(clients)
@@ -36,10 +56,14 @@ export function WorkForm({ work, clients, categories, users, clientId: initialCl
     setClientOptions(clients)
   }, [clients])
 
+  const lockedClientId = prefill?.lockClient
+    ? prefill.clientId || initialClientId || ''
+    : initialClientId || prefill?.clientId || ''
+
   const buildInitialFormData = () => ({
-    title: work?.title || '',
-    description: work?.description || '',
-    clientId: work?.clientId || initialClientId || '',
+    title: work?.title || prefill?.title || '',
+    description: work?.description || prefill?.description || '',
+    clientId: work?.clientId || lockedClientId || '',
     categoryId: work?.categoryId || initialCategoryId || '',
     status: work?.status || 'TODO',
     priority: work?.priority || '',
@@ -48,13 +72,21 @@ export function WorkForm({ work, clients, categories, users, clientId: initialCl
       : work?.createdAt
         ? formatDateOnly(new Date(work.createdAt))
         : formatDateOnly(new Date()),
-    deadline: work?.deadline ? dbDateToDateOnly(work.deadline) : '',
+    deadline: work?.deadline
+      ? dbDateToDateOnly(work.deadline)
+      : prefill?.deadline || '',
     assignedToUserId: work?.assignedToUserId || null,
   })
   const [formData, setFormData] = useState(buildInitialFormData)
 
+  useEffect(() => {
+    if (work) return
+    setFormData(buildInitialFormData())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefill?.sourceDailyTaskId, prefill?.clientId, prefill?.title, prefill?.description, prefill?.deadline])
+
   /** Solo creazione lavoro senza cliente già fissato (es. /works), non dalla scheda cliente */
-  const canQuickCreateClient = !work && !initialClientId
+  const canQuickCreateClient = !work && !lockedClientId && !prefill?.lockClient
 
   const filteredClients = clientSearch.trim()
     ? clientOptions.filter((c) => c.name.toLowerCase().includes(clientSearch.toLowerCase()))
@@ -96,14 +128,20 @@ export function WorkForm({ work, clients, categories, users, clientId: initialCl
       if (work) {
         await measureAction('updateWork', () => updateWork(work.id, data))
         showToast('Lavoro aggiornato con successo', 'success')
+        onSuccess?.({ workId: work.id })
       } else {
-        await measureAction('createWork', () => createWork(data))
+        const created = await measureAction('createWork', () =>
+          createWork({
+            ...data,
+            sourceDailyTaskId: prefill?.sourceDailyTaskId || undefined,
+          })
+        )
         showToast('Lavoro creato con successo', 'success')
         setFormData(buildInitialFormData())
         setClientSearch('')
         setClientDropdownOpen(false)
+        onSuccess?.({ workId: created.work.id })
       }
-      onSuccess?.()
       router.refresh()
     } catch (error) {
       const msg = error instanceof Error
@@ -227,8 +265,9 @@ export function WorkForm({ work, clients, categories, users, clientId: initialCl
             <select
               required
               value={formData.clientId}
+              disabled={Boolean(prefill?.lockClient)}
               onChange={(e) => setFormData({ ...formData, clientId: e.target.value })}
-              className="w-full px-3 py-2 bg-dark border border-accent/20 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-accent"
+              className="w-full px-3 py-2 bg-dark border border-accent/20 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-accent disabled:cursor-not-allowed disabled:opacity-70"
             >
               <option value="">Seleziona cliente</option>
               {clientOptions.map((client) => (
@@ -238,6 +277,9 @@ export function WorkForm({ work, clients, categories, users, clientId: initialCl
               ))}
             </select>
           )}
+          {prefill?.lockClient ? (
+            <p className="mt-1 text-[11px] text-white/40">Cliente fissato dalla Task di origine.</p>
+          ) : null}
         </div>
 
         <div>
@@ -344,7 +386,7 @@ export function WorkForm({ work, clients, categories, users, clientId: initialCl
         <Button
           type="button"
           variant="ghost"
-          onClick={onSuccess}
+          onClick={() => onSuccess?.()}
           disabled={loading}
         >
           Annulla
