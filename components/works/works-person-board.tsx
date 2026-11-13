@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useTransition } from 'react'
+import { useEffect, useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
@@ -14,12 +14,23 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from '@dnd-kit/core'
+import { Archive } from 'lucide-react'
 import type { BoardWorkCard } from '@/lib/works-board'
 import { BOARD_EASE, computeIsOverdue, sortBoardWorksByDeadline } from '@/lib/works-board'
+import type { WorkStatus } from '@/lib/work-status'
+import {
+  WORKS_PERSON_BOARD_ARCHIVE_DROP_ID,
+  applyStatusOnPersonBoard,
+  archiveWorkOnPersonBoard,
+  isArchiveDropId,
+  removeWorkFromPersonBoard,
+} from '@/lib/work-board-quick-actions'
 import type { WorksBoardColumn, WorksBoardData } from '@/app/actions/works-board'
-import { reassignWorkOnBoard } from '@/app/actions/works-board'
+import { moveWorkStatusOnBoard, reassignWorkOnBoard } from '@/app/actions/works-board'
+import { deleteWork } from '@/app/actions/works'
 import { DraggableWorkBoardCard, WorkBoardCardContent } from '@/components/works/work-board-card'
 import { WorkRescheduleDialog } from '@/components/works/work-reschedule-dialog'
+import { WorkDeleteDialog } from '@/components/works/work-delete-dialog'
 import { showToast } from '@/lib/toast'
 import { cn } from '@/lib/utils'
 
@@ -28,15 +39,26 @@ function PersonColumn({
   canEdit,
   returnTo,
   isOver,
+  pendingWorkId,
   onReschedule,
+  onArchive,
+  onDelete,
+  onStatusChange,
 }: {
   column: WorksBoardColumn
   canEdit: boolean
   returnTo: string
   isOver: boolean
+  pendingWorkId: string | null
   onReschedule?: (work: BoardWorkCard) => void
+  onArchive?: (work: BoardWorkCard) => void
+  onDelete?: (work: BoardWorkCard) => void
+  onStatusChange?: (work: BoardWorkCard, status: WorkStatus) => void
 }) {
-  const { setNodeRef } = useDroppable({ id: column.userId, data: { userId: column.userId } })
+  const { setNodeRef } = useDroppable({
+    id: column.userId,
+    data: { type: 'person-column', userId: column.userId },
+  })
 
   return (
     <section
@@ -74,10 +96,49 @@ function PersonColumn({
               columnId={column.userId}
               href={`/works/${work.id}?returnTo=${encodeURIComponent(returnTo)}`}
               disabled={!canEdit}
+              pending={pendingWorkId === work.id}
               onReschedule={canEdit ? onReschedule : undefined}
+              onArchive={canEdit ? onArchive : undefined}
+              onDelete={canEdit ? onDelete : undefined}
+              onStatusChange={canEdit ? onStatusChange : undefined}
             />
           ))
         )}
+      </div>
+    </section>
+  )
+}
+
+function PersonArchiveDropzone({ visible, isOver }: { visible: boolean; isOver: boolean }) {
+  const { setNodeRef } = useDroppable({
+    id: WORKS_PERSON_BOARD_ARCHIVE_DROP_ID,
+    data: { type: 'archive', status: 'DONE' },
+  })
+
+  return (
+    <section
+      ref={setNodeRef}
+      className={cn(
+        'sticky bottom-20 z-20 mt-3 flex items-center justify-center gap-3 rounded-2xl border border-dashed px-4 md:bottom-4',
+        'transition-[border-color,background-color,box-shadow,opacity,transform,min-height,padding] duration-300',
+        visible
+          ? 'min-h-[76px] py-4 opacity-100'
+          : 'pointer-events-none min-h-0 overflow-hidden border-transparent bg-transparent py-0 opacity-0',
+        visible &&
+          (isOver
+            ? 'border-emerald-400/70 bg-emerald-500/15 shadow-lg shadow-emerald-500/15 scale-[1.01]'
+            : 'border-emerald-500/30 bg-emerald-500/[0.06]')
+      )}
+      style={{ transitionTimingFunction: BOARD_EASE }}
+      aria-hidden={!visible}
+      aria-label="Fatto — Archivia"
+    >
+      <Archive className={cn('h-5 w-5', isOver ? 'text-emerald-200' : 'text-emerald-400/80')} aria-hidden />
+      <div className="text-center">
+        <p className={cn('text-sm font-semibold', isOver ? 'text-emerald-100' : 'text-emerald-300/90')}>
+          Fatto — Archivia
+        </p>
+        <p className="text-[11px] text-white/45">Rilascia qui per completare il lavoro</p>
       </div>
     </section>
   )
@@ -87,17 +148,22 @@ export function WorksPersonBoard({
   initialData,
   canEdit,
   returnTo = '/works',
+  onCountsChange,
 }: {
   initialData: WorksBoardData
   canEdit: boolean
   returnTo?: string
+  onCountsChange?: (counts: { activeCount: number; archiveCount: number }) => void
 }) {
   const router = useRouter()
   const [data, setData] = useState(initialData)
   const [activeWork, setActiveWork] = useState<BoardWorkCard | null>(null)
-  const [overColumnId, setOverColumnId] = useState<string | null>(null)
+  const [overId, setOverId] = useState<string | null>(null)
   const [rescheduleWork, setRescheduleWork] = useState<BoardWorkCard | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<BoardWorkCard | null>(null)
+  const [pendingWorkId, setPendingWorkId] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
+  const inflightRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     setData(initialData)
@@ -105,9 +171,31 @@ export function WorksPersonBoard({
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
-      activationConstraint: { distance: 6 },
+      activationConstraint: { distance: 8 },
     })
   )
+
+  const beginWorkOp = (workId: string) => {
+    if (inflightRef.current.has(workId)) return false
+    inflightRef.current.add(workId)
+    setPendingWorkId(workId)
+    return true
+  }
+
+  const endWorkOp = (workId: string) => {
+    inflightRef.current.delete(workId)
+    setPendingWorkId((current) => (current === workId ? null : current))
+  }
+
+  const commitData = (
+    previous: WorksBoardData,
+    next: WorksBoardData,
+    apply: (prev: WorksBoardData) => WorksBoardData
+  ) => {
+    setData(apply)
+    onCountsChange?.({ activeCount: next.activeCount, archiveCount: next.archiveCount })
+    return previous
+  }
 
   const applyDeadlineLocally = (workId: string, deadline: string | null) => {
     setData((prev) => {
@@ -126,30 +214,119 @@ export function WorksPersonBoard({
     })
   }
 
+  const handleStatusChange = (work: BoardWorkCard, nextStatus: WorkStatus) => {
+    if (!canEdit || isPending) return
+    if (work.status === nextStatus) return
+    if (!beginWorkOp(work.id)) return
+
+    const previous = data
+    const next = applyStatusOnPersonBoard(data, work.id, nextStatus)
+    commitData(previous, next, () => next)
+
+    startTransition(async () => {
+      try {
+        await moveWorkStatusOnBoard({ workId: work.id, status: nextStatus })
+        if (nextStatus === 'DONE') {
+          showToast('Lavoro completato e archiviato', 'success')
+        } else {
+          showToast('Stato aggiornato', 'success')
+        }
+        router.refresh()
+      } catch (error) {
+        setData(previous)
+        onCountsChange?.({
+          activeCount: previous.activeCount,
+          archiveCount: previous.archiveCount,
+        })
+        showToast(error instanceof Error ? error.message : 'Aggiornamento stato non riuscito', 'error')
+      } finally {
+        endWorkOp(work.id)
+      }
+    })
+  }
+
+  const handleArchive = (work: BoardWorkCard) => {
+    handleStatusChange(work, 'DONE')
+  }
+
+  const handleConfirmDelete = () => {
+    const work = deleteTarget
+    if (!work || !canEdit) return
+    if (!beginWorkOp(work.id)) return
+
+    const previous = data
+    const next = removeWorkFromPersonBoard(data, work.id)
+    commitData(previous, next, () => next)
+    setDeleteTarget(null)
+
+    startTransition(async () => {
+      try {
+        await deleteWork(work.id)
+        showToast('Lavoro eliminato', 'success')
+        router.refresh()
+      } catch (error) {
+        setData(previous)
+        onCountsChange?.({
+          activeCount: previous.activeCount,
+          archiveCount: previous.archiveCount,
+        })
+        showToast(error instanceof Error ? error.message : 'Eliminazione non riuscita', 'error')
+      } finally {
+        endWorkOp(work.id)
+      }
+    })
+  }
+
   const onDragStart = (event: DragStartEvent) => {
     const work = event.active.data.current?.work as BoardWorkCard | undefined
     setActiveWork(work ?? null)
   }
 
   const onDragOver = (event: { over: { id: string | number } | null }) => {
-    setOverColumnId(event.over ? String(event.over.id) : null)
+    setOverId(event.over ? String(event.over.id) : null)
   }
 
   const onDragEnd = (event: DragEndEvent) => {
     setActiveWork(null)
-    setOverColumnId(null)
+    setOverId(null)
     if (!canEdit || isPending) return
 
-    const overId = event.over?.id ? String(event.over.id) : null
+    const overDropId = event.over?.id ? String(event.over.id) : null
     const work = event.active.data.current?.work as BoardWorkCard | undefined
     const fromUserId = event.active.data.current?.columnId as string | undefined
     const workId = (event.active.data.current?.workId as string | undefined) ?? work?.id
-    if (!overId || !work || !workId) return
+    if (!overDropId || !work || !workId) return
 
-    const targetColumn = data.columns.find((c) => c.userId === overId)
+    if (isArchiveDropId(overDropId)) {
+      if (work.status === 'DONE') return
+      if (!beginWorkOp(workId)) return
+      const previous = data
+      const next = archiveWorkOnPersonBoard(data, workId)
+      commitData(previous, next, () => next)
+      startTransition(async () => {
+        try {
+          await moveWorkStatusOnBoard({ workId, status: 'DONE' })
+          showToast('Lavoro completato e archiviato', 'success')
+          router.refresh()
+        } catch (error) {
+          setData(previous)
+          onCountsChange?.({
+            activeCount: previous.activeCount,
+            archiveCount: previous.archiveCount,
+          })
+          showToast(error instanceof Error ? error.message : 'Archiviazione non riuscita', 'error')
+        } finally {
+          endWorkOp(workId)
+        }
+      })
+      return
+    }
+
+    const targetColumn = data.columns.find((c) => c.userId === overDropId)
     if (!targetColumn) return
     if (fromUserId === targetColumn.userId) return
     if (!fromUserId) return
+    if (!beginWorkOp(workId)) return
 
     const previous = data
     const nextAssigneeIds = [
@@ -200,6 +377,8 @@ export function WorksPersonBoard({
       } catch (error) {
         setData(previous)
         showToast(error instanceof Error ? error.message : 'Spostamento non riuscito', 'error')
+      } finally {
+        endWorkOp(workId)
       }
     })
   }
@@ -214,7 +393,7 @@ export function WorksPersonBoard({
         onDragEnd={onDragEnd}
         onDragCancel={() => {
           setActiveWork(null)
-          setOverColumnId(null)
+          setOverId(null)
         }}
       >
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -224,11 +403,22 @@ export function WorksPersonBoard({
               column={column}
               canEdit={canEdit}
               returnTo={returnTo}
-              isOver={overColumnId === column.userId}
+              isOver={overId === column.userId}
+              pendingWorkId={pendingWorkId}
               onReschedule={setRescheduleWork}
+              onArchive={handleArchive}
+              onDelete={setDeleteTarget}
+              onStatusChange={handleStatusChange}
             />
           ))}
         </div>
+
+        {canEdit ? (
+          <PersonArchiveDropzone
+            visible={!!activeWork}
+            isOver={isArchiveDropId(overId)}
+          />
+        ) : null}
 
         <DragOverlay dropAnimation={{ duration: 280, easing: BOARD_EASE }}>
           {activeWork ? <WorkBoardCardContent work={activeWork} dragging /> : null}
@@ -246,7 +436,11 @@ export function WorksPersonBoard({
                 key={work.id}
                 work={work}
                 href={`/works/${work.id}?returnTo=${encodeURIComponent(returnTo)}`}
+                pending={pendingWorkId === work.id}
                 onReschedule={canEdit ? setRescheduleWork : undefined}
+                onArchive={canEdit ? handleArchive : undefined}
+                onDelete={canEdit ? setDeleteTarget : undefined}
+                onStatusChange={canEdit ? handleStatusChange : undefined}
               />
             ))}
           </div>
@@ -263,6 +457,16 @@ export function WorksPersonBoard({
           applyDeadlineLocally(workId, deadline)
           router.refresh()
         }}
+      />
+
+      <WorkDeleteDialog
+        work={deleteTarget}
+        open={!!deleteTarget}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null)
+        }}
+        onConfirm={handleConfirmDelete}
+        isPending={!!deleteTarget && pendingWorkId === deleteTarget.id}
       />
     </div>
   )

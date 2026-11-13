@@ -367,18 +367,27 @@ export async function deleteWork(id: string) {
 
   const work = await prisma.work.findUnique({
     where: { id },
-    select: { clientId: true },
+    select: {
+      clientId: true,
+      assignedToUserId: true,
+      assignees: { select: { userId: true } },
+    },
   })
+  if (!work) throw new Error('Lavoro non trovato')
 
   await prisma.work.delete({
     where: { id },
   })
 
   revalidatePath('/works')
+  revalidatePath(`/works/${id}`)
   revalidatePath('/tasks')
+  revalidatePath('/ped')
   revalidatePath('/profilo')
-  if (work) {
-    revalidatePath(`/clients/${work.clientId}`)
+  revalidatePath(`/clients/${work.clientId}`)
+  if (work.assignedToUserId) revalidatePath(`/works/person/${work.assignedToUserId}`)
+  for (const assignee of work.assignees) {
+    revalidatePath(`/works/person/${assignee.userId}`)
   }
   return { success: true }
 }

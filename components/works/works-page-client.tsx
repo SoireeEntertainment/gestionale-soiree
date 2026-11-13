@@ -38,10 +38,15 @@ export function WorksPageClient({
 }: WorksPageClientProps) {
   const searchParams = useSearchParams()
   const [isCreateOpen, setIsCreateOpen] = useState(false)
+  const [counts, setCounts] = useState({ active: activeCount, archive: archiveCount })
 
   useEffect(() => {
     if (searchParams.get('nuovo') === '1') setIsCreateOpen(true)
   }, [searchParams])
+
+  useEffect(() => {
+    setCounts({ active: activeCount, archive: archiveCount })
+  }, [activeCount, archiveCount])
 
   const returnTo = (() => {
     const qs = searchParams.toString()
@@ -50,7 +55,7 @@ export function WorksPageClient({
 
   return (
     <>
-      <WorksViewTabs view={view} activeCount={activeCount} archiveCount={archiveCount} />
+      <WorksViewTabs view={view} activeCount={counts.active} archiveCount={counts.archive} />
 
       <div className="flex flex-col gap-4 mb-5 md:flex-row md:items-start md:justify-between">
         <div className="min-w-0 flex-1">
@@ -74,9 +79,26 @@ export function WorksPageClient({
       </div>
 
       {view === 'active' && boardData ? (
-        <WorksPersonBoard initialData={boardData} canEdit={canEdit} returnTo={returnTo} />
+        <WorksPersonBoard
+          initialData={boardData}
+          canEdit={canEdit}
+          returnTo={returnTo}
+          onCountsChange={({ activeCount: nextActive, archiveCount: nextArchive }) => {
+            setCounts({ active: nextActive, archive: nextArchive })
+          }}
+        />
       ) : (
-        <WorksArchiveList works={archiveWorks} canEdit={canEdit} returnTo={returnTo} />
+        <WorksArchiveList
+          works={archiveWorks}
+          canEdit={canEdit}
+          returnTo={returnTo}
+          onCountsChange={({ activeDelta = 0, archiveDelta = 0 }) => {
+            setCounts((prev) => ({
+              active: Math.max(0, prev.active + activeDelta),
+              archive: Math.max(0, prev.archive + archiveDelta),
+            }))
+          }}
+        />
       )}
 
       <NewWorkModal

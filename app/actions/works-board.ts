@@ -472,6 +472,21 @@ export async function moveWorkStatusOnBoard(input: unknown) {
   if (!user || !canWrite(user)) throw new Error('Non autorizzato')
 
   const { workId, status } = moveStatusSchema.parse(input)
+  const current = await prisma.work.findUnique({
+    where: { id: workId },
+    select: {
+      id: true,
+      status: true,
+      assignedToUserId: true,
+      clientId: true,
+      assignees: { select: { userId: true } },
+    },
+  })
+  if (!current) throw new Error('Lavoro non trovato')
+  if (current.status === status) {
+    return { success: true as const, archived: status === 'DONE', unchanged: true as const }
+  }
+
   const updated = await prisma.work.update({
     where: { id: workId },
     data: { status },
@@ -487,7 +502,7 @@ export async function moveWorkStatusOnBoard(input: unknown) {
   revalidatePath('/ped')
   revalidatePath('/profilo')
   revalidatePath(`/clients/${updated.clientId}`)
-  return { success: true as const, archived: status === 'DONE' }
+  return { success: true as const, archived: status === 'DONE', unchanged: false as const }
 }
 
 const rescheduleSchema = z.object({
