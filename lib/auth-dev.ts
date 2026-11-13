@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { cookies, headers } from 'next/headers'
 import { isRedirectError } from 'next/dist/client/components/redirect-error'
 import { prisma } from './prisma'
+import { getRequestActor } from './request-actor'
 import {
   AUTH_RECOVERY_PATH,
   classifyClerkBackendFailure,
@@ -244,6 +245,10 @@ async function findUsersByEmailInsensitive(email: string) {
  * Gli errori DB o della Backend API temporanei lanciano AuthTransientError.
  */
 export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
+  // Attore server-side verificato (Telegram): nessuna sessione Clerk fittizia.
+  const requestActor = getRequestActor()
+  if (requestActor) return requestActor
+
   const meta = await getRequestMeta()
   const started = Date.now()
   let sessionState: RequestSession['state'] | null = null

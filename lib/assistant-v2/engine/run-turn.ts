@@ -37,18 +37,44 @@ function cardsFromTrace(trace: BuiltToolTrace[]): AssistantV2Card[] {
     }
     if (r.ok && 'data' in r && r.data && typeof r.data === 'object') {
       const data = r.data as Record<string, unknown>
-      const listKey = ['tasks', 'clients', 'works', 'items', 'renewals', 'preventivi', 'categories'].find(
-        (k) => Array.isArray(data[k])
-      )
+      const listKey = [
+        'pedItems',
+        'tasks',
+        'clients',
+        'works',
+        'items',
+        'renewals',
+        'preventivi',
+        'categories',
+      ].find((k) => Array.isArray(data[k]))
       if (listKey) {
         const arr = data[listKey] as Record<string, unknown>[]
+        const kind =
+          listKey === 'pedItems' || t.name.includes('ped')
+            ? ('ped' as const)
+            : listKey === 'tasks' || t.name.includes('task') || t.name.includes('contact')
+              ? ('task' as const)
+              : listKey === 'works' || t.name.includes('work')
+                ? ('work' as const)
+                : undefined
         cards.push({
           type: 'list',
           title: r.summary,
           items: arr.slice(0, 20).map((row) => ({
+            id: typeof row.id === 'string' ? row.id : undefined,
+            kind,
             label: String(row.title ?? row.name ?? row.clientName ?? row.topic ?? row.id ?? '—'),
             href: typeof row.href === 'string' ? row.href : undefined,
-            meta: typeof row.dueDate === 'string' ? row.dueDate : typeof row.status === 'string' ? row.status : undefined,
+            meta:
+              typeof row.dueDate === 'string'
+                ? row.dueDate
+                : typeof row.date === 'string'
+                  ? row.date
+                  : typeof row.labelText === 'string'
+                    ? row.labelText
+                    : typeof row.status === 'string'
+                      ? row.status
+                      : undefined,
           })),
         })
       }

@@ -10,6 +10,10 @@ const defaults = {
   notifyInReview: true,
   notifyWaitingClient: true,
   timezone: 'Europe/Rome',
+  telegramDigestEnabled: false,
+  telegramDigestHour: 8,
+  telegramDigestMinute: 0,
+  telegramDigestDays: [1, 2, 3, 4, 5] as number[],
 }
 
 export async function getMyPreferences(userId: string) {
@@ -26,6 +30,12 @@ export async function getMyPreferences(userId: string) {
       notifyInReview: prefs?.notifyInReview ?? defaults.notifyInReview,
       notifyWaitingClient: prefs?.notifyWaitingClient ?? defaults.notifyWaitingClient,
       timezone: prefs?.timezone ?? defaults.timezone,
+      telegramDigestEnabled: prefs?.telegramDigestEnabled ?? defaults.telegramDigestEnabled,
+      telegramDigestHour: prefs?.telegramDigestHour ?? defaults.telegramDigestHour,
+      telegramDigestMinute: prefs?.telegramDigestMinute ?? defaults.telegramDigestMinute,
+      telegramDigestDays: prefs?.telegramDigestDays?.length
+        ? prefs.telegramDigestDays
+        : defaults.telegramDigestDays,
     }
   } catch {
     return { ...defaults }

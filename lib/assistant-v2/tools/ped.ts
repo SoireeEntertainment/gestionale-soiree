@@ -3,7 +3,16 @@
  * NON sono le task giornaliere (/tasks): per quelle vedi ./daily-tasks.
  */
 import { z } from 'zod'
-import { bulkMovePedItems, createPedItem, getPedMonth, togglePedItemDone } from '@/app/actions/ped'
+import {
+  bulkMovePedItems,
+  createPedItem,
+  deletePedItem,
+  duplicatePedItem,
+  getPedMonth,
+  setPedItemLabel,
+  togglePedItemDone,
+  updatePedItem,
+} from '@/app/actions/ped'
 import { formatDateItFromYmd, resolveItalianDatePhrase } from '@/lib/assistant-v2/dates'
 import {
   MAX_ITEMS,
@@ -411,4 +420,325 @@ const movePedItemDate = defineTool({
   },
 })
 
-export const pedTools = [listPedWeek, createPedItemTool, togglePedDone, movePedItemDate]
+const listPedDay = defineTool({
+  name: 'list_ped_day',
+  description: `Elenca i contenuti PED di un giorno specifico (es. oggi, domani, venerdì) per una persona. ${PED_NOTE}`,
+  kind: 'read',
+  risk: 'low',
+  requiresConfirmation: false,
+  permission: 'ped_read',
+  inputSchema: z.object({
+    datePhrase: z.string().optional().describe('Default: oggi'),
+    userName: z.string().optional(),
+    clientName: z.string().optional(),
+    onlyOpen: z.boolean().optional(),
+  }),
+  execute: async (input, ctx) => {
+    const denied = requireAdmin(ctx)
+    if (denied) return denied
+
+    const day = resolveDate(input.datePhrase?.trim() || 'oggi')
+    if (day.ok === false) return day
+    const user = await resolveUserOrSelf(ctx, input.userName)
+    if (user.ok === false) return user
+
+    let clientId: string | undefined
+    if (input.clientName?.trim()) {
+      const c = await resolveClient(ctx, input.clientName, { useMemory: false })
+      if (c.ok === false) return c
+      clientId = c.id
+    }
+
+    const [y, m] = day.date.split('-').map(Number)
+    const month = await getPedMonth(y, m, user.id)
+    let items = month.pedItems
+      .map((i) => ({ i, day: toDateString(new Date(i.date)) }))
+      .filter(({ i, day: d }) => d === day.date && (!clientId || i.clientId === clientId))
+      .filter(({ i }) => !input.onlyOpen || i.status !== 'DONE')
+      .sort((a, b) => a.day.localeCompare(b.day))
+
+    const pedItems = items.slice(0, MAX_ITEMS).map(({ i, day: d }) => {
+      const label = getEffectiveLabel(i)
+      return {
+        id: i.id,
+        date: d,
+        type: i.type,
+        title: i.title,
+        clientName: i.client.name,
+        label,
+        labelText: labelText(label),
+        done: i.status === 'DONE',
+        isExtra: i.isExtra,
+        assignedTo: i.assignedTo?.name ?? null,
+        platforms: i.platforms,
+      }
+    })
+
+    const workDeadlines = month.assignedWorkDeadlines
+      .filter((w) => w.date === day.date && (!clientId || w.clientId === clientId))
+      .map((w) => ({
+        workId: w.id,
+        date: w.date,
+        title: w.title,
+        clientName: w.client.name,
+        status: w.status,
+      }))
+
+    return {
+      ok: true,
+      summary:
+        pedItems.length === 0
+          ? `Nessun contenuto PED per ${user.name} il ${formatDateItFromYmd(day.date)}.`
+          : `PED di ${user.name} il ${formatDateItFromYmd(day.date)}: ${pedItems.length} contenuti.`,
+      data: {
+        note: PED_NOTE,
+        date: day.date,
+        pedItems,
+        workDeadlines,
+      },
+      href: '/ped',
+      entityType: 'PedItem',
+    }
+  },
+})
+
+const setPedLabelTool = defineTool({
+  name: 'set_ped_label',
+  description: `Imposta l'etichetta PED (IN_APPROVAZIONE, DA_FARE, PRONTO_NON_PUBBLICATO, FATTO). Sincronizza ShootingReel se previsto. ${PED_NOTE}`,
+  kind: 'write',
+  risk: 'medium',
+  requiresConfirmation: true,
+  permission: 'ped_write',
+  inputSchema: z.object({
+    itemQuery: z.string().min(1),
+    clientName: z.string().optional(),
+    datePhrase: z.string().optional(),
+    label: z.enum(PED_LABELS),
+  }),
+  execute: async (input, ctx) => {
+    const found = await resolvePedItem(ctx, input)
+    if (found.ok === false) return found
+    const { item } = found
+    return queueWrite(
+      ctx,
+      'set_ped_label',
+      { itemId: item.id, label: input.label },
+      {
+        title: 'Cambia etichetta PED',
+        summary: item.title,
+        fields: [
+          { label: 'Contenuto', value: item.title },
+          { label: 'Cliente', value: item.clientName },
+          { label: 'Etichetta', value: labelText(input.label) },
+        ],
+        href: '/ped',
+        entityType: 'PedItem',
+        risk: 'medium',
+      }
+    )
+  },
+  commit: async (payload: { itemId: string; label: (typeof PED_LABELS)[number] }) => {
+    const res = await setPedItemLabel(payload.itemId, payload.label)
+    if (!res.ok) return { ok: false, error: res.error ?? 'Impossibile aggiornare etichetta.' }
+    return {
+      ok: true,
+      summary: `Etichetta aggiornata a ${labelText(payload.label)}.`,
+      entityType: 'PedItem',
+      entityId: payload.itemId,
+      href: '/ped',
+    }
+  },
+})
+
+const updatePedItemTool = defineTool({
+  name: 'update_ped_item',
+  description: `Modifica titolo/descrizione/tipo/piattaforme/extra di un contenuto PED. ${PED_NOTE}`,
+  kind: 'write',
+  risk: 'medium',
+  requiresConfirmation: true,
+  permission: 'ped_write',
+  inputSchema: z.object({
+    itemQuery: z.string().min(1),
+    clientName: z.string().optional(),
+    datePhrase: z.string().optional(),
+    newTitle: z.string().optional(),
+    newDescription: z.string().optional().nullable(),
+    newType: z.enum(PED_ITEM_TYPES).optional(),
+    platforms: z.array(z.enum(PED_PLATFORMS)).optional(),
+    isExtra: z.boolean().optional(),
+  }),
+  execute: async (input, ctx) => {
+    const found = await resolvePedItem(ctx, input)
+    if (found.ok === false) return found
+    if (
+      !input.newTitle &&
+      input.newDescription === undefined &&
+      !input.newType &&
+      !input.platforms &&
+      input.isExtra === undefined
+    ) {
+      return { ok: false, error: 'Indica cosa modificare (titolo, descrizione, tipo, piattaforme, extra).', clarify: true }
+    }
+    const { item } = found
+    const payload = {
+      itemId: item.id,
+      title: input.newTitle?.trim(),
+      description: input.newDescription,
+      type: input.newType,
+      platforms: input.platforms,
+      isExtra: input.isExtra,
+      expectedUpdatedHint: item.title,
+    }
+    return queueWrite(ctx, 'update_ped_item', payload, {
+      title: 'Modifica contenuto PED',
+      summary: item.title,
+      fields: [
+        { label: 'Contenuto', value: item.title },
+        { label: 'Cliente', value: item.clientName },
+        ...(payload.title ? [{ label: 'Nuovo titolo', value: payload.title }] : []),
+        ...(payload.type ? [{ label: 'Tipo', value: payload.type }] : []),
+        ...(payload.platforms ? [{ label: 'Piattaforme', value: payload.platforms.join(', ') }] : []),
+        ...(payload.isExtra !== undefined
+          ? [{ label: 'Extra', value: payload.isExtra ? 'sì' : 'no' }]
+          : []),
+      ],
+      href: '/ped',
+      entityType: 'PedItem',
+      risk: 'medium',
+    })
+  },
+  commit: async (payload: {
+    itemId: string
+    title?: string
+    description?: string | null
+    type?: (typeof PED_ITEM_TYPES)[number]
+    platforms?: (typeof PED_PLATFORMS)[number][]
+    isExtra?: boolean
+  }) => {
+    await updatePedItem(payload.itemId, {
+      title: payload.title,
+      description: payload.description,
+      type: payload.type,
+      platforms: payload.platforms,
+      isExtra: payload.isExtra,
+    })
+    return {
+      ok: true,
+      summary: 'Contenuto PED aggiornato.',
+      entityType: 'PedItem',
+      entityId: payload.itemId,
+      href: '/ped',
+    }
+  },
+})
+
+const deletePedItemTool = defineTool({
+  name: 'delete_ped_item',
+  description: `Elimina un contenuto PED (richiede conferma). ${PED_NOTE}`,
+  kind: 'write',
+  risk: 'destructive',
+  requiresConfirmation: true,
+  permission: 'ped_write',
+  inputSchema: z.object({
+    itemQuery: z.string().min(1),
+    clientName: z.string().optional(),
+    datePhrase: z.string().optional(),
+  }),
+  execute: async (input, ctx) => {
+    const found = await resolvePedItem(ctx, input)
+    if (found.ok === false) return found
+    const { item } = found
+    return queueWrite(
+      ctx,
+      'delete_ped_item',
+      { itemId: item.id },
+      {
+        title: 'Elimina contenuto PED',
+        summary: item.title,
+        fields: [
+          { label: 'Contenuto', value: item.title },
+          { label: 'Cliente', value: item.clientName },
+          { label: 'Data', value: formatDateItFromYmd(item.date) },
+        ],
+        href: '/ped',
+        entityType: 'PedItem',
+        risk: 'destructive',
+      }
+    )
+  },
+  commit: async (payload: { itemId: string }) => {
+    await deletePedItem(payload.itemId)
+    return {
+      ok: true,
+      summary: 'Contenuto PED eliminato.',
+      entityType: 'PedItem',
+      entityId: payload.itemId,
+      href: '/ped',
+    }
+  },
+})
+
+const duplicatePedItemTool = defineTool({
+  name: 'duplicate_ped_item',
+  description: `Duplica un contenuto PED in una nuova data. ${PED_NOTE}`,
+  kind: 'write',
+  risk: 'medium',
+  requiresConfirmation: true,
+  permission: 'ped_write',
+  inputSchema: z.object({
+    itemQuery: z.string().min(1),
+    clientName: z.string().optional(),
+    currentDatePhrase: z.string().optional(),
+    newDatePhrase: z.string(),
+    isExtra: z.boolean().optional(),
+  }),
+  execute: async (input, ctx) => {
+    const found = await resolvePedItem(ctx, {
+      itemQuery: input.itemQuery,
+      clientName: input.clientName,
+      datePhrase: input.currentDatePhrase,
+    })
+    if (found.ok === false) return found
+    const target = resolveDate(input.newDatePhrase)
+    if (target.ok === false) return target
+    const { item } = found
+    return queueWrite(
+      ctx,
+      'duplicate_ped_item',
+      { itemId: item.id, targetDate: target.date, targetIsExtra: input.isExtra ?? false },
+      {
+        title: 'Duplica contenuto PED',
+        summary: item.title,
+        fields: [
+          { label: 'Contenuto', value: item.title },
+          { label: 'Nuova data', value: formatDateItFromYmd(target.date) },
+        ],
+        href: '/ped',
+        entityType: 'PedItem',
+        risk: 'medium',
+      }
+    )
+  },
+  commit: async (payload: { itemId: string; targetDate: string; targetIsExtra: boolean }) => {
+    await duplicatePedItem(payload.itemId, payload.targetDate, payload.targetIsExtra)
+    return {
+      ok: true,
+      summary: `Contenuto PED duplicato al ${formatDateItFromYmd(payload.targetDate)}.`,
+      entityType: 'PedItem',
+      entityId: payload.itemId,
+      href: '/ped',
+    }
+  },
+})
+
+export const pedTools = [
+  listPedWeek,
+  listPedDay,
+  createPedItemTool,
+  togglePedDone,
+  setPedLabelTool,
+  updatePedItemTool,
+  movePedItemDate,
+  duplicatePedItemTool,
+  deletePedItemTool,
+]

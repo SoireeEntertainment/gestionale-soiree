@@ -87,7 +87,7 @@ export type AssistantV2Card =
   | {
       type: 'list'
       title: string
-      items: { label: string; href?: string; meta?: string }[]
+      items: { id?: string; kind?: 'ped' | 'task' | 'work'; label: string; href?: string; meta?: string }[]
     }
 
 export type AssistantV2Response = {
@@ -111,4 +111,13 @@ export type ThreadMemoryRefs = {
   lastUserId?: string | null
   lastUserName?: string | null
   lastSearchSummary?: string | null
+  /** Elenco numerato dell’ultima risposta (per “il secondo”). */
+  lastListedItems?: {
+    index: number
+    kind: 'ped' | 'task' | 'work'
+    id: string
+    label: string
+    clientName?: string
+    date?: string
+  }[]
 }

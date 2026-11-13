@@ -36,6 +36,9 @@ const isPublicRoute = createRouteMatcher([
   '/ripristino-sessione',
   '/api/dev-users(.*)',
   '/api/health',
+  '/api/integrations/telegram/webhook',
+  '/api/cron/telegram-assistant',
+  '/api/cron/domain-renewals-alert',
 ])
 
 /**
