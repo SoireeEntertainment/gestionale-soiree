@@ -25,7 +25,8 @@ export const TELEGRAM_LIMITS = {
   telegramMessageMax: 3900,
   jobMaxAttempts: 5,
   jobLockMs: 90_000,
-  digestCronToleranceMin: 2,
+  /** Hobby: cron orari UTC (±59′). Tolleranza ampia sull’ora Europe/Rome configurata. */
+  digestCronToleranceMin: 59,
 } as const
 
 export function isTelegramAssistantEnabled(): boolean {

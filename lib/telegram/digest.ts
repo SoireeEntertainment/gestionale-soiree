@@ -171,10 +171,11 @@ export async function runTelegramDailyDigests(now = new Date()): Promise<{
       skipped++
       continue
     }
-    // Finestra ±2 minuti rispetto all'ora configurata
+    // Finestra rispetto all'ora Europe/Rome (cron Hobby ≈ orario UTC con drift)
+    const { TELEGRAM_LIMITS } = await import('@/lib/telegram/config')
     const targetMin = p.telegramDigestHour * 60 + p.telegramDigestMinute
     const nowMin = hour * 60 + minute
-    if (Math.abs(nowMin - targetMin) > 2) {
+    if (Math.abs(nowMin - targetMin) > TELEGRAM_LIMITS.digestCronToleranceMin) {
       skipped++
       continue
     }

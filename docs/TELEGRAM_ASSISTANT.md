@@ -25,12 +25,15 @@ Telegram → POST /api/integrations/telegram/webhook
          → verifica X-Telegram-Bot-Api-Secret-Token
          → enqueue TelegramJob (DB)
          → 200 OK immediato
-         → after() + cron * * * * * → drainTelegramJobs
+         → after() → drainTelegramJobs (primario)
+         → cron orari UTC (Hobby-safe) → drain + digest
          → resolve TelegramConnection → CurrentUser (ALS)
          → runAssistantV2Turn / confirm / cancel
          → tool PED / DailyTask (stesse action del gestionale)
          → risposta Telegram (+ InlineKeyboard conferma)
 ```
+
+Nota: su piano Hobby non è consentito `* * * * *`. I job AI dipendono da `after()`; i cron orari sono fallback + digest.
 
 Identità: **mai** cookie Clerk. Dopo linking verificato, `runWithRequestActor` espone l’utente a `getCurrentUser()` senza simulare sessioni.
 
