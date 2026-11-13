@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useTransition } from 'react'
+import { useEffect, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   DndContext,
@@ -23,9 +23,17 @@ import {
 } from '@/lib/works-board'
 import type { WorkStatus } from '@/lib/work-status'
 import { WORK_STATUS_META } from '@/lib/work-status'
+import {
+  applyStatusOnStatusBoard,
+  isArchiveDropId,
+  isQuickBoardStatus,
+  removeWorkFromStatusBoard,
+} from '@/lib/work-board-quick-actions'
 import { moveWorkStatusOnBoard } from '@/app/actions/works-board'
+import { deleteWork } from '@/app/actions/works'
 import { DraggableWorkBoardCard, WorkBoardCardContent } from '@/components/works/work-board-card'
 import { WorkRescheduleDialog } from '@/components/works/work-reschedule-dialog'
+import { WorkDeleteDialog } from '@/components/works/work-delete-dialog'
 import { showToast } from '@/lib/toast'
 import { cn } from '@/lib/utils'
 import { Archive } from 'lucide-react'
@@ -41,15 +49,26 @@ function StatusColumnView({
   canEdit,
   returnTo,
   isOver,
+  pendingWorkId,
   onReschedule,
+  onArchive,
+  onDelete,
+  onStatusChange,
 }: {
   column: StatusColumn
   canEdit: boolean
   returnTo: string
   isOver: boolean
+  pendingWorkId: string | null
   onReschedule?: (work: BoardWorkCard) => void
+  onArchive?: (work: BoardWorkCard) => void
+  onDelete?: (work: BoardWorkCard) => void
+  onStatusChange?: (work: BoardWorkCard, status: WorkStatus) => void
 }) {
-  const { setNodeRef } = useDroppable({ id: column.status, data: { status: column.status } })
+  const { setNodeRef } = useDroppable({
+    id: column.status,
+    data: { type: 'status-column', status: column.status },
+  })
   const meta = WORK_STATUS_META[column.status]
 
   return (
@@ -84,7 +103,11 @@ function StatusColumnView({
               columnId={column.status}
               href={`/works/${work.id}?returnTo=${encodeURIComponent(returnTo)}`}
               disabled={!canEdit}
+              pending={pendingWorkId === work.id}
               onReschedule={canEdit ? onReschedule : undefined}
+              onArchive={canEdit ? onArchive : undefined}
+              onDelete={canEdit ? onDelete : undefined}
+              onStatusChange={canEdit ? onStatusChange : undefined}
             />
           ))
         )}
@@ -96,7 +119,7 @@ function StatusColumnView({
 function DoneArchiveDropzone({ isOver }: { isOver: boolean }) {
   const { setNodeRef } = useDroppable({
     id: WORKS_DONE_DROP_ID,
-    data: { status: WORKS_DONE_DROP_ID },
+    data: { type: 'archive', status: WORKS_DONE_DROP_ID },
   })
 
   return (
@@ -137,7 +160,10 @@ export function WorksStatusBoard({
   const [activeWork, setActiveWork] = useState<BoardWorkCard | null>(null)
   const [overStatus, setOverStatus] = useState<string | null>(null)
   const [rescheduleWork, setRescheduleWork] = useState<BoardWorkCard | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<BoardWorkCard | null>(null)
+  const [pendingWorkId, setPendingWorkId] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
+  const inflightRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     setColumns(initialColumns)
@@ -145,9 +171,21 @@ export function WorksStatusBoard({
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
-      activationConstraint: { distance: 6 },
+      activationConstraint: { distance: 8 },
     })
   )
+
+  const beginWorkOp = (workId: string) => {
+    if (inflightRef.current.has(workId)) return false
+    inflightRef.current.add(workId)
+    setPendingWorkId(workId)
+    return true
+  }
+
+  const endWorkOp = (workId: string) => {
+    inflightRef.current.delete(workId)
+    setPendingWorkId((current) => (current === workId ? null : current))
+  }
 
   const applyDeadlineLocally = (workId: string, deadline: string | null) => {
     setColumns((prev) =>
@@ -164,6 +202,55 @@ export function WorksStatusBoard({
     )
   }
 
+  const persistStatus = (work: BoardWorkCard, nextStatus: WorkStatus) => {
+    if (!canEdit || isPending) return
+    if (work.status === nextStatus) return
+    if (!beginWorkOp(work.id)) return
+
+    const previous = columns
+    setColumns((prev) => applyStatusOnStatusBoard(prev, work.id, nextStatus))
+
+    startTransition(async () => {
+      try {
+        await moveWorkStatusOnBoard({ workId: work.id, status: nextStatus })
+        if (nextStatus === 'DONE') {
+          showToast('Lavoro completato e archiviato', 'success')
+        } else {
+          showToast('Stato aggiornato', 'success')
+        }
+        router.refresh()
+      } catch (error) {
+        setColumns(previous)
+        showToast(error instanceof Error ? error.message : 'Aggiornamento stato non riuscito', 'error')
+      } finally {
+        endWorkOp(work.id)
+      }
+    })
+  }
+
+  const handleConfirmDelete = () => {
+    const work = deleteTarget
+    if (!work || !canEdit) return
+    if (!beginWorkOp(work.id)) return
+
+    const previous = columns
+    setColumns((prev) => removeWorkFromStatusBoard(prev, work.id))
+    setDeleteTarget(null)
+
+    startTransition(async () => {
+      try {
+        await deleteWork(work.id)
+        showToast('Lavoro eliminato', 'success')
+        router.refresh()
+      } catch (error) {
+        setColumns(previous)
+        showToast(error instanceof Error ? error.message : 'Eliminazione non riuscita', 'error')
+      } finally {
+        endWorkOp(work.id)
+      }
+    })
+  }
+
   const onDragStart = (event: DragStartEvent) => {
     const work = event.active.data.current?.work as BoardWorkCard | undefined
     setActiveWork(work ?? null)
@@ -174,40 +261,21 @@ export function WorksStatusBoard({
     setOverStatus(null)
     if (!canEdit || isPending) return
 
-    const nextStatus = event.over?.id ? (String(event.over.id) as WorkStatus) : null
+    const overId = event.over?.id ? String(event.over.id) : null
     const work = event.active.data.current?.work as BoardWorkCard | undefined
     const fromStatus = event.active.data.current?.columnId as WorkStatus | undefined
     const workId = (event.active.data.current?.workId as string | undefined) ?? work?.id
-    if (!nextStatus || !work || !workId) return
+    if (!overId || !work || !workId) return
+
+    const nextStatus = isArchiveDropId(overId)
+      ? 'DONE'
+      : isQuickBoardStatus(overId)
+        ? overId
+        : null
+    if (!nextStatus) return
     if (fromStatus === nextStatus) return
 
-    const previous = columns
-    const moved: BoardWorkCard = { ...work, status: nextStatus }
-    const isArchive = nextStatus === 'DONE'
-
-    setColumns((prev) =>
-      prev.map((column) => {
-        const without = column.works.filter((w) => w.id !== workId)
-        if (isArchive || column.status !== nextStatus) {
-          return { ...column, works: without, count: without.length }
-        }
-        const works = sortBoardWorksByDeadline([...without, moved])
-        return { ...column, works, count: works.length }
-      })
-    )
-
-    startTransition(async () => {
-      try {
-        await moveWorkStatusOnBoard({ workId, status: nextStatus })
-        if (isArchive) {
-          showToast('Lavoro archiviato', 'success')
-        }
-        router.refresh()
-      } catch (error) {
-        setColumns(previous)
-        showToast(error instanceof Error ? error.message : 'Aggiornamento stato non riuscito', 'error')
-      }
-    })
+    persistStatus(work, nextStatus)
   }
 
   return (
@@ -231,7 +299,11 @@ export function WorksStatusBoard({
               canEdit={canEdit}
               returnTo={returnTo}
               isOver={overStatus === column.status}
+              pendingWorkId={pendingWorkId}
               onReschedule={setRescheduleWork}
+              onArchive={(w) => persistStatus(w, 'DONE')}
+              onDelete={setDeleteTarget}
+              onStatusChange={persistStatus}
             />
           ))}
         </div>
@@ -257,6 +329,16 @@ export function WorksStatusBoard({
           applyDeadlineLocally(workId, deadline)
           router.refresh()
         }}
+      />
+
+      <WorkDeleteDialog
+        work={deleteTarget}
+        open={!!deleteTarget}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null)
+        }}
+        onConfirm={handleConfirmDelete}
+        isPending={!!deleteTarget && pendingWorkId === deleteTarget.id}
       />
     </>
   )

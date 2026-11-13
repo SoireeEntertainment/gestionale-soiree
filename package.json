@@ -12,7 +12,7 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test:auth": "node --import tsx --test lib/auth-classification.test.ts",
-    "test:works": "node --import tsx --test lib/work-assignee-reassign.test.ts lib/work-due-date-history.test.ts lib/works-board.test.ts",
+    "test:works": "node --import tsx --test lib/work-assignee-reassign.test.ts lib/work-due-date-history.test.ts lib/works-board.test.ts lib/work-board-quick-actions.test.ts",
     "test:tasks": "node --import tsx --test lib/daily-tasks.test.ts lib/task-work-link.test.ts",
     "test:assistant": "node --import tsx --test lib/assistant-v2/*.test.ts",
     "clean": "rm -rf .next",
