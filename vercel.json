@@ -4,6 +4,10 @@
     {
       "path": "/api/cron/domain-renewals-alert",
       "schedule": "0 8 1 * *"
+    },
+    {
+      "path": "/api/cron/telegram-assistant",
+      "schedule": "* * * * *"
     }
   ]
 }

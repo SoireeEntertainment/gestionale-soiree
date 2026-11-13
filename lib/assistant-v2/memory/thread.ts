@@ -75,5 +75,30 @@ export function memoryPatchFromToolResult(
     if (result.entityId) patch.lastTaskId = result.entityId
   }
   if (result.summary) patch.lastSearchSummary = result.summary.slice(0, 200)
+
+  if (data && typeof data === 'object') {
+    const listKey = ['pedItems', 'tasks', 'works', 'items'].find((k) =>
+      Array.isArray((data as Record<string, unknown>)[k])
+    )
+    if (listKey) {
+      const arr = (data as Record<string, unknown>)[listKey] as Record<string, unknown>[]
+      const kind =
+        listKey === 'pedItems'
+          ? ('ped' as const)
+          : listKey === 'tasks'
+            ? ('task' as const)
+            : listKey === 'works'
+              ? ('work' as const)
+              : ('ped' as const)
+      patch.lastListedItems = arr.slice(0, 20).map((row, i) => ({
+        index: i + 1,
+        kind,
+        id: String(row.id ?? `idx-${i + 1}`),
+        label: String(row.title ?? row.name ?? row.id ?? '—'),
+        clientName: typeof row.clientName === 'string' ? row.clientName : undefined,
+        date: typeof row.date === 'string' ? row.date : typeof row.dueDate === 'string' ? row.dueDate : undefined,
+      }))
+    }
+  }
   return patch
 }

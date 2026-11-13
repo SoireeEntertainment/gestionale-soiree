@@ -35,25 +35,90 @@ model User {
   assignedPedItems   PedItem[]  @relation("AssignedTo")
   chatThreads        ChatThread[]
   assistantActionLogs AssistantActionLog[]
+  telegramConnection TelegramConnection?
+  telegramLinkTokens TelegramLinkToken[]
 
   @@map("users")
 }
 
 model ChatThread {
-  id        String   @id @default(cuid())
-  userId    String
-  title     String   @default("Nuova chat")
+  id          String   @id @default(cuid())
+  userId      String
+  title       String   @default("Nuova chat")
+  /// web | telegram
+  source      String   @default("web")
+  /// Per Telegram: chatId come stringa
+  externalKey String?  @map("external_key")
   // Contesto assistente: entità citate, undo, ultima azione proposta (JSON).
   assistantContext Json?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   user       User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   messages   ChatMessage[]
   actionLogs AssistantActionLog[]
 
+  @@unique([userId, source, externalKey])
   @@index([userId])
   @@map("chat_threads")
+}
+
+/// Collegamento verificato gestionale ↔ Telegram (mai per username/email dichiarati).
+model TelegramConnection {
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  telegramUserId   String   @unique
+  telegramChatId   String   @unique
+  telegramUsername String?
+  linkedAt         DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("telegram_connections")
+}
+
+/// Token monouso per deep-link /start <token> (solo hash in DB).
+model TelegramLinkToken {
+  id         String    @id @default(cuid())
+  userId     String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("telegram_link_tokens")
+}
+
+/// Deduplicazione update Telegram (retry webhook).
+model TelegramProcessedUpdate {
+  updateId  BigInt   @id
+  createdAt DateTime @default(now())
+
+  @@map("telegram_processed_updates")
+}
+
+/// Coda persistente per elaborazione AI post-webhook (Vercel-safe).
+model TelegramJob {
+  id          String    @id @default(cuid())
+  updateId    BigInt    @unique
+  kind        String    @default("update")
+  payload     Json
+  status      String    @default("pending") // pending | processing | done | failed
+  attempts    Int       @default(0)
+  lastError   String?
+  availableAt DateTime  @default(now())
+  lockedAt    DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status, availableAt])
+  @@map("telegram_jobs")
 }
 
 model ChatMessage {
@@ -387,6 +452,15 @@ model UserPreference {
   notifyInReview        Boolean  @default(true)
   notifyWaitingClient    Boolean  @default(true)
   timezone               String?  @default("Europe/Rome")
+  /// Opt-in riepilogo quotidiano via Telegram
+  telegramDigestEnabled  Boolean  @default(false) @map("telegram_digest_enabled")
+  /// Ora locale Europe/Rome (0–23)
+  telegramDigestHour     Int      @default(8) @map("telegram_digest_hour")
+  telegramDigestMinute   Int      @default(0) @map("telegram_digest_minute")
+  /// Giorni ISO 1=lun … 7=dom
+  telegramDigestDays     Int[]    @default([1, 2, 3, 4, 5]) @map("telegram_digest_days")
+  /// YYYY-MM-DD Europe/Rome dell’ultimo invio (anti-duplicato)
+  telegramDigestLastSent String?  @map("telegram_digest_last_sent")
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 

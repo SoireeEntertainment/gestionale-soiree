@@ -20,7 +20,9 @@ import { ProfiloTasksSection } from '@/components/tasks/profilo-tasks-section'
 import { WeeklyLoad } from '@/components/profilo/weekly-load'
 import { PedDailyStats } from '@/components/profilo/ped-daily-stats'
 import { ProfileSettings } from '@/components/profilo/profile-settings'
+import { TelegramSettings } from '@/components/profilo/telegram-settings'
 import { ProfileCalendarClient } from '@/components/profilo/profile-calendar-client'
+import { getMyTelegramStatus } from '@/app/actions/telegram'
 
 export const dynamic = 'force-dynamic'
 
@@ -36,9 +38,26 @@ export default async function ProfiloPage() {
     weeklyLoad: { total: 0, byStatus: {} as Record<string, number> },
     areaOperativa: null as Awaited<ReturnType<typeof getAreaOperativaData>> | null,
     dailyTasks: [] as Awaited<ReturnType<typeof getMyDailyTasks>>,
-    preferences: { notifyDeadline24h: true, notifyDeadline48h: false, notifyInReview: true, notifyWaitingClient: true, timezone: 'Europe/Rome' as string },
+    preferences: {
+      notifyDeadline24h: true,
+      notifyDeadline48h: false,
+      notifyInReview: true,
+      notifyWaitingClient: true,
+      timezone: 'Europe/Rome' as string,
+      telegramDigestEnabled: false,
+      telegramDigestHour: 8,
+      telegramDigestMinute: 0,
+      telegramDigestDays: [1, 2, 3, 4, 5] as number[],
+    },
     categories: [] as Awaited<ReturnType<typeof prisma.category.findMany>>,
     clients: [] as Awaited<ReturnType<typeof prisma.client.findMany>>,
+    telegramStatus: {
+      linked: false,
+      telegramUsername: null as string | null,
+      linkedAt: null as string | null,
+      deepLinkUrl: null as string | null,
+      botConfigured: false,
+    },
   }
 
   const results = await Promise.allSettled([
@@ -53,6 +72,7 @@ export default async function ProfiloPage() {
     getMyPreferences(user.id),
     prisma.category.findMany({ orderBy: { name: 'asc' } }),
     prisma.client.findMany({ orderBy: { name: 'asc' } }),
+    getMyTelegramStatus(),
   ])
 
   const kpis = results[0].status === 'fulfilled' ? results[0].value : defaults.kpis
@@ -66,6 +86,8 @@ export default async function ProfiloPage() {
   const preferences = results[8].status === 'fulfilled' ? results[8].value : defaults.preferences
   const categories = results[9].status === 'fulfilled' ? results[9].value : defaults.categories
   const clients = results[10].status === 'fulfilled' ? results[10].value : defaults.clients
+  const telegramStatus =
+    results[11].status === 'fulfilled' ? results[11].value : defaults.telegramStatus
 
   const canWriteUser = canWrite(user)
 
@@ -137,7 +159,30 @@ export default async function ProfiloPage() {
               initialTasks={dailyTasks}
               clients={clients.map((c) => ({ id: c.id, name: c.name }))}
             />
-            <ProfileSettings userId={user.id} initial={preferences} />
+            <TelegramSettings
+              initialStatus={{
+                linked: telegramStatus.linked,
+                telegramUsername: telegramStatus.telegramUsername,
+                linkedAt: telegramStatus.linkedAt,
+                botConfigured: telegramStatus.botConfigured,
+              }}
+              initialDigest={{
+                enabled: preferences.telegramDigestEnabled,
+                hour: preferences.telegramDigestHour,
+                minute: preferences.telegramDigestMinute,
+                days: preferences.telegramDigestDays,
+              }}
+            />
+            <ProfileSettings
+              userId={user.id}
+              initial={{
+                notifyDeadline24h: preferences.notifyDeadline24h,
+                notifyDeadline48h: preferences.notifyDeadline48h,
+                notifyInReview: preferences.notifyInReview,
+                notifyWaitingClient: preferences.notifyWaitingClient,
+                timezone: preferences.timezone,
+              }}
+            />
           </div>
         </div>
       </div>
