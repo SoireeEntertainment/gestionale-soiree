@@ -325,9 +325,9 @@ async function upsertContactTracker(
 ): Promise<DailyTaskDTO> {
   const client = await assertCanAccessClient(user, input.clientId)
   const title = contactTaskTitle(client.name)
-  const nextStored = input.nextReactivateAt
-    ? dateOnlyToDbDate(resolveNextReactivateAt(input.dueDate, input.nextReactivateAt))
-    : dateOnlyToDbDate(defaultNextReactivateDate(input.dueDate))
+  // undefined → default settimanale; null → NESSUNA DATA (NULL in DB); stringa → data valida
+  const resolvedNext = resolveNextReactivateAt(input.dueDate, input.nextReactivateAt)
+  const nextStored = resolvedNext ? dateOnlyToDbDate(resolvedNext) : null
 
   const existing = await prisma.dailyTask.findFirst({
     where: {
@@ -490,10 +490,10 @@ export async function updateDailyTask(input: unknown): Promise<DailyTaskDTO> {
       const anchor =
         toDateOnly(current.lastContactedAt) ??
         todayDateOnlyRome()
-      data.nextReactivateAt = dateOnlyToDbDate(
-        resolveNextReactivateAt(anchor, parsed.nextReactivateAt)
-      )
+      const resolved = resolveNextReactivateAt(anchor, parsed.nextReactivateAt)
+      data.nextReactivateAt = resolved ? dateOnlyToDbDate(resolved) : null
     } else {
+      // null o stringa vuota = NESSUNA DATA esplicita
       data.nextReactivateAt = null
     }
   }
@@ -528,7 +528,7 @@ export async function completeDailyTask(input: unknown): Promise<DailyTaskDTO> {
 
   if (task.type === 'CONTACT_CLIENT') {
     if (task.clientId) await assertCanAccessClient(user, task.clientId)
-    // Scelta utente prevale; altrimenti +7 dal contatto odierno. Mai riusare nextReactivateAt precedente.
+    // undefined → +7; null → NESSUNA DATA; stringa → data. Mai riusare nextReactivateAt precedente.
     const next = resolveNextReactivateAt(contactDate, parsed.nextReactivateAt)
 
     const updated = await prisma.dailyTask.update({
@@ -537,7 +537,7 @@ export async function completeDailyTask(input: unknown): Promise<DailyTaskDTO> {
         status: 'DONE',
         completedAt: new Date(),
         lastContactedAt: dateOnlyToDbDate(contactDate),
-        nextReactivateAt: dateOnlyToDbDate(next),
+        nextReactivateAt: next ? dateOnlyToDbDate(next) : null,
       },
       include: dailyTaskInclude,
     })
@@ -722,7 +722,8 @@ export async function markClientContacted(input: {
   if (existing) {
     return completeDailyTask({
       id: existing.id,
-      nextReactivateAt: input.nextReactivateAt ?? defaultNextReactivateDate(today),
+      // Pass-through: undefined → default in complete; null → NESSUNA DATA
+      nextReactivateAt: input.nextReactivateAt,
     })
   }
 
@@ -731,11 +732,11 @@ export async function markClientContacted(input: {
     type: 'CONTACT_CLIENT',
     dueDate: today,
     clientId: input.clientId,
-    nextReactivateAt: input.nextReactivateAt ?? defaultNextReactivateDate(today),
+    nextReactivateAt: input.nextReactivateAt,
   })
   return completeDailyTask({
     id: created.id,
-    nextReactivateAt: input.nextReactivateAt ?? defaultNextReactivateDate(today),
+    nextReactivateAt: input.nextReactivateAt,
   })
 }
 

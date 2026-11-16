@@ -42,6 +42,30 @@ describe('universo clienti rosso/verde', () => {
     )
   })
 
+  it('DONE senza nextReactivateAt → verde, nessuna lazy reactivation', () => {
+    assert.equal(
+      getContactUniverseStatus(
+        { type: 'CONTACT_CLIENT', status: 'DONE', nextReactivateAt: null },
+        today
+      ),
+      'green'
+    )
+    assert.equal(
+      shouldReactivateContactTask(
+        { type: 'CONTACT_CLIENT', status: 'DONE', nextReactivateAt: null },
+        today
+      ),
+      false
+    )
+    assert.equal(
+      getEffectiveTaskStatus(
+        { type: 'CONTACT_CLIENT', status: 'DONE', nextReactivateAt: null },
+        today
+      ),
+      'DONE'
+    )
+  })
+
   it('DONE con riattivazione scaduta → rosso (lazy)', () => {
     assert.equal(
       getContactUniverseStatus(
@@ -85,10 +109,11 @@ describe('riattivazione dal contatto effettivo', () => {
     assert.equal(quickReactivateDate('next_month', '2026-11-10'), '2026-12-10')
   })
 
-  it('scelta esplicita prevale sul default', () => {
+  it('distingue undefined (default) vs null (NESSUNA DATA) vs data esplicita', () => {
     assert.equal(resolveNextReactivateAt('2026-11-10', '2026-11-20'), '2026-11-20')
-    assert.equal(resolveNextReactivateAt('2026-11-10', null), '2026-11-17')
     assert.equal(resolveNextReactivateAt('2026-11-10', undefined), '2026-11-17')
+    assert.equal(resolveNextReactivateAt('2026-11-10', null), null)
+    assert.equal(resolveNextReactivateAt('2026-11-10', ''), null)
   })
 
   it('rifiuta riattivazione non successiva al contatto', () => {
@@ -302,6 +327,7 @@ describe('sanitizeNextReactivateForForm', () => {
       today: '2026-11-06',
     })
     assert.equal(sanitized, defaultNextReactivateDate('2026-11-04'))
+    assert.ok(sanitized)
     assert.equal(sanitized > '2026-11-04', true)
   })
 
@@ -313,6 +339,59 @@ describe('sanitizeNextReactivateForForm', () => {
         today: '2026-11-06',
       }),
       '2026-11-18'
+    )
+  })
+
+  it('preserva null esplicito (NESSUNA DATA) senza reimpostare +7', () => {
+    assert.equal(
+      sanitizeNextReactivateForForm({
+        lastContactedAt: '2026-11-04',
+        nextReactivateAt: null,
+        today: '2026-11-06',
+      }),
+      null
+    )
+  })
+})
+
+describe('completamento senza riattivazione automatica', () => {
+  it('DONE + nextReactivateAt null resta verde e non si riapre con lazy', () => {
+    const afterComplete = applyTaskToUniverseNode(
+      {
+        clientId: 'c1',
+        clientName: 'Turismo Piemonte',
+        status: 'red',
+        taskId: 't1',
+        lastContactedAt: null,
+        nextReactivateAt: null,
+        dueDate: '2026-11-06',
+      },
+      {
+        id: 't1',
+        clientId: 'c1',
+        type: 'CONTACT_CLIENT',
+        status: 'DONE',
+        lastContactedAt: '2026-11-06',
+        nextReactivateAt: null,
+        dueDate: '2026-11-06',
+      },
+      '2026-11-06'
+    )
+    assert.equal(afterComplete.status, 'green')
+    assert.equal(afterComplete.lastContactedAt, '2026-11-06')
+    assert.equal(afterComplete.nextReactivateAt, null)
+
+    // Giorni dopo: ancora verde (nessuna data → no lazy)
+    assert.equal(
+      getContactUniverseStatus(
+        {
+          type: 'CONTACT_CLIENT',
+          status: 'DONE',
+          nextReactivateAt: null,
+        },
+        '2026-12-01'
+      ),
+      'green'
     )
   })
 })

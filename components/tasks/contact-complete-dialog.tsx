@@ -31,8 +31,11 @@ export function ContactCompleteDialog({
   onOpenChange: (open: boolean) => void
   onCompleted?: (task: DailyTaskDTO) => void
 }) {
+  /** YYYY-MM-DD oppure '' = NESSUNA DATA (salvato come null). */
   const [nextReactivateAt, setNextReactivateAt] = useState(defaultNextReactivateDate())
   const [isPending, startTransition] = useTransition()
+  const contactAnchor = todayDateOnlyRome()
+  const noReactivateSelected = nextReactivateAt === ''
 
   useEffect(() => {
     if (!open || !task) return
@@ -44,7 +47,10 @@ export function ContactCompleteDialog({
     if (!task) return
     startTransition(async () => {
       try {
-        const saved = await completeDailyTask({ id: task.id, nextReactivateAt })
+        const saved = await completeDailyTask({
+          id: task.id,
+          nextReactivateAt: nextReactivateAt.trim() || null,
+        })
         showToast('Cliente segnato come sentito', 'success')
         onCompleted?.(saved)
         onOpenChange(false)
@@ -85,16 +91,35 @@ export function ContactCompleteDialog({
                   <button
                     key={key}
                     type="button"
-                    onClick={() => setNextReactivateAt(quickReactivateDate(key, todayDateOnlyRome()))}
+                    onClick={() => setNextReactivateAt(quickReactivateDate(key, contactAnchor))}
                     className={cn(
-                      'rounded-full border px-3 py-1.5 text-[11px] font-medium',
-                      'border-white/15 text-white/60 hover:border-accent/30 hover:text-white'
+                      'rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors',
+                      nextReactivateAt === quickReactivateDate(key, contactAnchor)
+                        ? 'border-accent/50 bg-accent/15 text-accent'
+                        : 'border-white/15 text-white/60 hover:border-accent/30 hover:text-white'
                     )}
                   >
                     {label}
                   </button>
                 ))}
+                <button
+                  type="button"
+                  onClick={() => setNextReactivateAt('')}
+                  className={cn(
+                    'rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors',
+                    noReactivateSelected
+                      ? 'border-red-400/60 bg-red-500/15 text-red-200'
+                      : 'border-red-400/30 text-red-300/80 hover:border-red-400/50 hover:text-red-200'
+                  )}
+                >
+                  NESSUNA DATA
+                </button>
               </div>
+              {noReactivateSelected ? (
+                <p className="mt-2 text-[11px] text-white/45">
+                  Il cliente non verrà riattivato automaticamente.
+                </p>
+              ) : null}
             </div>
           </div>
         ) : null}

@@ -198,18 +198,23 @@ export function quickReactivateDate(
 
 /**
  * Prossima riattivazione rispetto al contatto effettivo.
- * La scelta esplicita dell'utente prevale; altrimenti default = +7 giorni dal contatto.
+ *
+ * Distinzione critica (non usare `??` / truthiness per appiattire):
+ * - `undefined` = nessuna scelta esplicita → default +7 giorni dal contatto
+ * - `null` = scelta esplicita "NESSUNA DATA" → nessuna riattivazione automatica
+ * - stringa YYYY-MM-DD = data scelta dall'utente (deve essere > contactDate)
+ * - stringa vuota = trattata come `null` (NESSUNA DATA)
  */
 export function resolveNextReactivateAt(
   contactDate: string,
   explicit?: string | null
-): string {
-  const chosen = explicit?.trim() || null
-  if (chosen) {
-    assertReactivateAfterContact(contactDate, chosen)
-    return chosen
-  }
-  return defaultNextReactivateDate(contactDate)
+): string | null {
+  if (explicit === undefined) return defaultNextReactivateDate(contactDate)
+  if (explicit === null) return null
+  const chosen = explicit.trim()
+  if (!chosen) return null
+  assertReactivateAfterContact(contactDate, chosen)
+  return chosen
 }
 
 export function assertReactivateAfterContact(
@@ -231,12 +236,16 @@ export function contactTaskTitle(clientName: string): string {
 /**
  * Per il form modifica: evita di proporre nextReactivateAt <= ultimo contatto
  * (date legacy incoerenti). Non altera i dati DB finché l'utente non salva.
+ *
+ * `nextReactivateAt === null` è una scelta esplicita "NESSUNA DATA": va preservata
+ * (campo vuoto + pulsante selezionato), senza reimpostare +7 giorni.
  */
 export function sanitizeNextReactivateForForm(input: {
   lastContactedAt: string | null
   nextReactivateAt: string | null
   today?: string
-}): string {
+}): string | null {
+  if (input.nextReactivateAt === null) return null
   const today = input.today ?? todayDateOnlyRome()
   const anchor = input.lastContactedAt ?? today
   if (!input.nextReactivateAt || input.nextReactivateAt <= anchor) {
