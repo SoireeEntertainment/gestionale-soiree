@@ -27,6 +27,19 @@ async function resolveDueDate(raw?: string | null): Promise<
   return { ok: true, date: r.date }
 }
 
+/** Frasi esplicite per nessuna riattivazione automatica (nextReactivateAt = null). */
+function isNoReactivationPhrase(raw: string): boolean {
+  const t = raw.trim().toLowerCase()
+  if (!t) return false
+  return (
+    /^(nessuna(\s+data)?|none|null)$/.test(t) ||
+    /non\s+impostare/.test(t) ||
+    /senza\s+riattivazione/.test(t) ||
+    /nessuna\s+riattivazione/.test(t) ||
+    /non\s+(riattiv|programmare)/.test(t)
+  )
+}
+
 /**
  * Risolve un cliente opzionale per le DailyTask.
  * - Senza clientName e senza allowMemory → clientId null (task GENERAL senza cliente).
@@ -545,15 +558,20 @@ export const dailyTaskTools: AssistantToolDefinition[] = [
   {
     name: 'mark_client_contacted',
     description:
-      'Segna un cliente come sentito oggi (CONTACT_CLIENT → verde). Opzionale nextReactivateAt.',
+      'Segna un cliente come sentito oggi (CONTACT_CLIENT → verde). Opzionale nextReactivatePhrase: data ("fra una settimana"), oppure "nessuna"/"non impostare" per nessuna riattivazione automatica. Se omesso → default +7 giorni.',
     kind: 'write',
     risk: 'medium',
     requiresConfirmation: true,
     permission: 'contact_client',
     inputSchema: z.object({
       clientName: z.string(),
-      nextReactivatePhrase: z.string().optional().nullable()
-        .describe('es. fra una settimana, 20 novembre'),
+      nextReactivatePhrase: z
+        .string()
+        .optional()
+        .nullable()
+        .describe(
+          'es. "fra una settimana", "20 novembre", oppure "nessuna" / "non impostare nessuna riattivazione". Se omesso → +7 giorni.'
+        ),
       notes: z.string().optional().nullable(),
     }),
     execute: async (input, ctx) => {
@@ -569,16 +587,22 @@ export const dailyTaskTools: AssistantToolDefinition[] = [
       if (match.status === 'not_found') {
         return { ok: false, error: `Cliente "${input.clientName}" non trovato.`, clarify: true }
       }
-      let nextReactivateAt: string | null = null
-      if (input.nextReactivatePhrase?.trim()) {
-        const due = await resolveDueDate(input.nextReactivatePhrase)
-        if (!due.ok) return { ok: false, error: due.error, clarify: true }
-        nextReactivateAt = due.date
+      // undefined = default +7; null = NESSUNA DATA; stringa = data esplicita
+      let nextReactivateAt: string | null | undefined = undefined
+      const phrase = input.nextReactivatePhrase?.trim()
+      if (phrase) {
+        if (isNoReactivationPhrase(phrase)) {
+          nextReactivateAt = null
+        } else {
+          const due = await resolveDueDate(phrase)
+          if (!due.ok) return { ok: false, error: due.error, clarify: true }
+          nextReactivateAt = due.date
+        }
       }
-      const payload = {
+      const payload: { clientId: string; nextReactivateAt?: string | null } = {
         clientId: match.id,
-        nextReactivateAt,
       }
+      if (nextReactivateAt !== undefined) payload.nextReactivateAt = nextReactivateAt
       const preview = {
         title: 'Segna cliente come sentito',
         summary: match.name,
@@ -586,7 +610,12 @@ export const dailyTaskTools: AssistantToolDefinition[] = [
           { label: 'Cliente', value: match.name },
           {
             label: 'Prossima riattivazione',
-            value: nextReactivateAt ? formatDateItFromYmd(nextReactivateAt) : 'default (+7 giorni)',
+            value:
+              nextReactivateAt === null
+                ? 'Nessuna (non programmata)'
+                : nextReactivateAt
+                  ? formatDateItFromYmd(nextReactivateAt)
+                  : 'default (+7 giorni)',
           },
         ],
         href: '/tasks',
@@ -612,12 +641,18 @@ export const dailyTaskTools: AssistantToolDefinition[] = [
     commit: async (input) => {
       const updated = await markClientContacted({
         clientId: input.clientId as string,
-        nextReactivateAt: (input.nextReactivateAt as string | null) ?? undefined,
+        // Pass-through: chiave assente → undefined (default); null → NESSUNA DATA
+        nextReactivateAt:
+          'nextReactivateAt' in input
+            ? (input.nextReactivateAt as string | null)
+            : undefined,
       })
       return {
         ok: true,
         summary: `Cliente segnato come sentito. Prossima riattivazione: ${
-          updated.nextReactivateAt ? formatDateItFromYmd(updated.nextReactivateAt) : '—'
+          updated.nextReactivateAt
+            ? formatDateItFromYmd(updated.nextReactivateAt)
+            : 'non programmata'
         }.`,
         entityType: 'DailyTask',
         entityId: updated.id,

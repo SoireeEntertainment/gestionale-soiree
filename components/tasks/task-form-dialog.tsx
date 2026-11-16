@@ -63,10 +63,12 @@ export function TaskFormDialog({
   const [dueDate, setDueDate] = useState(todayDateOnlyRome())
   const [clientId, setClientId] = useState('')
   const [notes, setNotes] = useState('')
+  /** YYYY-MM-DD oppure '' = NESSUNA DATA (salvato come null). */
   const [nextReactivateAt, setNextReactivateAt] = useState(defaultNextReactivateDate())
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
   const [isPending, startTransition] = useTransition()
   const [isDeleting, startDeleteTransition] = useTransition()
+  const noReactivateSelected = nextReactivateAt === ''
 
   useEffect(() => {
     if (!open) return
@@ -75,12 +77,11 @@ export function TaskFormDialog({
       setDueDate(editTask.dueDate)
       setClientId(editTask.clientId ?? '')
       setNotes(editTask.notes ?? '')
-      setNextReactivateAt(
-        sanitizeNextReactivateForForm({
-          lastContactedAt: editTask.lastContactedAt,
-          nextReactivateAt: editTask.nextReactivateAt,
-        })
-      )
+      const sanitized = sanitizeNextReactivateForForm({
+        lastContactedAt: editTask.lastContactedAt,
+        nextReactivateAt: editTask.nextReactivateAt,
+      })
+      setNextReactivateAt(sanitized ?? '')
       return
     }
     setTitle(isContact ? 'Sentire cliente' : '')
@@ -116,7 +117,7 @@ export function TaskFormDialog({
             dueDate,
             clientId: clientId || null,
             notes: notes.trim() || null,
-            nextReactivateAt: isContact ? nextReactivateAt : null,
+            nextReactivateAt: isContact ? nextReactivateAt.trim() || null : null,
           })
         } else {
           saved = await createDailyTask({
@@ -125,7 +126,7 @@ export function TaskFormDialog({
             dueDate,
             clientId: clientId || null,
             notes: notes.trim() || null,
-            nextReactivateAt: isContact ? nextReactivateAt : null,
+            nextReactivateAt: isContact ? nextReactivateAt.trim() || null : null,
           })
         }
         showToast(editTask ? 'Task aggiornata' : 'Task creata', 'success')
@@ -219,7 +220,9 @@ export function TaskFormDialog({
                   <button
                     key={key}
                     type="button"
-                    onClick={() => setNextReactivateAt(quickReactivateDate(key, dueDate || todayDateOnlyRome()))}
+                    onClick={() =>
+                      setNextReactivateAt(quickReactivateDate(key, dueDate || todayDateOnlyRome()))
+                    }
                     className={cn(
                       'rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors',
                       nextReactivateAt === quickReactivateDate(key, dueDate || todayDateOnlyRome())
@@ -230,7 +233,24 @@ export function TaskFormDialog({
                     {label}
                   </button>
                 ))}
+                <button
+                  type="button"
+                  onClick={() => setNextReactivateAt('')}
+                  className={cn(
+                    'rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors',
+                    noReactivateSelected
+                      ? 'border-red-400/60 bg-red-500/15 text-red-200'
+                      : 'border-red-400/30 text-red-300/80 hover:border-red-400/50 hover:text-red-200'
+                  )}
+                >
+                  NESSUNA DATA
+                </button>
               </div>
+              {noReactivateSelected ? (
+                <p className="mt-2 text-[11px] text-white/45">
+                  Il cliente non verrà riattivato automaticamente.
+                </p>
+              ) : null}
             </div>
           )}
 

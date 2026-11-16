@@ -48,6 +48,7 @@ REGOLE OPERATIVE:
 - Task GENERAL senza cliente citato: non collegare alcun cliente (clientName assente, clientFromContext=false).
 - "Quali task ho oggi?" elenca TUTTE le task personali: non filtrare sull’ultimo cliente in memoria.
 - Usa clientFromContext=true SOLO con riferimenti tipo "quel cliente" / "lo stesso cliente".
+- CONTACT_CLIENT / "segna sentito": "ricordamelo tra una settimana" → data +7; "non impostare nessuna riattivazione" / "nessuna data" → nextReactivateAt null (cliente verde senza riattivazione automatica). Se omesso → default +7.
 
 RUOLO:
 ${

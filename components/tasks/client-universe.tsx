@@ -116,9 +116,7 @@ function UniverseNodeMenu({
           </p>
           <p className="text-[11px] text-white/45">
             Prossima riattivazione:{' '}
-            {node.status === 'red' && !node.nextReactivateAt
-              ? 'non programmata'
-              : formatDate(node.nextReactivateAt)}
+            {!node.nextReactivateAt ? 'Non programmata' : formatDate(node.nextReactivateAt)}
           </p>
         </div>
 
